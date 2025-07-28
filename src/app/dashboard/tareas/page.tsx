@@ -1504,7 +1504,7 @@
         if (error.message) {
           if (error.message.includes("fetch") || error.message.includes("network")) {
             errorMessage = "Error de conexión con el servidor. Verifica tu conexión a internet.";
-          } else if (error.message.includes("API Key") || error.message.includes("GEMINI_API_KEY")) {
+          } else if (error.message.includes("API Key") || error.message.includes("GOOGLE_API_KEY")) {
             errorMessage = "Error de configuración del servidor. Contacta al administrador.";
           } else if (error.message.includes("estructura") || error.message.includes("JSON")) {
             errorMessage = "Error en el formato de las preguntas generadas. Inténtalo nuevamente.";

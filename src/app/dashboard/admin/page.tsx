@@ -304,7 +304,16 @@ export default function AdminPage() {
             Gestión avanzada del sistema Smart Student
           </p>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
+          {/* Quick access to new User Management */}
+          <Button 
+            onClick={() => router.push('/dashboard/admin/user-management')}
+            className="bg-blue-500 hover:bg-blue-600 text-white"
+          >
+            <Users className="w-4 h-4 mr-2" />
+            Gestión de Usuarios
+          </Button>
+          
           <Button 
             onClick={handleForceSync}
             disabled={syncLoading}
@@ -468,6 +477,88 @@ export default function AdminPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Sistema de Gestión de Usuarios */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Users className="w-5 h-5 mr-2" />
+            Sistema de Gestión de Usuarios
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div 
+              className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+              onClick={() => router.push('/dashboard/admin/user-management')}
+            >
+              <div className="flex items-center space-x-3">
+                <GraduationCap className="w-8 h-8 text-blue-500" />
+                <div>
+                  <h4 className="font-medium">Cursos y Secciones</h4>
+                  <p className="text-sm text-muted-foreground">Estructura académica</p>
+                </div>
+              </div>
+            </div>
+            
+            <div 
+              className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+              onClick={() => router.push('/dashboard/admin/user-management')}
+            >
+              <div className="flex items-center space-x-3">
+                <Users className="w-8 h-8 text-green-500" />
+                <div>
+                  <h4 className="font-medium">Gestión de Usuarios</h4>
+                  <p className="text-sm text-muted-foreground">Estudiantes y profesores</p>
+                </div>
+              </div>
+            </div>
+            
+            <div 
+              className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+              onClick={() => router.push('/dashboard/admin/user-management')}
+            >
+              <div className="flex items-center space-x-3">
+                <CheckCircle className="w-8 h-8 text-purple-500" />
+                <div>
+                  <h4 className="font-medium">Asignaciones</h4>
+                  <p className="text-sm text-muted-foreground">Usuarios a cursos</p>
+                </div>
+              </div>
+            </div>
+            
+            <div 
+              className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+              onClick={() => router.push('/dashboard/admin/user-management')}
+            >
+              <div className="flex items-center space-x-3">
+                <Settings className="w-8 h-8 text-orange-500" />
+                <div>
+                  <h4 className="font-medium">Configuración</h4>
+                  <p className="text-sm text-muted-foreground">Sistema y seguridad</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-4 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Sistema completo de gestión educativa con estructura jerárquica, asignaciones automáticas y herramientas de administración.
+                </p>
+              </div>
+              <Button 
+                onClick={() => router.push('/dashboard/admin/user-management')}
+                className="bg-blue-500 hover:bg-blue-600"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Acceder al Sistema
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Migración de Códigos Únicos */}
       <Card>
