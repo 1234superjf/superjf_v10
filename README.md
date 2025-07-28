@@ -1,4 +1,4 @@
-# SMART STUDENT WEB v4 - Sistema de Reparación Automática
+# SMART STUDENT WEB v7 - Sistema Avanzado de Gestión Estudiantil
 
 ## 🚀 Características Principales
 
@@ -8,8 +8,17 @@
 - 📊 **Sincronización automática de tareas y comentarios**
 - 🎨 **Interfaz moderna con indicadores visuales en tiempo real**
 - 🔒 **Manejo seguro de API keys**
+- 🎯 **Jerarquía visual mejorada para evaluaciones completadas**
 
-## 🎯 Funcionalidades
+## 🎯 Nuevas Funcionalidades v7
+
+### 🎨 **Ajuste de Colores - Evaluaciones Completadas**
+- **Problema solucionado**: Diferenciación clara entre evaluaciones pendientes y completadas
+- **Esquema de colores implementado**:
+  - **Tareas Pendientes**: Naranja oscuro 🟠
+  - **Evaluaciones Pendientes**: Morado oscuro 🟣  
+  - **Entregas por Revisar**: Naranja claro 🧡
+  - **Evaluaciones Completadas**: Morado claro 💜
 
 ### 🔍 Análisis Inteligente
 - **IA Gemini**: Análisis y optimización automática de datos
@@ -34,22 +43,25 @@
 
 ### 1. Clonar el repositorio
 ```bash
-git clone https://github.com/Superjf123max/SMART_STUDENT_WEB_v4.git
-cd SMART_STUDENT_WEB_v4
+git clone https://github.com/superjf71234/SMART_STUDENT_WEB_v7.git
+cd SMART_STUDENT_WEB_v7
 ```
 
-### 2. Configurar variables de entorno (Opcional)
+### 2. Instalar dependencias
+```bash
+npm install
+```
+
+### 3. Configurar variables de entorno (Opcional)
 ```bash
 # Crear archivo .env en la raíz del proyecto
 echo "GEMINI_API_KEY=tu_api_key_aqui" > .env
 ```
 
-### 3. Ejecutar la aplicación
+### 4. Ejecutar la aplicación
 ```bash
-# Abrir auto-fix-notifications.html en tu navegador preferido
-# O usar un servidor web local
-python -m http.server 8000
-# Luego navegar a: http://localhost:8000/auto-fix-notifications.html
+npm run dev
+# La aplicación se ejecutará en: http://localhost:9002
 ```
 
 ## 🤖 Integración con IA
@@ -60,53 +72,16 @@ python -m http.server 8000
 - **Respuestas contextuales**: Diferentes respuestas según el tipo de consulta
 - **Modo local**: Funciona con respuestas simuladas sin conexión
 
-## 📋 Casos de Uso
-
-### ✅ Reparación Exitosa
-- Detecta y elimina notificaciones fantasma
-- Limpia comentarios huérfanos
-- Preserva datos válidos
-- Muestra resumen detallado
-- Redirige automáticamente
-
-### ⚠️ Sistema Limpio
-- Verifica integridad de datos
-- Confirma que no hay problemas
-- Proporciona opciones de navegación
-
-### ❌ Manejo de Errores
-- Captura y registra errores
-- Proporciona información detallada
-- Ofrece opciones de recuperación
-
-## 🔒 Seguridad
-
-- **API Keys**: Manejo seguro mediante variables de entorno
-- **Validación**: Verificación de integridad de datos
-- **Logs seguros**: No expone información sensible
-- **Modo demo**: Funciona sin credenciales reales
-
-## 🎨 Características Visuales
-
-### Indicadores de Estado
-- **Verde**: IA activa y funcionando
-- **Amarillo**: IA conectando o procesando
-- **Gris**: IA inactiva
-
-### Animaciones
-- **Glow**: Efecto de brillo para elementos activos
-- **Breathe**: Animación de respiración para indicadores
-- **Pulse**: Pulsación para estados de carga
-- **Spin**: Rotación para spinners de carga
-
 ## 🛠️ Desarrollo
 
 ### Tecnologías Utilizadas
-- **HTML5**: Estructura semántica
-- **CSS3**: Estilos modernos con gradientes y animaciones
-- **JavaScript ES6+**: Lógica de la aplicación
+- **Next.js 15**: Framework de React
+- **TypeScript**: Tipado estático
+- **Tailwind CSS**: Estilos utilitarios
+- **Radix UI**: Componentes accesibles
+- **Firebase**: Base de datos y autenticación
 - **Gemini AI API**: Integración de inteligencia artificial
-- **LocalStorage**: Almacenamiento de datos del navegador
+- **Cloudinary**: Gestión de imágenes
 
 ## 🤝 Contribución
 
@@ -114,4 +89,4 @@ Creado por Felipe para optimizar el sistema Smart Student Web.
 
 ---
 
-**🎯 Objetivo**: Proporcionar una herramienta automática y eficiente para mantener la integridad de datos en el sistema Smart Student Web, con la potencia de la inteligencia artificial para optimizar el proceso.
+**🎯 Objetivo**: Proporcionar una herramienta automática y eficiente para mantener la integridad de datos en el sistema Smart Student Web, con la potencia de la inteligencia artificial para optimizar el proceso y una jerarquía visual clara para una mejor experiencia de usuario.
