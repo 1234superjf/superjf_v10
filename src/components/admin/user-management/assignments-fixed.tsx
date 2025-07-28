@@ -204,50 +204,38 @@ export default function Assignments() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-6">
             <div className="flex items-center">
-              <Building2 className="w-6 h-6 text-blue-500 mr-2" />
+              <Building2 className="w-8 h-8 text-blue-500 mr-3" />
               <div>
-                <p className="text-xl font-bold">{courses.length}</p>
-                <p className="text-xs text-muted-foreground">Cursos disponibles</p>
+                <p className="text-2xl font-bold">{courses.length}</p>
+                <p className="text-sm text-muted-foreground">Cursos disponibles</p>
               </div>
             </div>
           </CardContent>
         </Card>
         
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-6">
             <div className="flex items-center">
-              <BookOpen className="w-6 h-6 text-orange-500 mr-2" />
+              <Users className="w-8 h-8 text-green-500 mr-3" />
               <div>
-                <p className="text-xl font-bold">{sections.length}</p>
-                <p className="text-xs text-muted-foreground">Secciones totales</p>
+                <p className="text-2xl font-bold">{teachers.length}</p>
+                <p className="text-sm text-muted-foreground">Profesores disponibles</p>
               </div>
             </div>
           </CardContent>
         </Card>
         
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-6">
             <div className="flex items-center">
-              <GraduationCap className="w-6 h-6 text-indigo-500 mr-2" />
+              <CheckCircle className="w-8 h-8 text-purple-500 mr-3" />
               <div>
-                <p className="text-xl font-bold">{students.length}</p>
-                <p className="text-xs text-muted-foreground">Estudiantes totales</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center">
-              <Users className="w-6 h-6 text-green-500 mr-2" />
-              <div>
-                <p className="text-xl font-bold">{teachers.length}</p>
-                <p className="text-xs text-muted-foreground">Profesores disponibles</p>
+                <p className="text-2xl font-bold">{teacherAssignments.length}</p>
+                <p className="text-sm text-muted-foreground">Asignaciones activas</p>
               </div>
             </div>
           </CardContent>
@@ -265,59 +253,59 @@ export default function Assignments() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {courses.map(course => {
             const courseSections = getSectionsForCourse(course.id);
             const courseSubjects = getSubjectsForCourse(course);
 
             return (
               <Card key={course.id} className="border-2">
-                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 py-3">
-                  <CardTitle className="flex items-center text-lg">
-                    <GraduationCap className="w-5 h-5 mr-2" />
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950">
+                  <CardTitle className="flex items-center text-xl">
+                    <GraduationCap className="w-6 h-6 mr-3" />
                     {course.name}
-                    <Badge variant="outline" className="ml-2 text-xs">
+                    <Badge variant="outline" className="ml-3">
                       {course.level === 'basica' ? 'Básica' : 'Media'}
                     </Badge>
                   </CardTitle>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {courseSections.length} secciones • {courseSubjects.length} asignaturas
                   </p>
                 </CardHeader>
                 
-                <CardContent className="p-4">
+                <CardContent className="p-6">
                   {courseSections.length === 0 ? (
-                    <div className="text-center py-6 text-muted-foreground">
-                      <Users className="w-6 h-6 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">No hay secciones para este curso</p>
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>No hay secciones para este curso</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                       {courseSections.map(section => (
-                        <Card key={section.id} className="border border-gray-200 hover:shadow-md transition-shadow min-h-[300px]">
-                          <CardHeader className="pb-4 px-5 pt-5">
-                            <CardTitle className="flex items-center justify-between text-sm mb-2">
-                              <span className="flex items-center min-w-0 flex-1">
-                                <Building2 className="w-4 h-4 mr-2 flex-shrink-0" />
-                                <span className="truncate">Sección {section.name}</span>
+                        <Card key={section.id} className="border border-gray-200 hover:shadow-lg transition-shadow">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="flex items-center justify-between text-lg">
+                              <span className="flex items-center">
+                                <Building2 className="w-5 h-5 mr-2" />
+                                Sección {section.name}
                               </span>
-                              <Badge variant="secondary" className="text-xs px-2 py-1 ml-2 flex-shrink-0">
+                              <Badge variant="secondary" className="text-xs">
                                 {section.uniqueCode}
                               </Badge>
                             </CardTitle>
-                            <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">Estudiantes:</span>
-                              <Badge variant="outline" className="text-xs px-2 py-1">
-                                {section.studentCount}/{section.maxStudents || '∞'}
+                              <Badge variant="outline">
+                                {section.studentCount}/{section.maxStudents || 'Sin límite'}
                               </Badge>
                             </div>
                           </CardHeader>
                           
-                          <CardContent className="space-y-3 px-5 pb-5">
+                          <CardContent className="space-y-4">
                             <div>
-                              <h4 className="font-medium text-xs mb-3 flex items-center text-gray-600">
-                                <BookOpen className="w-3 h-3 mr-1" />
-                                Asignaturas
+                              <h4 className="font-medium text-sm mb-3 flex items-center">
+                                <BookOpen className="w-4 h-4 mr-2" />
+                                Asignaturas y Profesores
                               </h4>
                               
                               <div className="space-y-2">
@@ -328,11 +316,11 @@ export default function Assignments() {
                                   return (
                                     <div
                                       key={subject.name}
-                                      className="flex items-start justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-md min-h-[60px]"
+                                      className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
                                     >
-                                      <div className="flex items-start space-x-3 min-w-0 flex-1">
+                                      <div className="flex items-center space-x-3">
                                         <Badge
-                                          className="text-xs font-bold border-0 px-2 py-1 flex-shrink-0"
+                                          className="text-xs font-bold border-0 px-2 py-1"
                                           style={{
                                             backgroundColor: subject.bgColor,
                                             color: subject.textColor
@@ -341,29 +329,29 @@ export default function Assignments() {
                                         >
                                           {subject.abbreviation}
                                         </Badge>
-                                        <div className="flex flex-col min-w-0 flex-1">
-                                          <span className="text-xs font-medium mb-1 leading-tight">{subject.name}</span>
+                                        <div className="flex flex-col">
+                                          <span className="text-sm font-medium">{subject.name}</span>
                                           {assignedTeacher ? (
                                             <span className="text-xs text-green-600 dark:text-green-400 flex items-center">
-                                              <CheckCircle className="w-3 h-3 mr-1 flex-shrink-0" />
-                                              <span className="truncate">{assignedTeacher.name}</span>
+                                              <CheckCircle className="w-3 h-3 mr-1" />
+                                              {assignedTeacher.name}
                                             </span>
                                           ) : (
                                             <span className="text-xs text-red-500 dark:text-red-400 flex items-center">
-                                              <XCircle className="w-3 h-3 mr-1 flex-shrink-0" />
-                                              Sin profesor
+                                              <XCircle className="w-3 h-3 mr-1" />
+                                              Sin profesor asignado
                                             </span>
                                           )}
                                         </div>
                                       </div>
                                       
-                                      <div className="flex items-center ml-2 flex-shrink-0">
+                                      <div className="flex items-center space-x-2">
                                         {assignedTeacher ? (
                                           <Button
                                             size="sm"
                                             variant="outline"
                                             onClick={() => handleRemoveAssignment(section.id, subject.name)}
-                                            className="text-red-600 hover:text-red-700 h-7 w-7 p-0"
+                                            className="text-red-600 hover:text-red-700"
                                           >
                                             <Trash2 className="w-3 h-3" />
                                           </Button>
@@ -371,12 +359,12 @@ export default function Assignments() {
                                           <Button
                                             size="sm"
                                             onClick={() => openAssignDialog(section.id, subject.name)}
-                                            className="bg-blue-500 hover:bg-blue-600 text-white h-7 w-7 p-0"
+                                            className="bg-green-500 hover:bg-green-600 text-white"
                                           >
                                             <Plus className="w-3 h-3" />
                                           </Button>
                                         ) : (
-                                          <Badge variant="destructive" className="text-xs px-2 py-1">
+                                          <Badge variant="destructive" className="text-xs">
                                             Sin profesores
                                           </Badge>
                                         )}
