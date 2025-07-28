@@ -28,9 +28,11 @@ import {
   EducationCodeGenerator, 
   LocalStorageManager, 
   FormValidation,
-  UsernameGenerator 
+  UsernameGenerator,
+  EducationAutomation
 } from '@/lib/education-utils';
 import { Student, Teacher, UserFormData } from '@/types/education';
+import { getAllAvailableSubjects, getSubjectsForLevel, SubjectColor } from '@/lib/subjects-colors';
 
 export default function UserManagement() {
   const { toast } = useToast();
@@ -58,6 +60,9 @@ export default function UserManagement() {
     courseId: '',
     sectionId: ''
   });
+
+  // Selected subjects for teachers
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
 
   // Form validation errors
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -109,6 +114,20 @@ export default function UserManagement() {
     return sections.filter(s => s.courseId === userForm.courseId);
   };
 
+  // Get all available subjects for teachers (from all courses)
+  const getAvailableSubjects = () => {
+    return getAllAvailableSubjects();
+  };  // Handle subject selection for teachers
+  const handleSubjectToggle = (subjectName: string) => {
+    setSelectedSubjects(prev => {
+      if (prev.includes(subjectName)) {
+        return prev.filter(s => s !== subjectName);
+      } else {
+        return [...prev, subjectName];
+      }
+    });
+  };
+
   // Validate form
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
@@ -153,8 +172,8 @@ export default function UserManagement() {
       }
     }
 
-    // Password validation (only for new users or when password is provided)
-    if (!editingUser || userForm.password) {
+    // Password validation (only for new users)
+    if (!editingUser) {
       if (!userForm.password) {
         errors.password = 'La contraseña es requerida';
       } else {
@@ -176,6 +195,13 @@ export default function UserManagement() {
       }
       if (!userForm.sectionId) {
         errors.sectionId = 'La sección es requerida para estudiantes';
+      }
+    }
+
+    // Teacher-specific validations
+    if (userForm.role === 'teacher') {
+      if (selectedSubjects.length === 0) {
+        errors.subjects = 'Selecciona al menos una asignatura para el profesor';
       }
     }
 
@@ -251,7 +277,8 @@ export default function UserManagement() {
         ...baseUser,
         uniqueCode: EducationCodeGenerator.generateTeacherCode(),
         role: 'teacher',
-        assignedSections: []
+        assignedSections: [],
+        selectedSubjects: [...selectedSubjects]
       };
 
       const updatedTeachers = [...teachers, newTeacher];
@@ -299,37 +326,40 @@ export default function UserManagement() {
       
       // Update course/section if changed
       if (userForm.courseId !== studentData.courseId || userForm.sectionId !== studentData.sectionId) {
-        // Decrease count from old section
-        if (studentData.sectionId) {
-          const updatedSections = sections.map(s => 
-            s.id === studentData.sectionId 
-              ? { ...s, studentCount: Math.max(0, s.studentCount - 1) }
-              : s
-          );
-          setSections(updatedSections);
-        }
-
-        // Increase count in new section
-        const finalSections = sections.map(s => 
-          s.id === userForm.sectionId 
-            ? { ...s, studentCount: s.studentCount + 1 }
-            : s
-        );
-        setSections(finalSections);
-        LocalStorageManager.setSections(finalSections);
-
+        // Update student's course and section
         studentData.courseId = userForm.courseId;
         studentData.sectionId = userForm.sectionId;
-      }
 
-      const updatedStudents = students.map(s => 
-        s.id === editingUser.id ? studentData : s
-      );
-      setStudents(updatedStudents);
-      LocalStorageManager.setStudents(updatedStudents);
+        // Update student data
+        const updatedStudents = students.map(s => 
+          s.id === editingUser.id ? studentData : s
+        );
+        setStudents(updatedStudents);
+        LocalStorageManager.setStudents(updatedStudents);
+
+        // Recalculate section counts automatically
+        const recalculateResult = EducationAutomation.recalculateSectionCounts();
+        if (recalculateResult.success) {
+          // Reload sections with updated counts
+          const updatedSections = LocalStorageManager.getSections();
+          setSections(updatedSections);
+        }
+      } else {
+        // If no section change, just update the student
+        const updatedStudents = students.map(s => 
+          s.id === editingUser.id ? studentData : s
+        );
+        setStudents(updatedStudents);
+        LocalStorageManager.setStudents(updatedStudents);
+      }
     } else {
+      // Update teacher data
+      const teacherData = updatedUserData as Teacher;
+      teacherData.preferredCourseId = userForm.courseId;
+      teacherData.selectedSubjects = [...selectedSubjects];
+      
       const updatedTeachers = teachers.map(t => 
-        t.id === editingUser.id ? updatedUserData as Teacher : t
+        t.id === editingUser.id ? teacherData : t
       );
       setTeachers(updatedTeachers);
       LocalStorageManager.setTeachers(updatedTeachers);
@@ -409,6 +439,7 @@ export default function UserManagement() {
       courseId: '',
       sectionId: ''
     });
+    setSelectedSubjects([]);
     setValidationErrors({});
     setEditingUser(null);
     setAutoGenerateCredentials(true);
@@ -420,13 +451,21 @@ export default function UserManagement() {
       username: user.username,
       name: user.name,
       email: user.email,
-      password: '',
-      confirmPassword: '',
+      password: '', // Always empty when editing
+      confirmPassword: '', // Always empty when editing
       role: user.role,
       courseId: user.role === 'student' ? (user as Student).courseId || '' : '',
       sectionId: user.role === 'student' ? (user as Student).sectionId || '' : ''
     });
-    setAutoGenerateCredentials(false);
+    
+    // Load selected subjects for teachers
+    if (user.role === 'teacher') {
+      setSelectedSubjects((user as Teacher).selectedSubjects || []);
+    } else {
+      setSelectedSubjects([]);
+    }
+    
+    setAutoGenerateCredentials(false); // Never auto-generate when editing
     setShowUserDialog(true);
   };
 
@@ -436,6 +475,15 @@ export default function UserManagement() {
     return {
       courseName: course?.name || 'Sin curso',
       sectionName: section?.name || 'Sin sección'
+    };
+  };
+
+  const getTeacherCourseInfo = (teacher: Teacher) => {
+    const course = courses.find(c => c.id === teacher.preferredCourseId);
+    return {
+      courseName: course?.name || 'Sin curso asignado',
+      courseLevel: course?.level || null,
+      subjects: teacher.selectedSubjects || []
     };
   };
 
@@ -591,59 +639,61 @@ export default function UserManagement() {
                     )}
                   </div>
 
-                  <div>
-                    <Label htmlFor="password">
-                      Contraseña {editingUser ? '(opcional)' : '*'}
-                    </Label>
-                    <div className="relative">
-                      <Key className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
-                      <Input
-                        id="password"
-                        type={showPassword ? 'text' : 'password'}
-                        value={userForm.password}
-                        onChange={(e) => setUserForm(prev => ({ ...prev, password: e.target.value }))}
-                        placeholder={editingUser ? "Dejar vacío para mantener actual" : "Contraseña"}
-                        disabled={autoGenerateCredentials && !editingUser}
-                        className={`pl-10 pr-10 ${validationErrors.password ? 'border-red-500' : ''}`}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1 h-8 w-8 p-0"
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </Button>
+                  {/* Only show password fields when creating new user */}
+                  {!editingUser && (
+                    <div>
+                      <Label htmlFor="password">Contraseña *</Label>
+                      <div className="relative">
+                        <Key className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                        <Input
+                          id="password"
+                          type={showPassword ? 'text' : 'password'}
+                          value={userForm.password}
+                          onChange={(e) => setUserForm(prev => ({ ...prev, password: e.target.value }))}
+                          placeholder="Contraseña"
+                          disabled={autoGenerateCredentials}
+                          className={`pl-10 pr-10 ${validationErrors.password ? 'border-red-500' : ''}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-1 top-1 h-8 w-8 p-0"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </Button>
+                      </div>
+                      {validationErrors.password && (
+                        <p className="text-red-500 text-xs mt-1">{validationErrors.password}</p>
+                      )}
+                      {!autoGenerateCredentials && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Mínimo 4 caracteres
+                        </p>
+                      )}
                     </div>
-                    {validationErrors.password && (
-                      <p className="text-red-500 text-xs mt-1">{validationErrors.password}</p>
-                    )}
-                    {!autoGenerateCredentials && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Mínimo 4 caracteres
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="confirmPassword">
-                    Confirmar Contraseña {editingUser ? '(si se cambió)' : '*'}
-                  </Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    value={userForm.confirmPassword}
-                    onChange={(e) => setUserForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                    placeholder="Confirmar contraseña"
-                    disabled={autoGenerateCredentials && !editingUser}
-                    className={validationErrors.confirmPassword ? 'border-red-500' : ''}
-                  />
-                  {validationErrors.confirmPassword && (
-                    <p className="text-red-500 text-xs mt-1">{validationErrors.confirmPassword}</p>
                   )}
                 </div>
+
+                {/* Only show confirm password when creating new user */}
+                {!editingUser && (
+                  <div>
+                    <Label htmlFor="confirmPassword">Confirmar Contraseña *</Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      value={userForm.confirmPassword}
+                      onChange={(e) => setUserForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                      placeholder="Confirmar contraseña"
+                      disabled={autoGenerateCredentials}
+                      className={validationErrors.confirmPassword ? 'border-red-500' : ''}
+                    />
+                    {validationErrors.confirmPassword && (
+                      <p className="text-red-500 text-xs mt-1">{validationErrors.confirmPassword}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Student-specific fields */}
                 {userForm.role === 'student' && (
@@ -694,6 +744,45 @@ export default function UserManagement() {
                       </Select>
                       {validationErrors.sectionId && (
                         <p className="text-red-500 text-xs mt-1">{validationErrors.sectionId}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Teacher-specific fields */}
+                {userForm.role === 'teacher' && (
+                  <div className="space-y-4 p-4 bg-green-50 dark:bg-green-950 rounded-lg">
+                    <div>
+                      <Label>Asignaturas que impartirá *</Label>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Selecciona las asignaturas que el profesor podrá impartir (puede enseñar en cualquier curso/sección)
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {getAllAvailableSubjects().map((subject: SubjectColor) => (
+                          <Badge
+                            key={subject.name}
+                            className={`text-xs font-bold border-0 cursor-pointer px-2 py-1 transition-all duration-200 ${
+                              selectedSubjects.includes(subject.name)
+                                ? 'ring-2 ring-blue-500 ring-offset-2'
+                                : 'hover:ring-2 hover:ring-gray-300 hover:ring-offset-1'
+                            }`}
+                            style={{
+                              backgroundColor: subject.bgColor,
+                              color: subject.textColor,
+                              opacity: selectedSubjects.includes(subject.name) ? 1 : 0.7
+                            }}
+                            title={subject.name}
+                            onClick={() => handleSubjectToggle(subject.name)}
+                          >
+                            {subject.abbreviation}
+                          </Badge>
+                        ))}
+                      </div>
+                      {selectedSubjects.length === 0 && (
+                        <p className="text-red-500 text-xs mt-2">Selecciona al menos una asignatura</p>
+                      )}
+                      {validationErrors.subjects && (
+                        <p className="text-red-500 text-xs mt-2">{validationErrors.subjects}</p>
                       )}
                     </div>
                   </div>
@@ -875,7 +964,9 @@ export default function UserManagement() {
             </div>
           ) : (
             <div className="space-y-2">
-              {teachers.map(teacher => (
+              {teachers.map(teacher => {
+                const teacherInfo = getTeacherCourseInfo(teacher);
+                return (
                 <div
                   key={teacher.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
@@ -893,8 +984,8 @@ export default function UserManagement() {
                           <Badge variant="outline" className="text-xs">
                             {teacher.uniqueCode}
                           </Badge>
-                          <Badge variant="default" className="text-xs">
-                            {teacher.assignedSections?.length || 0} asignaciones
+                          <Badge variant="secondary" className="text-xs">
+                            {teacherInfo.courseName}
                           </Badge>
                           {!teacher.isActive && (
                             <Badge variant="destructive" className="text-xs">
@@ -902,6 +993,28 @@ export default function UserManagement() {
                             </Badge>
                           )}
                         </div>
+                        {/* Subject badges */}
+                        {teacherInfo.subjects.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {teacherInfo.subjects.map(subjectName => {
+                              const subjectColor = getAllAvailableSubjects()
+                                .find(s => s.name === subjectName);
+                              return (
+                                <Badge
+                                  key={subjectName}
+                                  className="text-xs font-bold border-0 px-2 py-1"
+                                  style={{
+                                    backgroundColor: subjectColor?.bgColor || '#e5e7eb',
+                                    color: subjectColor?.textColor || '#374151'
+                                  }}
+                                  title={subjectName}
+                                >
+                                  {subjectColor?.abbreviation || subjectName.substring(0, 3).toUpperCase()}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -924,7 +1037,8 @@ export default function UserManagement() {
                     </Button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

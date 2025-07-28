@@ -70,6 +70,9 @@ export interface Teacher {
   role: 'teacher';
   isActive: boolean;
   assignedSections: TeacherAssignment[];
+  // Campos adicionales para el formulario
+  preferredCourseId?: string; // Para almacenar el curso preferido
+  selectedSubjects?: string[]; // Para almacenar las asignaturas seleccionadas
   createdAt: Date;
   updatedAt: Date;
 }

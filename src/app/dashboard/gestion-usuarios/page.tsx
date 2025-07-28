@@ -81,24 +81,8 @@ export default function UserManagementPage() {
         </div>
       </div>
 
-      {/* Navigation Tabs */}
+      {/* Navigation Cards */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          {tabs.map((tab) => {
-            const IconComponent = tab.icon;
-            return (
-              <TabsTrigger
-                key={tab.id}
-                value={tab.id}
-                className="flex items-center space-x-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-              >
-                <IconComponent className="w-4 h-4" />
-                <span className="hidden sm:inline">{tab.label}</span>
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-
         {/* Tab Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {tabs.map((tab) => {

@@ -182,6 +182,39 @@ export default function CoursesAndSections() {
     }
   };
 
+  // Función para recalcular contadores de estudiantes
+  const handleRecalculateCounters = async () => {
+    setIsLoading(true);
+    try {
+      const result = EducationAutomation.recalculateSectionCounts();
+      
+      if (result.success) {
+        // Recargar datos
+        loadData();
+        
+        toast({
+          title: 'Éxito',
+          description: result.message,
+          variant: 'default'
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: result.message,
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Error al recalcular los contadores',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Course management
   const handleCreateCourse = async () => {
     if (!courseForm.name.trim()) {
@@ -482,7 +515,7 @@ export default function CoursesAndSections() {
           <Button 
             onClick={handleCreateStandardCourses}
             disabled={isLoading}
-            className="bg-purple-500 hover:bg-purple-600"
+            variant="outline"
           >
             <GraduationCap className="w-4 h-4 mr-2" />
             {isLoading ? 'Creando...' : 'Crear Cursos Estándar'}
@@ -491,10 +524,19 @@ export default function CoursesAndSections() {
           <Button 
             onClick={handleForceCreateSections}
             disabled={isLoading}
-            className="bg-green-500 hover:bg-green-600"
+            variant="outline"
           >
             <Building className="w-4 h-4 mr-2" />
             {isLoading ? 'Creando...' : 'Crear Secciones A y B'}
+          </Button>
+
+          <Button 
+            onClick={handleRecalculateCounters}
+            disabled={isLoading}
+            variant="outline"
+          >
+            <Users className="w-4 h-4 mr-2" />
+            {isLoading ? 'Recalculando...' : 'Recalcular Contadores'}
           </Button>
           
           <Dialog open={showCourseDialog} onOpenChange={setShowCourseDialog}>
@@ -504,7 +546,7 @@ export default function CoursesAndSections() {
                   setEditingCourse(null);
                   setCourseForm({ name: '', level: 'basica', description: '' });
                 }}
-                className="bg-blue-500 hover:bg-blue-600"
+                variant="outline"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Nuevo Curso

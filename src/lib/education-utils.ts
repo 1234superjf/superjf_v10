@@ -500,4 +500,47 @@ export class EducationAutomation {
       };
     }
   }
+
+  /**
+   * Recalcula los contadores de estudiantes en todas las secciones
+   */
+  static recalculateSectionCounts(): { success: boolean; message: string; updated: number } {
+    try {
+      const students = LocalStorageManager.getStudents();
+      const sections = LocalStorageManager.getSections();
+
+      // Resetear todos los contadores a 0
+      const updatedSections = sections.map((section: any) => ({
+        ...section,
+        studentCount: 0
+      }));
+
+      // Contar estudiantes por sección
+      students.forEach((student: any) => {
+        if (student.sectionId) {
+          const sectionIndex = updatedSections.findIndex((s: any) => s.id === student.sectionId);
+          if (sectionIndex !== -1) {
+            updatedSections[sectionIndex].studentCount++;
+          }
+        }
+      });
+
+      // Guardar las secciones actualizadas
+      LocalStorageManager.setSections(updatedSections);
+
+      return {
+        success: true,
+        updated: updatedSections.length,
+        message: `Se recalcularon los contadores de ${updatedSections.length} secciones`
+      };
+
+    } catch (error) {
+      console.error('Error recalculating section counts:', error);
+      return {
+        success: false,
+        updated: 0,
+        message: 'Error al recalcular los contadores'
+      };
+    }
+  }
 }

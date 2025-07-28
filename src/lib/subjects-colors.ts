@@ -156,3 +156,48 @@ export function getAvailableSubjects(): { value: string; label: string; abbrevia
     };
   });
 }
+
+// Función para obtener asignaturas por nivel educativo
+export function getSubjectsForLevel(level: 'basica' | 'media'): SubjectColor[] {
+  const basicSubjects = [
+    'Ciencias Naturales',
+    'Historia, Geografía y Ciencias Sociales', 
+    'Lenguaje y Comunicación',
+    'Matemáticas'
+  ];
+  
+  const mediaSubjects = [
+    'Biología',
+    'Física',
+    'Química',
+    'Historia, Geografía y Ciencias Sociales',
+    'Lenguaje y Comunicación',
+    'Matemáticas',
+    'Filosofía',
+    'Educación Ciudadana'
+  ];
+  
+  const subjects = level === 'basica' ? basicSubjects : mediaSubjects;
+  return subjects.map(subject => getSubjectColor(subject));
+}
+
+// Función para obtener todas las asignaturas disponibles (básica + media sin duplicados)
+export function getAllAvailableSubjects(): SubjectColor[] {
+  const allSubjects = [
+    // Básica
+    'Ciencias Naturales',
+    'Historia, Geografía y Ciencias Sociales',
+    'Lenguaje y Comunicación', 
+    'Matemáticas',
+    // Media (adicionales)
+    'Biología',
+    'Física', 
+    'Química',
+    'Filosofía',
+    'Educación Ciudadana'
+  ];
+  
+  // Usar Set para eliminar duplicados y mantener orden
+  const uniqueSubjects = [...new Set(allSubjects)];
+  return uniqueSubjects.map(subject => getSubjectColor(subject));
+}
