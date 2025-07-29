@@ -42,27 +42,27 @@ export default function UserManagementPage() {
   const tabs = [
     {
       id: 'courses',
-      label: 'Cursos y Secciones',
+      label: translate('userManagementTabCourses') || 'Cursos y Secciones',
       icon: GraduationCap,
-      description: 'Gestión de estructura académica'
+      description: translate('userManagementTabCoursesDesc') || 'Gestión de estructura académica'
     },
     {
       id: 'users',
-      label: 'Gestión de Usuarios',
+      label: translate('userManagementTabUsers') || 'Gestión de Usuarios',
       icon: Users,
-      description: 'Crear estudiantes y profesores'
+      description: translate('userManagementTabUsersDesc') || 'Crear estudiantes y profesores'
     },
     {
       id: 'assignments',
-      label: 'Asignaciones',
+      label: translate('userManagementTabAssignments') || 'Asignaciones',
       icon: UserCheck,
-      description: 'Asignar usuarios a cursos y materias'
+      description: translate('userManagementTabAssignmentsDesc') || 'Asignar usuarios a cursos y materias'
     },
     {
       id: 'config',
-      label: 'Configuración',
+      label: translate('userManagementTabConfiguration') || 'Configuración',
       icon: SettingsIcon,
-      description: 'Configuración del sistema'
+      description: translate('userManagementTabConfigurationDesc') || 'Configuración del sistema'
     }
   ];
 
@@ -73,10 +73,10 @@ export default function UserManagementPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center">
             <Shield className="w-8 h-8 mr-3 text-blue-500" />
-            Gestión de Usuarios
+            {translate('userManagementMainTitle') || 'Gestión de Usuarios'}
           </h1>
           <p className="text-muted-foreground">
-            Administración completa del sistema educativo
+            {translate('userManagementMainDesc') || 'Administración completa del sistema educativo'}
           </p>
         </div>
       </div>

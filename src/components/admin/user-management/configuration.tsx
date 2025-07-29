@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
+import { useLanguage } from '@/contexts/language-context';
 import { 
   Settings as SettingsIcon, 
   Users, 
@@ -27,6 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 
 export default function Configuration() {
   const { toast } = useToast();
+  const { translate } = useLanguage();
   const [config, setConfig] = useState<SystemConfig>({
     allowMultipleTeachersPerSubject: false,
     maxStudentsPerSection: 30,
@@ -67,14 +69,14 @@ export default function Configuration() {
       LocalStorageManager.setSections(updatedSections);
       
       toast({
-        title: 'Configuración guardada',
-        description: 'Los cambios se han aplicado correctamente y se han actualizado las capacidades de las secciones',
+        title: translate('configSavedTitle') || 'Configuración guardada',
+        description: translate('configSavedDescription') || 'Los cambios se han aplicado correctamente y se han actualizado las capacidades de las secciones',
         variant: 'default'
       });
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'No se pudo guardar la configuración',
+        description: translate('configSaveErrorDescription') || 'No se pudo guardar la configuración',
         variant: 'destructive'
       });
     } finally {
@@ -134,14 +136,14 @@ export default function Configuration() {
       link.click();
 
       toast({
-        title: 'Exportación exitosa',
-        description: 'Los datos del sistema han sido exportados',
+        title: translate('configExportSuccessTitle') || 'Exportación exitosa',
+        description: translate('configExportSuccessDescription') || 'Los datos del sistema han sido exportados',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error en exportación',
-        description: 'No se pudieron exportar los datos',
+        title: translate('configExportErrorTitle') || 'Error en exportación',
+        description: translate('configExportErrorDescription') || 'No se pudieron exportar los datos',
         variant: 'destructive'
       });
     }
@@ -158,11 +160,11 @@ export default function Configuration() {
         
         // Validate structure
         if (!importedData.version || !importedData.courses) {
-          throw new Error('Formato de archivo inválido');
+          throw new Error(translate('configInvalidFileFormat') || 'Formato de archivo inválido');
         }
 
         // Confirm before importing
-        if (window.confirm('¿Estás seguro de que quieres importar estos datos? Esto sobrescribirá todos los datos existentes.')) {
+        if (window.confirm(translate('configImportConfirm') || '¿Estás seguro de que quieres importar estos datos? Esto sobrescribirá todos los datos existentes.')) {
           // Import data
           LocalStorageManager.setCourses(importedData.courses || []);
           LocalStorageManager.setSections(importedData.sections || []);
@@ -177,8 +179,8 @@ export default function Configuration() {
           }
 
           toast({
-            title: 'Importación exitosa',
-            description: 'Los datos han sido importados correctamente',
+            title: translate('configImportSuccessTitle') || 'Importación exitosa',
+            description: translate('configImportSuccessDescription') || 'Los datos han sido importados correctamente',
             variant: 'default'
           });
 
@@ -189,8 +191,8 @@ export default function Configuration() {
         }
       } catch (error) {
         toast({
-          title: 'Error en importación',
-          description: 'No se pudieron importar los datos. Verifica el formato del archivo.',
+          title: translate('configImportErrorTitle') || 'Error en importación',
+          description: translate('configImportErrorDescription') || 'No se pudieron importar los datos. Verifica el formato del archivo.',
           variant: 'destructive'
         });
       }
@@ -219,7 +221,7 @@ export default function Configuration() {
 
       toast({
         title: 'Sistema reiniciado',
-        description: 'Todos los datos han sido eliminados',
+        description: translate('configDataDeletedDescription') || 'Todos los datos han sido eliminados',
         variant: 'default'
       });
 
@@ -232,7 +234,7 @@ export default function Configuration() {
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'No se pudo reiniciar el sistema',
+        description: translate('configResetSystemError') || 'No se pudo reiniciar el sistema',
         variant: 'destructive'
       });
     }
@@ -257,14 +259,14 @@ export default function Configuration() {
       localStorage.setItem('smart-student-users', JSON.stringify(updatedUsers));
 
       toast({
-        title: 'Contraseñas regeneradas',
-        description: `Se regeneraron ${updatedCount} contraseñas`,
+        title: translate('configPasswordsRegeneratedTitle') || 'Contraseñas regeneradas',
+        description: translate('configPasswordsRegeneratedDescription') || 'Se regeneraron {{count}} contraseñas'.replace('{{count}}', updatedCount.toString()),
         variant: 'default'
       });
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'No se pudieron regenerar las contraseñas',
+        description: translate('configPasswordsRegeneratedError') || 'No se pudieron regenerar las contraseñas',
         variant: 'destructive'
       });
     } finally {
@@ -281,10 +283,10 @@ export default function Configuration() {
         <div>
           <h2 className="text-2xl font-bold flex items-center">
             <SettingsIcon className="w-6 h-6 mr-2 text-blue-500" />
-            Configuración del Sistema
+            {translate('configSystemTitle') || 'Configuración del Sistema'}
           </h2>
           <p className="text-muted-foreground">
-            Administra la configuración y mantén el sistema
+            {translate('configSystemSubtitle') || 'Administra la configuración y mantén el sistema'}
           </p>
         </div>
       </div>
@@ -295,13 +297,13 @@ export default function Configuration() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center">
               <Users className="w-4 h-4 mr-2" />
-              Usuarios Totales
+              {translate('configTotalUsersTitle') || 'Usuarios Totales'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalUsers}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              {stats.students} estudiantes, {stats.teachers} profesores
+              {stats.students} {translate('configStudentsTeachersText')?.replace('{{teachers}}', stats.teachers) || `estudiantes, ${stats.teachers} profesores`}
             </div>
           </CardContent>
         </Card>
@@ -310,13 +312,13 @@ export default function Configuration() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center">
               <Database className="w-4 h-4 mr-2" />
-              Estructura Académica
+              {translate('configAcademicStructureTitle') || 'Estructura Académica'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.courses}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              {stats.sections} secciones, {stats.subjects} asignaturas
+              {translate('configSectionsSubjectsText')?.replace('{{sections}}', stats.sections).replace('{{subjects}}', stats.subjects) || `${stats.sections} secciones, ${stats.subjects} asignaturas`}
             </div>
           </CardContent>
         </Card>
@@ -325,13 +327,13 @@ export default function Configuration() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center">
               <CheckCircle className="w-4 h-4 mr-2" />
-              Asignaciones
+              {translate('configAssignmentsTitle') || 'Asignaciones'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.assignments}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              {stats.assignedStudents} est. asignados, {stats.assignedTeachers} prof. asignados
+              {translate('configAssignedText')?.replace('{{students}}', stats.assignedStudents).replace('{{teachers}}', stats.assignedTeachers) || `${stats.assignedStudents} est. asignados, ${stats.assignedTeachers} prof. asignados`}
             </div>
           </CardContent>
         </Card>
@@ -342,22 +344,22 @@ export default function Configuration() {
         <CardHeader>
           <CardTitle className="flex items-center">
             <SettingsIcon className="w-5 h-5 mr-2" />
-            Configuración General
+            {translate('configGeneralTitle') || 'Configuración General'}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* User Management Settings */}
             <div className="space-y-4">
-              <h4 className="font-medium">Gestión de Usuarios</h4>
+              <h4 className="font-medium">{translate('configUserManagementTitle') || 'Gestión de Usuarios'}</h4>
               
               <div className="flex items-center justify-between p-3 border rounded-lg">
                 <div>
                   <Label htmlFor="autoGenerateUsernames" className="text-sm font-medium">
-                    Generar usuarios automáticamente
+                    {translate('configAutoGenerateUsernamesLabel') || 'Generar usuarios automáticamente'}
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Crear nombres de usuario basados en el nombre completo
+                    {translate('configAutoGenerateUsernamesDesc') || 'Crear nombres de usuario basados en el nombre completo'}
                   </p>
                 </div>
                 <Switch
@@ -371,7 +373,7 @@ export default function Configuration() {
               </div>
 
               <div>
-                <Label htmlFor="defaultPasswordLength">Longitud de contraseña por defecto</Label>
+                <Label htmlFor="defaultPasswordLength">{translate('configDefaultPasswordLengthLabel') || 'Longitud de contraseña por defecto'}</Label>
                 <Input
                   id="defaultPasswordLength"
                   type="number"
@@ -391,15 +393,15 @@ export default function Configuration() {
 
             {/* Academic Settings */}
             <div className="space-y-4">
-              <h4 className="font-medium">Configuración Académica</h4>
+              <h4 className="font-medium">{translate('configAcademicTitle') || 'Configuración Académica'}</h4>
               
               <div className="flex items-center justify-between p-3 border rounded-lg">
                 <div>
                   <Label htmlFor="allowMultipleTeachers" className="text-sm font-medium">
-                    Múltiples profesores por asignatura
+                    {translate('configMultipleTeachersLabel') || 'Múltiples profesores por asignatura'}
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Permitir varios profesores en la misma asignatura
+                    {translate('configMultipleTeachersDesc') || 'Permitir varios profesores en la misma asignatura'}
                   </p>
                 </div>
                 <Switch
@@ -413,7 +415,7 @@ export default function Configuration() {
               </div>
 
               <div>
-                <Label htmlFor="maxStudentsPerSection">Máximo estudiantes por sección</Label>
+                <Label htmlFor="maxStudentsPerSection">{translate('configMaxStudentsLabel') || 'Máximo estudiantes por sección'}</Label>
                 <Input
                   id="maxStudentsPerSection"
                   type="number"
@@ -439,7 +441,7 @@ export default function Configuration() {
               className="w-full sm:w-auto bg-blue-500 hover:bg-blue-600"
             >
               <SettingsIcon className="w-4 h-4 mr-2" />
-              Guardar Configuración
+              {translate('configSaveButton') || 'Guardar Configuración'}
             </Button>
           </div>
         </CardContent>
@@ -450,7 +452,7 @@ export default function Configuration() {
         <CardHeader>
           <CardTitle className="flex items-center">
             <Database className="w-5 h-5 mr-2" />
-            Gestión de Datos
+            {translate('configDataManagementTitle') || 'Gestión de Datos'}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -459,10 +461,10 @@ export default function Configuration() {
             <div className="p-4 border rounded-lg">
               <h4 className="font-medium mb-2 flex items-center">
                 <Download className="w-4 h-4 mr-2 text-blue-500" />
-                Exportar Datos
+                {translate('configExportDataTitle') || 'Exportar Datos'}
               </h4>
               <p className="text-sm text-muted-foreground mb-3">
-                Descarga una copia de seguridad de todos los datos del sistema
+                {translate('configExportDataDesc') || 'Descarga una copia de seguridad de todos los datos del sistema'}
               </p>
               <Button 
                 onClick={exportSystemData}
@@ -470,7 +472,7 @@ export default function Configuration() {
                 className="w-full"
               >
                 <Download className="w-4 h-4 mr-2" />
-                Exportar
+                {translate('configExportButton') || 'Exportar'}
               </Button>
             </div>
 
@@ -478,10 +480,10 @@ export default function Configuration() {
             <div className="p-4 border rounded-lg">
               <h4 className="font-medium mb-2 flex items-center">
                 <Upload className="w-4 h-4 mr-2 text-green-500" />
-                Importar Datos
+                {translate('configImportDataTitle') || 'Importar Datos'}
               </h4>
               <p className="text-sm text-muted-foreground mb-3">
-                Restaura datos desde un archivo de respaldo
+                {translate('configImportDataDesc') || 'Restaura datos desde un archivo de respaldo'}
               </p>
               <div>
                 <input
@@ -497,7 +499,7 @@ export default function Configuration() {
                   className="w-full"
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  Importar
+                  {translate('configImportButton') || 'Importar'}
                 </Button>
               </div>
             </div>
@@ -506,40 +508,40 @@ export default function Configuration() {
             <div className="p-4 border border-red-200 rounded-lg">
               <h4 className="font-medium mb-2 flex items-center text-red-600">
                 <AlertTriangle className="w-4 h-4 mr-2" />
-                Reiniciar Sistema
+                {translate('configResetSystemTitle') || 'Reiniciar Sistema'}
               </h4>
               <p className="text-sm text-muted-foreground mb-3">
-                Elimina todos los datos del sistema (irreversible)
+                {translate('configResetSystemDesc') || 'Elimina todos los datos del sistema (irreversible)'}
               </p>
               
               <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
                 <DialogTrigger asChild>
                   <Button variant="destructive" className="w-full">
                     <Trash2 className="w-4 h-4 mr-2" />
-                    Reiniciar
+                    {translate('configResetButton') || 'Reiniciar'}
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle className="flex items-center text-red-600">
                       <AlertTriangle className="w-5 h-5 mr-2" />
-                      Confirmar Reinicio del Sistema
+                      {translate('configConfirmResetTitle') || 'Confirmar Reinicio del Sistema'}
                     </DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4">
                     <div className="p-4 bg-red-50 dark:bg-red-950 rounded-lg">
                       <p className="text-sm">
-                        <strong>¡Advertencia!</strong> Esta acción eliminará permanentemente:
+                        <strong>{translate('configResetWarningTitle') || '¡Advertencia!'}</strong> {translate('configResetWarningText') || 'Esta acción eliminará permanentemente:'}
                       </p>
                       <ul className="text-sm mt-2 space-y-1 list-disc list-inside">
-                        <li>Todos los usuarios (estudiantes y profesores)</li>
-                        <li>Toda la estructura académica (cursos, secciones, asignaturas)</li>
-                        <li>Todas las asignaciones</li>
-                        <li>Toda la configuración personalizada</li>
-                        <li>Datos de tareas y evaluaciones existentes</li>
+                        <li>{translate('configResetWarningItem1') || 'Todos los usuarios (estudiantes y profesores)'}</li>
+                        <li>{translate('configResetWarningItem2') || 'Toda la estructura académica (cursos, secciones, asignaturas)'}</li>
+                        <li>{translate('configResetWarningItem3') || 'Todas las asignaciones'}</li>
+                        <li>{translate('configResetWarningItem4') || 'Toda la configuración personalizada'}</li>
+                        <li>{translate('configResetWarningItem5') || 'Datos de tareas y evaluaciones existentes'}</li>
                       </ul>
                       <p className="text-sm mt-2 font-medium">
-                        Esta acción no se puede deshacer.
+                        {translate('configResetCannotUndo') || 'Esta acción no se puede deshacer.'}
                       </p>
                     </div>
 
@@ -550,14 +552,14 @@ export default function Configuration() {
                         className="flex-1"
                       >
                         <Trash2 className="w-4 h-4 mr-2" />
-                        Sí, reiniciar sistema
+                        {translate('configConfirmResetButton') || 'Sí, reiniciar sistema'}
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() => setShowResetDialog(false)}
                         className="flex-1"
                       >
-                        Cancelar
+                        {translate('configCancelButton') || 'Cancelar'}
                       </Button>
                     </div>
                   </div>
@@ -573,7 +575,7 @@ export default function Configuration() {
         <CardHeader>
           <CardTitle className="flex items-center">
             <Shield className="w-5 h-5 mr-2" />
-            Herramientas de Seguridad
+            {translate('configSecurityToolsTitle') || 'Herramientas de Seguridad'}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -582,10 +584,10 @@ export default function Configuration() {
             <div className="p-4 border rounded-lg">
               <h4 className="font-medium mb-2 flex items-center">
                 <Key className="w-4 h-4 mr-2 text-orange-500" />
-                Regenerar Contraseñas
+                {translate('configRegeneratePasswordsTitle') || 'Regenerar Contraseñas'}
               </h4>
               <p className="text-sm text-muted-foreground mb-3">
-                Genera nuevas contraseñas para todos los usuarios del sistema
+                {translate('configRegeneratePasswordsDesc') || 'Genera nuevas contraseñas para todos los usuarios del sistema'}
               </p>
               <Button 
                 onClick={regeneratePasswords}
@@ -594,7 +596,7 @@ export default function Configuration() {
                 className="w-full"
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
-                Regenerar Todas
+                {translate('configRegenerateAllButton') || 'Regenerar Todas'}
               </Button>
             </div>
 
@@ -602,19 +604,19 @@ export default function Configuration() {
             <div className="p-4 border rounded-lg">
               <h4 className="font-medium mb-2 flex items-center">
                 <CheckCircle className="w-4 h-4 mr-2 text-green-500" />
-                Estado del Sistema
+                {translate('configSystemStatusTitle') || 'Estado del Sistema'}
               </h4>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span>Integridad de datos:</span>
+                  <span>{translate('configDataIntegrityLabel') || 'Integridad de datos:'}</span>
                   <Badge variant="default">OK</Badge>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Asignaciones válidas:</span>
+                  <span>{translate('configValidAssignmentsLabel') || 'Asignaciones válidas:'}</span>
                   <Badge variant="default">OK</Badge>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Códigos únicos:</span>
+                  <span>{translate('configUniqueCodesLabel') || 'Códigos únicos:'}</span>
                   <Badge variant="default">OK</Badge>
                 </div>
               </div>
@@ -632,6 +634,7 @@ export default function Configuration() {
 // New component for user management
 function UserManagementSection() {
   const { toast } = useToast();
+  const { translate } = useLanguage();
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -805,10 +808,10 @@ function UserManagementSection() {
 
   const getRoleLabel = (type: string) => {
     switch (type) {
-      case 'admin': return 'Administrador';
-      case 'teacher': return 'Profesor';
-      case 'student': return 'Estudiante';
-      default: return 'Usuario';
+      case 'admin': return translate('roleAdmin') || 'Administrador';
+      case 'teacher': return translate('roleTeacher') || 'Profesor';
+      case 'student': return translate('roleStudent') || 'Estudiante';
+      default: return translate('user') || 'Usuario';
     }
   };
 
@@ -817,10 +820,10 @@ function UserManagementSection() {
       <CardHeader>
         <CardTitle className="flex items-center">
           <Users className="w-5 h-5 mr-2" />
-          Todos los Usuarios del Sistema
+          {translate('configAllUsersTitle') || 'Todos los Usuarios del Sistema'}
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Gestiona y administra todos los usuarios registrados en el sistema
+          {translate('configAllUsersDesc') || 'Gestiona y administra todos los usuarios registrados en el sistema'}
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -828,7 +831,7 @@ function UserManagementSection() {
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <Input
-              placeholder="Buscar por nombre, usuario o email..."
+              placeholder={translate('configSearchPlaceholder') || 'Buscar por nombre, usuario o email...'}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full"
@@ -840,28 +843,28 @@ function UserManagementSection() {
               onClick={() => setFilterRole('all')}
               size="sm"
             >
-              Todos ({allUsers.length})
+              {translate('configFilterAll') || 'Todos'} ({allUsers.length})
             </Button>
             <Button
               variant={filterRole === 'admin' ? 'default' : 'outline'}
               onClick={() => setFilterRole('admin')}
               size="sm"
             >
-              Admins ({allUsers.filter(u => u.type === 'admin').length})
+              {translate('configFilterAdmins') || 'Admins'} ({allUsers.filter(u => u.type === 'admin').length})
             </Button>
             <Button
               variant={filterRole === 'teacher' ? 'default' : 'outline'}
               onClick={() => setFilterRole('teacher')}
               size="sm"
             >
-              Profesores ({allUsers.filter(u => u.type === 'teacher').length})
+              {translate('configFilterTeachers') || 'Profesores'} ({allUsers.filter(u => u.type === 'teacher').length})
             </Button>
             <Button
               variant={filterRole === 'student' ? 'default' : 'outline'}
               onClick={() => setFilterRole('student')}
               size="sm"
             >
-              Estudiantes ({allUsers.filter(u => u.type === 'student').length})
+              {translate('configFilterStudents') || 'Estudiantes'} ({allUsers.filter(u => u.type === 'student').length})
             </Button>
           </div>
         </div>
@@ -873,19 +876,19 @@ function UserManagementSection() {
               <thead className="bg-muted">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Usuario
+                    {translate('configTableUserColumn') || 'Usuario'}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Tipo
+                    {translate('configTableTypeColumn') || 'Tipo'}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Email
+                    {translate('configTableEmailColumn') || 'Email'}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Creado
+                    {translate('configTableCreatedColumn') || 'Creado'}
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Acciones
+                    {translate('configTableActionsColumn') || 'Acciones'}
                   </th>
                 </tr>
               </thead>
@@ -907,7 +910,7 @@ function UserManagementSection() {
                       </Badge>
                     </td>
                     <td className="px-4 py-4">
-                      <div className="text-sm">{user.email || 'Sin email'}</div>
+                      <div className="text-sm">{user.email || (translate('configNoEmailText') || 'Sin email')}</div>
                     </td>
                     <td className="px-4 py-4">
                       <div className="text-sm text-muted-foreground">
@@ -920,9 +923,10 @@ function UserManagementSection() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleEditUser(user)}
+                          className="bg-blue-500 hover:bg-blue-600 text-white border-blue-500"
                         >
                           <Key className="w-3 h-3 mr-1" />
-                          Editar
+                          {translate('configEditButton') || 'Editar'}
                         </Button>
                         <Button
                           size="sm"
@@ -931,7 +935,7 @@ function UserManagementSection() {
                           className="text-red-600 hover:text-red-700"
                         >
                           <Trash2 className="w-3 h-3 mr-1" />
-                          Eliminar
+                          {translate('configDeleteButton') || 'Eliminar'}
                         </Button>
                       </div>
                     </td>
@@ -942,7 +946,7 @@ function UserManagementSection() {
           </div>
           {filteredUsers.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
-              No se encontraron usuarios que coincidan con los filtros
+              {translate('configNoUsersFound') || 'No se encontraron usuarios que coincidan con los filtros'}
             </div>
           )}
         </div>
@@ -951,23 +955,402 @@ function UserManagementSection() {
         <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Confirmar Eliminación</DialogTitle>
+              <DialogTitle>{translate('configConfirmDeleteTitle') || 'Confirmar Eliminación'}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <p>¿Estás seguro de que quieres eliminar al usuario <strong>{userToDelete?.name}</strong>?</p>
-              <p className="text-sm text-muted-foreground">Esta acción no se puede deshacer.</p>
+              <p>{translate('configConfirmDeleteText') || '¿Estás seguro de que quieres eliminar al usuario {{username}}?'.replace('{{username}}', '')} <strong>{userToDelete?.name}</strong>?</p>
+              <p className="text-sm text-muted-foreground">{translate('configDeleteCannotUndo') || 'Esta acción no se puede deshacer.'}</p>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
-                  Cancelar
+                  {translate('configCancelButton') || 'Cancelar'}
                 </Button>
                 <Button variant="destructive" onClick={confirmDeleteUser}>
-                  Eliminar Usuario
+                  {translate('configDeleteUserButton') || 'Eliminar Usuario'}
                 </Button>
               </div>
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Edit User Dialog */}
+        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{translate('configEditUserTitle') || 'Editar Usuario'}</DialogTitle>
+            </DialogHeader>
+            <EditUserForm 
+              user={editingUser} 
+              onClose={() => setShowEditDialog(false)}
+              onUserUpdated={loadAllUsers}
+            />
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
+  );
+}
+
+// Edit User Form Component
+function EditUserForm({ user, onClose, onUserUpdated }: { 
+  user: any; 
+  onClose: () => void; 
+  onUserUpdated: () => void; 
+}) {
+  const { toast } = useToast();
+  const { translate } = useLanguage();
+  const [formData, setFormData] = useState({
+    name: user?.name || '',
+    username: user?.username || '',
+    email: user?.email || '',
+    password: '',
+    confirmPassword: '',
+    isActive: user?.isActive !== undefined ? user.isActive : true,
+    selectedSubjects: user?.selectedSubjects || [],
+    courseId: user?.courseId || '',
+    sectionId: user?.sectionId || ''
+  });
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Load available subjects, courses, and sections
+  const [availableSubjects] = useState(() => {
+    try {
+      return LocalStorageManager.getSubjects();
+    } catch {
+      return [];
+    }
+  });
+  
+  const [availableCourses] = useState(() => {
+    try {
+      return LocalStorageManager.getCourses();
+    } catch {
+      return [];
+    }
+  });
+  
+  const [availableSections] = useState(() => {
+    try {
+      return LocalStorageManager.getSections();
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (user) {
+      setFormData({
+        name: user.name || '',
+        username: user.username || '',
+        email: user.email || '',
+        password: '',
+        confirmPassword: '',
+        isActive: user.isActive !== undefined ? user.isActive : true,
+        selectedSubjects: user.selectedSubjects || [],
+        courseId: user.courseId || '',
+        sectionId: user.sectionId || ''
+      });
+    }
+  }, [user]);
+
+  const handleInputChange = (field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleSubjectToggle = (subjectName: string) => {
+    setFormData(prev => ({
+      ...prev,
+      selectedSubjects: prev.selectedSubjects.includes(subjectName)
+        ? prev.selectedSubjects.filter(s => s !== subjectName)
+        : [...prev.selectedSubjects, subjectName]
+    }));
+  };
+
+  const handleSaveUser = async () => {
+    if (!formData.name.trim() || !formData.username.trim()) {
+      toast({
+        title: 'Error',
+        description: translate('editUserRequiredFields') || 'El nombre y usuario son requeridos',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (formData.password && formData.password !== formData.confirmPassword) {
+      toast({
+        title: 'Error',
+        description: translate('editUserPasswordMismatch') || 'Las contraseñas no coinciden',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Update user in respective collection
+      if (user.type === 'student') {
+        const students = LocalStorageManager.getStudents();
+        const updatedStudents = students.map(s => 
+          s.id === user.id 
+            ? { 
+                ...s, 
+                name: formData.name,
+                username: formData.username,
+                email: formData.email,
+                isActive: formData.isActive,
+                courseId: formData.courseId,
+                sectionId: formData.sectionId
+              }
+            : s
+        );
+        LocalStorageManager.setStudents(updatedStudents);
+      } else if (user.type === 'teacher') {
+        const teachers = LocalStorageManager.getTeachers();
+        const updatedTeachers = teachers.map(t => 
+          t.id === user.id 
+            ? { 
+                ...t, 
+                name: formData.name,
+                username: formData.username,
+                email: formData.email,
+                isActive: formData.isActive,
+                selectedSubjects: formData.selectedSubjects
+              }
+            : t
+        );
+        LocalStorageManager.setTeachers(updatedTeachers);
+      }
+
+      // Update in main users if password changed
+      const mainUsers = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const updatedMainUsers = mainUsers.map((u: any) => 
+        u.username === user.username 
+          ? { 
+              ...u, 
+              name: formData.name,
+              username: formData.username,
+              email: formData.email,
+              isActive: formData.isActive,
+              ...(formData.password ? { password: formData.password } : {})
+            }
+          : u
+      );
+      localStorage.setItem('smart-student-users', JSON.stringify(updatedMainUsers));
+
+      onUserUpdated();
+      onClose();
+
+      toast({
+        title: translate('editUserUpdatedTitle') || 'Usuario actualizado',
+        description: translate('editUserUpdatedDescription') || 'Los cambios se han guardado correctamente',
+        variant: 'default'
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: translate('editUserUpdateError') || 'No se pudo actualizar el usuario',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!user) return null;
+
+  return (
+    <div className="space-y-6">
+      {/* Basic Information */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">{translate('editUserBasicInfo') || 'Información Básica'}</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="name">{translate('editUserFullName') || 'Nombre completo'} *</Label>
+            <Input
+              id="name"
+              value={formData.name}
+              onChange={(e) => handleInputChange('name', e.target.value)}
+              placeholder={translate('editUserFullNamePlaceholder') || 'Ingresa el nombre completo'}
+            />
+          </div>
+          
+          <div>
+            <Label htmlFor="username">{translate('editUserUsername') || 'Usuario'} *</Label>
+            <Input
+              id="username"
+              value={formData.username}
+              onChange={(e) => handleInputChange('username', e.target.value)}
+              placeholder={translate('editUserUsernamePlaceholder') || 'Nombre de usuario'}
+            />
+          </div>
+          
+          <div>
+            <Label htmlFor="email">{translate('editUserEmail') || 'Email'}</Label>
+            <Input
+              id="email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleInputChange('email', e.target.value)}
+              placeholder={translate('editUserEmailPlaceholder') || 'email@ejemplo.com'}
+            />
+          </div>
+
+          <div>
+            <Label>{translate('editUserType') || 'Tipo de Usuario'}</Label>
+            <div className="mt-2">
+              <Badge className={
+                user.type === 'admin' ? 'bg-purple-100 text-purple-800' :
+                user.type === 'teacher' ? 'bg-green-100 text-green-800' :
+                'bg-blue-100 text-blue-800'
+              }>
+                {user.type === 'admin' ? (translate('editUserTypeAdmin') || 'Administrador') :
+                 user.type === 'teacher' ? (translate('editUserTypeTeacher') || 'Profesor') : 
+                 (translate('editUserTypeStudent') || 'Estudiante')}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="active"
+            checked={formData.isActive}
+            onCheckedChange={(checked) => handleInputChange('isActive', checked)}
+          />
+          <Label htmlFor="active">{translate('editUserActive') || 'Usuario activo'}</Label>
+        </div>
+      </div>
+
+      {/* Password Section */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">{translate('editUserChangePassword') || 'Cambiar Contraseña'}</h3>
+        <p className="text-sm text-muted-foreground">
+          {translate('editUserPasswordInfo') || 'Deja estos campos vacíos si no quieres cambiar la contraseña'}
+        </p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="password">{translate('editUserNewPassword') || 'Nueva contraseña'}</Label>
+            <Input
+              id="password"
+              type="password"
+              value={formData.password}
+              onChange={(e) => handleInputChange('password', e.target.value)}
+              placeholder={translate('editUserNewPasswordPlaceholder') || 'Nueva contraseña'}
+            />
+          </div>
+          
+          <div>
+            <Label htmlFor="confirmPassword">{translate('editUserConfirmPassword') || 'Confirmar contraseña'}</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              value={formData.confirmPassword}
+              onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+              placeholder={translate('editUserConfirmPasswordPlaceholder') || 'Confirma la nueva contraseña'}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Student-specific fields */}
+      {user.type === 'student' && (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">{translate('editUserAcademicInfo') || 'Información Académica'}</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="course">{translate('editUserCourse') || 'Curso'}</Label>
+              <select
+                id="course"
+                className="w-full p-2 border border-gray-300 rounded-md"
+                value={formData.courseId}
+                onChange={(e) => handleInputChange('courseId', e.target.value)}
+              >
+                <option value="">{translate('editUserSelectCourse') || 'Seleccionar curso'}</option>
+                {availableCourses.map(course => (
+                  <option key={course.id} value={course.id}>
+                    {course.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <Label htmlFor="section">{translate('editUserSection') || 'Sección'}</Label>
+              <select
+                id="section"
+                className="w-full p-2 border border-gray-300 rounded-md"
+                value={formData.sectionId}
+                onChange={(e) => handleInputChange('sectionId', e.target.value)}
+              >
+                <option value="">{translate('editUserSelectSection') || 'Seleccionar sección'}</option>
+                {availableSections
+                  .filter(section => !formData.courseId || section.courseId === formData.courseId)
+                  .map(section => (
+                    <option key={section.id} value={section.id}>
+                      {translate('editUserSectionPrefix') || 'Sección'} {section.name}
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
+          </div>
+          
+          <div>
+            <Label>{translate('editUserUniqueCode') || 'Código único:'} <span className="font-mono">{user.uniqueCode}</span></Label>
+          </div>
+        </div>
+      )}
+
+      {/* Teacher-specific fields */}
+      {user.type === 'teacher' && (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">{translate('editUserSubjects') || 'Asignaturas'}</h3>
+          
+          <div>
+            <Label>{translate('editUserUniqueCode') || 'Código único:'} <span className="font-mono">{user.uniqueCode}</span></Label>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {availableSubjects.map(subject => (
+              <div key={subject.id} className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id={`subject-${subject.id}`}
+                  checked={formData.selectedSubjects.includes(subject.name)}
+                  onChange={() => handleSubjectToggle(subject.name)}
+                  className="rounded"
+                />
+                <Label htmlFor={`subject-${subject.id}`} className="text-sm">
+                  {subject.name}
+                </Label>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex gap-2 pt-4 border-t">
+        <Button
+          onClick={handleSaveUser}
+          disabled={isLoading}
+          className="bg-blue-500 hover:bg-blue-600 text-white flex-1"
+        >
+          {isLoading ? (translate('editUserSaving') || 'Guardando...') : (translate('editUserSaveChanges') || 'Guardar Cambios')}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onClose}
+          disabled={isLoading}
+        >
+          {translate('editUserCancel') || 'Cancelar'}
+        </Button>
+      </div>
+    </div>
   );
 }

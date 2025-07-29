@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useLanguage } from '@/contexts/language-context';
 import { 
   Plus, 
   Users, 
@@ -36,6 +37,7 @@ import { getAllAvailableSubjects, getSubjectsForLevel, SubjectColor } from '@/li
 
 export default function UserManagement() {
   const { toast } = useToast();
+  const { translate } = useLanguage();
   const [students, setStudents] = useState<Student[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
@@ -191,10 +193,10 @@ export default function UserManagement() {
     // Student-specific validations
     if (userForm.role === 'student') {
       if (!userForm.courseId) {
-        errors.courseId = 'El curso es requerido para estudiantes';
+        errors.courseId = translate('userManagementCourseRequiredForStudents') || 'El curso es requerido para estudiantes';
       }
       if (!userForm.sectionId) {
-        errors.sectionId = 'La sección es requerida para estudiantes';
+        errors.sectionId = translate('userManagementSectionRequiredForStudents') || 'La sección es requerida para estudiantes';
       }
     }
 
@@ -481,7 +483,7 @@ export default function UserManagement() {
   const getTeacherCourseInfo = (teacher: Teacher) => {
     const course = courses.find(c => c.id === teacher.preferredCourseId);
     return {
-      courseName: course?.name || 'Sin curso asignado',
+      courseName: course?.name || (translate('userManagementNoCourseAssigned') || 'Sin curso asignado'),
       courseLevel: course?.level || null,
       subjects: teacher.selectedSubjects || []
     };
@@ -494,10 +496,10 @@ export default function UserManagement() {
         <div>
           <h2 className="text-2xl font-bold flex items-center">
             <Users className="w-6 h-6 mr-2 text-blue-500" />
-            Gestión de Usuarios
+            {translate('userManagementMainTitle') || 'Gestión de Usuarios'}
           </h2>
           <p className="text-muted-foreground">
-            Crea y administra estudiantes y profesores
+            {translate('userManagementCreateAndManage') || 'Crea y administra estudiantes y profesores'}
           </p>
         </div>
         
@@ -513,13 +515,16 @@ export default function UserManagement() {
                 className="bg-blue-500 hover:bg-blue-600"
               >
                 <UserPlus className="w-4 h-4 mr-2" />
-                Nuevo Usuario
+                {translate('userManagementNewUser') || 'Nuevo Usuario'}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>
-                  {editingUser ? 'Editar Usuario' : 'Crear Nuevo Usuario'}
+                  {editingUser ? 
+                    (translate('userManagementEditUser') || 'Editar Usuario') : 
+                    (translate('userManagementCreateNewUser') || 'Crear Nuevo Usuario')
+                  }
                 </DialogTitle>
               </DialogHeader>
               
@@ -753,9 +758,9 @@ export default function UserManagement() {
                 {userForm.role === 'teacher' && (
                   <div className="space-y-4 p-4 bg-green-50 dark:bg-green-950 rounded-lg">
                     <div>
-                      <Label>Asignaturas que impartirá *</Label>
+                      <Label>{translate('userManagementSubjectsTeacherWillTeach') || 'Asignaturas que impartirá *'}</Label>
                       <p className="text-xs text-muted-foreground mb-3">
-                        Selecciona las asignaturas que el profesor podrá impartir (puede enseñar en cualquier curso/sección)
+                        {translate('userManagementSelectSubjectsTeacher') || 'Selecciona las asignaturas que el profesor podrá impartir (puede enseñar en cualquier curso/sección)'}
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {getAllAvailableSubjects().map((subject: SubjectColor) => (
@@ -796,7 +801,10 @@ export default function UserManagement() {
                     className="flex-1"
                   >
                     <Save className="w-4 h-4 mr-2" />
-                    {editingUser ? 'Actualizar Usuario' : 'Crear Usuario'}
+                    {editingUser ? 
+                      (translate('userManagementUpdateUser') || 'Actualizar Usuario') : 
+                      (translate('userManagementCreateUser') || 'Crear Usuario')
+                    }
                   </Button>
                   <Button
                     variant="outline"
@@ -818,13 +826,13 @@ export default function UserManagement() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center">
               <GraduationCap className="w-4 h-4 mr-2" />
-              Estudiantes
+              {translate('userManagementStudents') || 'Estudiantes'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{students.length}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              {students.filter(s => s.isActive).length} activos
+              {students.filter(s => s.isActive).length} {translate('userManagementActive') || 'activos'}
             </div>
           </CardContent>
         </Card>
@@ -833,13 +841,13 @@ export default function UserManagement() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center">
               <Users className="w-4 h-4 mr-2" />
-              Profesores
+              {translate('userManagementTeachers') || 'Profesores'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{teachers.length}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              {teachers.filter(t => t.isActive).length} activos
+              {teachers.filter(t => t.isActive).length} {translate('userManagementActive') || 'activos'}
             </div>
           </CardContent>
         </Card>
@@ -847,13 +855,13 @@ export default function UserManagement() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">
-              Total Usuarios
+              {translate('userManagementTotalUsers') || 'Total Usuarios'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{students.length + teachers.length}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              En el sistema
+              {translate('userManagementInTheSystem') || 'En el sistema'}
             </div>
           </CardContent>
         </Card>
@@ -861,13 +869,13 @@ export default function UserManagement() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">
-              Cursos Activos
+              {translate('userManagementActiveCourses') || 'Cursos Activos'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{courses.length}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              {sections.length} secciones
+              {sections.length} {translate('userManagementSections') || 'secciones'}
             </div>
           </CardContent>
         </Card>
@@ -878,14 +886,14 @@ export default function UserManagement() {
         <CardHeader>
           <CardTitle className="flex items-center">
             <GraduationCap className="w-5 h-5 mr-2" />
-            Estudiantes ({students.length})
+            {translate('userManagementStudents') || 'Estudiantes'} ({students.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
           {students.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <GraduationCap className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No hay estudiantes registrados</p>
+              <p>{translate('userManagementNoStudentsRegistered') || 'No hay estudiantes registrados'}</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -953,14 +961,14 @@ export default function UserManagement() {
         <CardHeader>
           <CardTitle className="flex items-center">
             <Users className="w-5 h-5 mr-2" />
-            Profesores ({teachers.length})
+            {translate('userManagementTeachers') || 'Profesores'} ({teachers.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
           {teachers.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No hay profesores registrados</p>
+              <p>{translate('userManagementNoTeachersRegistered') || 'No hay profesores registrados'}</p>
             </div>
           ) : (
             <div className="space-y-2">

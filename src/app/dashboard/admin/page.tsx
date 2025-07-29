@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Settings, Database, Users, BookOpen, Shield, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
+import { Settings, Database, Users, BookOpen, Shield, RefreshCw, CheckCircle, AlertCircle, GraduationCap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { UniqueCodeGenerator } from '@/lib/unique-codes';
 import { useNotificationSync } from '@/hooks/useNotificationSync';
@@ -298,10 +298,10 @@ export default function AdminPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center">
             <Shield className="w-8 h-8 mr-3 text-blue-500" />
-            Panel de Administración
+            {translate('adminPanelTitle') || 'Panel de Administración'}
           </h1>
           <p className="text-muted-foreground">
-            Gestión avanzada del sistema Smart Student
+            {translate('adminPanelSubtitle') || 'Gestión avanzada del sistema Smart Student'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -311,7 +311,7 @@ export default function AdminPage() {
             className="bg-blue-500 hover:bg-blue-600 text-white"
           >
             <Users className="w-4 h-4 mr-2" />
-            Gestión de Usuarios
+            {translate('userManagementMainTitle') || 'Gestión de Usuarios'}
           </Button>
           
           <Button 
@@ -483,7 +483,7 @@ export default function AdminPage() {
         <CardHeader>
           <CardTitle className="flex items-center">
             <Users className="w-5 h-5 mr-2" />
-            Sistema de Gestión de Usuarios
+            {translate('userManagementSystem') || 'Sistema de Gestión de Usuarios'}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -495,8 +495,8 @@ export default function AdminPage() {
               <div className="flex items-center space-x-3">
                 <GraduationCap className="w-8 h-8 text-blue-500" />
                 <div>
-                  <h4 className="font-medium">Cursos y Secciones</h4>
-                  <p className="text-sm text-muted-foreground">Estructura académica</p>
+                  <h4 className="font-medium">{translate('adminCoursesAndSectionsTitle') || 'Cursos y Secciones'}</h4>
+                  <p className="text-sm text-muted-foreground">{translate('adminCoursesAndSectionsDesc') || 'Gestión de estructura académica'}</p>
                 </div>
               </div>
             </div>
@@ -508,8 +508,8 @@ export default function AdminPage() {
               <div className="flex items-center space-x-3">
                 <Users className="w-8 h-8 text-green-500" />
                 <div>
-                  <h4 className="font-medium">Gestión de Usuarios</h4>
-                  <p className="text-sm text-muted-foreground">Estudiantes y profesores</p>
+                  <h4 className="font-medium">{translate('adminUsersTitle') || 'Gestión de Usuarios'}</h4>
+                  <p className="text-sm text-muted-foreground">{translate('adminUsersDesc') || 'Crear estudiantes y profesores'}</p>
                 </div>
               </div>
             </div>
@@ -521,8 +521,8 @@ export default function AdminPage() {
               <div className="flex items-center space-x-3">
                 <CheckCircle className="w-8 h-8 text-purple-500" />
                 <div>
-                  <h4 className="font-medium">Asignaciones</h4>
-                  <p className="text-sm text-muted-foreground">Usuarios a cursos</p>
+                  <h4 className="font-medium">{translate('adminAssignmentsTitle') || 'Asignaciones'}</h4>
+                  <p className="text-sm text-muted-foreground">{translate('adminAssignmentsDesc') || 'Asignar usuarios a cursos y materias'}</p>
                 </div>
               </div>
             </div>
@@ -534,8 +534,8 @@ export default function AdminPage() {
               <div className="flex items-center space-x-3">
                 <Settings className="w-8 h-8 text-orange-500" />
                 <div>
-                  <h4 className="font-medium">Configuración</h4>
-                  <p className="text-sm text-muted-foreground">Sistema y seguridad</p>
+                  <h4 className="font-medium">{translate('adminConfigurationTitle') || 'Configuración'}</h4>
+                  <p className="text-sm text-muted-foreground">{translate('adminConfigurationDesc') || 'Configuración del sistema'}</p>
                 </div>
               </div>
             </div>
@@ -545,7 +545,7 @@ export default function AdminPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">
-                  Sistema completo de gestión educativa con estructura jerárquica, asignaciones automáticas y herramientas de administración.
+                  {translate('adminSystemDescription') || 'Sistema completo de gestión educativa con estructura jerárquica, asignaciones automáticas y herramientas de administración.'}
                 </p>
               </div>
               <Button 
@@ -553,7 +553,7 @@ export default function AdminPage() {
                 className="bg-blue-500 hover:bg-blue-600"
               >
                 <Users className="w-4 h-4 mr-2" />
-                Acceder al Sistema
+                {translate('adminAccessSystemButton') || 'Acceder al Sistema'}
               </Button>
             </div>
           </div>

@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useLanguage } from '@/contexts/language-context';
 import { 
   Plus, 
   GraduationCap, 
@@ -28,6 +29,7 @@ import { getAllCourses } from '@/lib/books-data';
 
 export default function CoursesAndSections() {
   const { toast } = useToast();
+  const { translate } = useLanguage();
   const [courses, setCourses] = useState<Course[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -504,10 +506,10 @@ export default function CoursesAndSections() {
         <div>
           <h2 className="text-2xl font-bold flex items-center">
             <Building className="w-6 h-6 mr-2 text-blue-500" />
-            Cursos y Secciones
+            {translate('userManagementTabCourses') || 'Cursos y Secciones'}
           </h2>
           <p className="text-muted-foreground">
-            Gestiona la estructura académica de tu institución
+            {translate('coursesManageAcademicStructure') || 'Gestiona la estructura académica de tu institución'}
           </p>
         </div>
         
@@ -518,7 +520,10 @@ export default function CoursesAndSections() {
             variant="outline"
           >
             <GraduationCap className="w-4 h-4 mr-2" />
-            {isLoading ? 'Creando...' : 'Crear Cursos Estándar'}
+            {isLoading ? 
+              (translate('coursesCreating') || 'Creando...') : 
+              (translate('coursesCreateStandardCourses') || 'Crear Cursos Estándar')
+            }
           </Button>
 
           <Button 
@@ -527,7 +532,10 @@ export default function CoursesAndSections() {
             variant="outline"
           >
             <Building className="w-4 h-4 mr-2" />
-            {isLoading ? 'Creando...' : 'Crear Secciones A y B'}
+            {isLoading ? 
+              (translate('coursesCreating') || 'Creando...') : 
+              (translate('coursesCreateABSections') || 'Crear Secciones A y B')
+            }
           </Button>
 
           <Button 
@@ -536,7 +544,10 @@ export default function CoursesAndSections() {
             variant="outline"
           >
             <Users className="w-4 h-4 mr-2" />
-            {isLoading ? 'Recalculando...' : 'Recalcular Contadores'}
+            {isLoading ? 
+              (translate('coursesRecalculating') || 'Recalculando...') : 
+              (translate('coursesRecalculateCounters') || 'Recalcular Contadores')
+            }
           </Button>
           
           <Dialog open={showCourseDialog} onOpenChange={setShowCourseDialog}>
@@ -549,28 +560,31 @@ export default function CoursesAndSections() {
                 variant="outline"
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Nuevo Curso
+                {translate('coursesNewCourse') || 'Nuevo Curso'}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>
-                  {editingCourse ? 'Editar Curso' : 'Crear Nuevo Curso'}
+                  {editingCourse ? 
+                    (translate('coursesEditCourse') || 'Editar Curso') : 
+                    (translate('coursesCreateNewCourse') || 'Crear Nuevo Curso')
+                  }
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="courseName">Nombre del Curso *</Label>
+                  <Label htmlFor="courseName">{translate('coursesCourseName') || 'Nombre del Curso'} *</Label>
                   <Input
                     id="courseName"
                     value={courseForm.name}
                     onChange={(e) => setCourseForm(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Ej: Primer Año Básico"
+                    placeholder={translate('coursesCourseNamePlaceholder') || "Ej: Primer Año Básico"}
                   />
                 </div>
                 
                 <div>
-                  <Label htmlFor="courseLevel">Nivel Educativo *</Label>
+                  <Label htmlFor="courseLevel">{translate('coursesEducationalLevel') || 'Nivel Educativo'} *</Label>
                   <Select
                     value={courseForm.level}
                     onValueChange={(value: 'basica' | 'media') => 
@@ -578,22 +592,22 @@ export default function CoursesAndSections() {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Selecciona el nivel" />
+                      <SelectValue placeholder={translate('coursesSelectLevel') || "Selecciona el nivel"} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="basica">Educación Básica</SelectItem>
-                      <SelectItem value="media">Educación Media</SelectItem>
+                      <SelectItem value="basica">{translate('coursesBasicEducation') || 'Educación Básica'}</SelectItem>
+                      <SelectItem value="media">{translate('coursesSecondaryEducation') || 'Educación Media'}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 
                 <div>
-                  <Label htmlFor="courseDescription">Descripción</Label>
+                  <Label htmlFor="courseDescription">{translate('coursesDescription') || 'Descripción'}</Label>
                   <Textarea
                     id="courseDescription"
                     value={courseForm.description}
                     onChange={(e) => setCourseForm(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Descripción opcional del curso"
+                    placeholder={translate('coursesDescriptionPlaceholder') || "Descripción opcional del curso"}
                     rows={3}
                   />
                 </div>
@@ -605,7 +619,10 @@ export default function CoursesAndSections() {
                     className="flex-1"
                   >
                     <Save className="w-4 h-4 mr-2" />
-                    {editingCourse ? 'Actualizar' : 'Crear Curso'}
+                    {editingCourse ? 
+                      (translate('coursesUpdate') || 'Actualizar') : 
+                      (translate('coursesCreateCourse') || 'Crear Curso')
+                    }
                   </Button>
                   <Button
                     variant="outline"
@@ -623,22 +640,22 @@ export default function CoursesAndSections() {
             <DialogTrigger asChild>
               <Button variant="outline" disabled={courses.length === 0}>
                 <Plus className="w-4 h-4 mr-2" />
-                Nueva Sección
+                {translate('coursesNewSection') || 'Nueva Sección'}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Crear Nueva Sección</DialogTitle>
+                <DialogTitle>{translate('coursesCreateNewSection') || 'Crear Nueva Sección'}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="sectionCourse">Curso *</Label>
+                  <Label htmlFor="sectionCourse">{translate('coursesCourse') || 'Curso'} *</Label>
                   <Select
                     value={sectionForm.courseId}
                     onValueChange={(value) => setSectionForm(prev => ({ ...prev, courseId: value }))}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Selecciona un curso" />
+                      <SelectValue placeholder={translate('coursesSelectCourse') || "Selecciona un curso"} />
                     </SelectTrigger>
                     <SelectContent>
                       {courses.map(course => (
@@ -651,17 +668,17 @@ export default function CoursesAndSections() {
                 </div>
 
                 <div>
-                  <Label htmlFor="sectionName">Nombre de la Sección *</Label>
+                  <Label htmlFor="sectionName">{translate('coursesSectionName') || 'Nombre de la Sección'} *</Label>
                   <Input
                     id="sectionName"
                     value={sectionForm.name}
                     onChange={(e) => setSectionForm(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Ej: Sección A"
+                    placeholder={translate('coursesSectionNamePlaceholder') || "Ej: Sección A"}
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="maxStudents">Máximo de Estudiantes</Label>
+                  <Label htmlFor="maxStudents">{translate('coursesMaxStudents') || 'Máximo de Estudiantes'}</Label>
                   <Input
                     id="maxStudents"
                     type="number"
@@ -682,7 +699,7 @@ export default function CoursesAndSections() {
                     className="flex-1"
                   >
                     <Save className="w-4 h-4 mr-2" />
-                    Crear Sección
+                    {translate('coursesCreateSection') || 'Crear Sección'}
                   </Button>
                   <Button
                     variant="outline"
@@ -703,9 +720,9 @@ export default function CoursesAndSections() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <GraduationCap className="w-12 h-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No hay cursos creados</h3>
+            <h3 className="text-lg font-medium mb-2">{translate('coursesNoCoursesCreated') || 'No hay cursos creados'}</h3>
             <p className="text-muted-foreground text-center mb-4">
-              Comienza creando tu primer curso para organizar la estructura académica
+              {translate('coursesStartCreatingFirstCourse') || 'Comienza creando tu primer curso para organizar la estructura académica'}
             </p>
           </CardContent>
         </Card>
@@ -770,11 +787,13 @@ export default function CoursesAndSections() {
                     </p>
                   )}
                   
+                  {/* Removed: Curso de {course.name} - Educación {course.level} line */}
+                  
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium flex items-center">
                         <Users className="w-4 h-4 mr-1" />
-                        Secciones ({courseSections.length})
+                        {translate('coursesSections') || 'Secciones'} ({courseSections.length})
                       </span>
                     </div>
                     
@@ -807,14 +826,14 @@ export default function CoursesAndSections() {
                       </div>
                     ) : (
                       <p className="text-xs text-muted-foreground">
-                        No hay secciones creadas
+                        {translate('coursesNoSectionsCreated') || 'No hay secciones creadas'}
                       </p>
                     )}
 
                     <div className="flex items-center justify-between pt-2 border-t">
                       <span className="text-sm font-medium flex items-center">
                         <BookOpen className="w-4 h-4 mr-1" />
-                        Asignaturas ({bookSubjects.length})
+                        {translate('coursesSubjects') || 'Asignaturas'} ({bookSubjects.length})
                       </span>
                     </div>
                     
