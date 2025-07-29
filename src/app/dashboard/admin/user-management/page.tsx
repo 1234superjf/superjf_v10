@@ -5,22 +5,16 @@ import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/language-context';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Shield, GraduationCap, Users, Settings as SettingsIcon, UserCheck } from 'lucide-react';
+import { Shield } from 'lucide-react';
 
-// Import components for each tab
-import CoursesAndSections from '@/components/admin/user-management/courses-and-sections';
+// Import the main user management component
 import UserManagement from '@/components/admin/user-management/user-management';
-import Assignments from '@/components/admin/user-management/assignments';
-import Configuration from '@/components/admin/user-management/configuration';
 
 export default function UserManagementPage() {
   const { user, isAdmin } = useAuth();
   const { translate } = useLanguage();
   const router = useRouter();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState('courses');
 
   // Redirect if not admin
   useEffect(() => {
@@ -39,33 +33,6 @@ export default function UserManagementPage() {
     return null;
   }
 
-  const tabs = [
-    {
-      id: 'courses',
-      label: translate('userManagementTabCourses') || 'Cursos y Secciones',
-      icon: GraduationCap,
-      description: translate('userManagementTabCoursesDesc') || 'Gestión de estructura académica'
-    },
-    {
-      id: 'users',
-      label: translate('userManagementTabUsers') || 'Gestión de Usuarios',
-      icon: Users,
-      description: translate('userManagementTabUsersDesc') || 'Crear estudiantes y profesores'
-    },
-    {
-      id: 'assignments',
-      label: translate('userManagementTabAssignments') || 'Asignaciones',
-      icon: UserCheck,
-      description: translate('userManagementTabAssignmentsDesc') || 'Asignar usuarios a cursos y materias'
-    },
-    {
-      id: 'config',
-      label: translate('userManagementTabConfiguration') || 'Configuración',
-      icon: SettingsIcon,
-      description: translate('userManagementTabConfigurationDesc') || 'Configuración del sistema'
-    }
-  ];
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -81,73 +48,10 @@ export default function UserManagementPage() {
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          {tabs.map((tab) => {
-            const IconComponent = tab.icon;
-            return (
-              <TabsTrigger
-                key={tab.id}
-                value={tab.id}
-                className="flex items-center space-x-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-              >
-                <IconComponent className="w-4 h-4" />
-                <span className="hidden sm:inline">{tab.label}</span>
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-
-        {/* Tab Overview Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {tabs.map((tab) => {
-            const IconComponent = tab.icon;
-            const isActive = activeTab === tab.id;
-            
-            return (
-              <Card
-                key={tab.id}
-                className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-                  isActive ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950' : ''
-                }`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium flex items-center">
-                    <IconComponent className={`w-4 h-4 mr-2 ${isActive ? 'text-blue-600' : ''}`} />
-                    {tab.label}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
-                    {tab.description}
-                  </p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* Tab Content */}
-        <div className="mt-6">
-          <TabsContent value="courses" className="space-y-6">
-            <CoursesAndSections />
-          </TabsContent>
-
-          <TabsContent value="users" className="space-y-6">
-            <UserManagement />
-          </TabsContent>
-
-          <TabsContent value="assignments" className="space-y-6">
-            <Assignments />
-          </TabsContent>
-
-          <TabsContent value="config" className="space-y-6">
-            <Configuration />
-          </TabsContent>
-        </div>
-      </Tabs>
+      {/* Direct User Management Content */}
+      <div className="mt-6">
+        <UserManagement />
+      </div>
     </div>
   );
 }

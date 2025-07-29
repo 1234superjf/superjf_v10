@@ -75,8 +75,8 @@ export default function Assignments() {
     } catch (error) {
       console.error('Error loading data:', error);
       toast({
-        title: 'Error',
-        description: 'No se pudieron cargar los datos',
+        title: translate('error') || 'Error',
+        description: translate('couldNotLoadData') || 'Could not load data',
         variant: 'destructive'
       });
     }
@@ -126,7 +126,7 @@ export default function Assignments() {
   const handleAssignTeacher = async () => {
     if (!selectedTeacherId || !selectedSectionId || !selectedSubjectName) {
       toast({
-        title: 'Error',
+        title: translate('error') || 'Error',
         description: 'Todos los campos son requeridos',
         variant: 'destructive'
       });
@@ -152,14 +152,14 @@ export default function Assignments() {
       setSelectedTeacherId('');
 
       toast({
-        title: 'Éxito',
-        description: 'Profesor asignado correctamente',
+        title: translate('success') || 'Success',
+        description: translate('teacherAssignedSuccessfully') || 'Teacher assigned successfully',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo asignar el profesor',
+        title: translate('error') || 'Error',
+        description: translate('couldNotAssignTeacher') || 'Could not assign teacher',
         variant: 'destructive'
       });
     } finally {
@@ -177,14 +177,14 @@ export default function Assignments() {
       localStorage.setItem('smart-student-teacher-assignments', JSON.stringify(updatedAssignments));
 
       toast({
-        title: 'Éxito',
-        description: 'Asignación removida correctamente',
+        title: translate('success') || 'Success',
+        description: translate('assignmentRemovedSuccessfully') || 'Assignment removed successfully',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo remover la asignación',
+        title: translate('error') || 'Error',
+        description: translate('couldNotRemoveAssignment') || 'Could not remove assignment',
         variant: 'destructive'
       });
     }

@@ -19,10 +19,15 @@ import {
   Upload,
   Trash2,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  UserPlus,
+  GraduationCap,
+  Crown,
+  Mail
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { LocalStorageManager, UsernameGenerator } from '@/lib/education-utils';
+import { LocalStorageManager, UsernameGenerator, EducationCodeGenerator } from '@/lib/education-utils';
+import { getAllAvailableSubjects, SubjectColor } from '@/lib/subjects-colors';
 import { SystemConfig } from '@/types/education';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
@@ -38,6 +43,27 @@ export default function Configuration() {
   const [isLoading, setIsLoading] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showCreateUserDialog, setShowCreateUserDialog] = useState(false);
+
+  // Form state for creating new user
+  const [createUserFormData, setCreateUserFormData] = useState({
+    name: '',
+    email: '',
+    role: 'student' as 'student' | 'teacher' | 'admin',
+    username: '',
+    password: '',
+    confirmPassword: '',
+    autoGenerate: true,
+    courseId: '',
+    section: '',
+    subject: '',
+    selectedSubjects: [] as string[]
+  });
+
+  // Data states for form dropdowns
+  const [availableCourses, setAvailableCourses] = useState<any[]>([]);
+  const [availableSections, setAvailableSections] = useState<any[]>([]);
+  const [availableSubjects, setAvailableSubjects] = useState<any[]>([]);
 
   // Load configuration on component mount
   useEffect(() => {
@@ -50,6 +76,18 @@ export default function Configuration() {
       if (Object.keys(storedConfig).length > 0) {
         setConfig({ ...config, ...storedConfig });
       }
+      
+      // Load available options for form dropdowns
+      const courses = LocalStorageManager.getCourses();
+      const sections = LocalStorageManager.getSections();
+      const subjects = LocalStorageManager.getSubjects();
+      
+      // Get subjects with colors from the subjects-colors library
+      const subjectsWithColors = getAllAvailableSubjects();
+      
+      setAvailableCourses(courses);
+      setAvailableSections(sections);
+      setAvailableSubjects(subjectsWithColors);
     } catch (error) {
       console.error('Error loading configuration:', error);
     }
@@ -75,7 +113,7 @@ export default function Configuration() {
       });
     } catch (error) {
       toast({
-        title: 'Error',
+        title: translate('error') || 'Error',
         description: translate('configSaveErrorDescription') || 'No se pudo guardar la configuración',
         variant: 'destructive'
       });
@@ -220,7 +258,7 @@ export default function Configuration() {
       localStorage.removeItem('smart-student-task-comments');
 
       toast({
-        title: 'Sistema reiniciado',
+        title: translate('systemReset') || 'System reset',
         description: translate('configDataDeletedDescription') || 'Todos los datos han sido eliminados',
         variant: 'default'
       });
@@ -233,7 +271,7 @@ export default function Configuration() {
       }, 1000);
     } catch (error) {
       toast({
-        title: 'Error',
+        title: translate('error') || 'Error',
         description: translate('configResetSystemError') || 'No se pudo reiniciar el sistema',
         variant: 'destructive'
       });
@@ -265,12 +303,208 @@ export default function Configuration() {
       });
     } catch (error) {
       toast({
-        title: 'Error',
+        title: translate('error') || 'Error',
         description: translate('configPasswordsRegeneratedError') || 'No se pudieron regenerar las contraseñas',
         variant: 'destructive'
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Functions for user creation modal
+  const handleCreateUser = async () => {
+    try {
+      // Validation
+      if (!createUserFormData.name.trim() || !createUserFormData.email.trim()) {
+        toast({
+          title: translate('error') || 'Error',
+          description: translate('userManagementFillAllFields') || 'Por favor, completa todos los campos requeridos',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Password validation for manual input
+      if (!createUserFormData.autoGenerate) {
+        if (!createUserFormData.username.trim() || !createUserFormData.password.trim()) {
+          toast({
+            title: translate('error') || 'Error',
+            description: translate('userManagementFillAllFields') || 'Por favor, completa todos los campos requeridos',
+            variant: 'destructive'
+          });
+          return;
+        }
+
+        if (createUserFormData.password !== createUserFormData.confirmPassword) {
+          toast({
+            title: translate('error') || 'Error',
+            description: translate('userManagementPasswordsDoNotMatch') || 'Las contraseñas no coinciden',
+            variant: 'destructive'
+          });
+          return;
+        }
+      }
+
+      // Student validation
+      if (createUserFormData.role === 'student' && (!createUserFormData.courseId || !createUserFormData.section)) {
+        toast({
+          title: translate('error') || 'Error',
+          description: translate('userManagementSelectCourseSection') || 'Por favor, selecciona un curso y una sección',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Teacher validation
+      if (createUserFormData.role === 'teacher' && (!createUserFormData.selectedSubjects || createUserFormData.selectedSubjects.length === 0)) {
+        toast({
+          title: translate('error') || 'Error',
+          description: translate('userManagementSelectSubject') || 'Por favor, selecciona una materia',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Generate credentials if auto-generate is enabled
+      const username = createUserFormData.autoGenerate 
+        ? UsernameGenerator.generateFromName(createUserFormData.name, createUserFormData.role)
+        : createUserFormData.username.trim();
+      
+      const password = createUserFormData.autoGenerate
+        ? UsernameGenerator.generateRandomPassword(config.defaultPasswordLength)
+        : createUserFormData.password;
+
+      const baseUser = {
+        id: crypto.randomUUID(),
+        username: username,
+        name: createUserFormData.name.trim(),
+        email: createUserFormData.email.trim(),
+        role: createUserFormData.role,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      if (createUserFormData.role === 'student') {
+        const newStudent = {
+          ...baseUser,
+          uniqueCode: EducationCodeGenerator.generateStudentCode(),
+          role: 'student',
+          courseId: createUserFormData.courseId,
+          sectionId: createUserFormData.section
+        };
+
+        const students = LocalStorageManager.getStudents();
+        const updatedStudents = [...students, newStudent];
+        LocalStorageManager.setStudents(updatedStudents);
+
+      } else if (createUserFormData.role === 'teacher') {
+        const newTeacher = {
+          ...baseUser,
+          uniqueCode: EducationCodeGenerator.generateTeacherCode(),
+          role: 'teacher',
+          assignedSections: [],
+          selectedSubjects: createUserFormData.selectedSubjects
+        };
+
+        const teachers = LocalStorageManager.getTeachers();
+        const updatedTeachers = [...teachers, newTeacher];
+        LocalStorageManager.setTeachers(updatedTeachers);
+
+      } else if (createUserFormData.role === 'admin') {
+        const newAdmin = {
+          ...baseUser,
+          uniqueCode: EducationCodeGenerator.generateAdminCode(),
+          role: 'admin',
+          displayName: createUserFormData.name.trim(),
+          activeCourses: [],
+          password: password
+        };
+
+        const administrators = JSON.parse(localStorage.getItem('smart-student-administrators') || '[]');
+        const updatedAdministrators = [...administrators, newAdmin];
+        localStorage.setItem('smart-student-administrators', JSON.stringify(updatedAdministrators));
+      }
+
+      // Save to main users array
+      const allUsers = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const newUserForMain = {
+        ...baseUser,
+        password: password
+      };
+      const updatedAllUsers = [...allUsers, newUserForMain];
+      localStorage.setItem('smart-student-users', JSON.stringify(updatedAllUsers));
+
+      // Show success message with credentials if auto-generated
+      if (createUserFormData.autoGenerate) {
+        toast({
+          title: translate('success') || 'Éxito',
+          description: `${translate('userManagementUserCreated') || 'Usuario creado exitosamente'}. ${translate('userManagementCredentials') || 'Credenciales'}: ${username} / ${password}`,
+          duration: 8000
+        });
+      } else {
+        toast({
+          title: translate('success') || 'Éxito',
+          description: translate('userManagementUserCreated') || 'Usuario creado exitosamente',
+        });
+      }
+
+      // Reset form and close modal
+      resetCreateUserForm();
+      setShowCreateUserDialog(false);
+
+      toast({
+        title: translate('userManagementSuccess') || 'Éxito',
+        description: `${
+          createUserFormData.role === 'student' ? translate('userManagementStudent') || 'Estudiante' : 
+          createUserFormData.role === 'teacher' ? translate('userManagementTeacher') || 'Profesor' : 
+          translate('userManagementAdministrator') || 'Administrador'
+        } ${translate('userManagementCreatedSuccessfully') || 'creado exitosamente'}`,
+        variant: 'default'
+      });
+    } catch (error) {
+      toast({
+        title: translate('error') || 'Error',
+        description: translate('userManagementCreateUserError') || 'Error al crear el usuario',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const resetCreateUserForm = () => {
+    setCreateUserFormData({
+      name: '',
+      email: '',
+      role: 'student',
+      username: '',
+      password: '',
+      confirmPassword: '',
+      autoGenerate: true,
+      courseId: '',
+      section: '',
+      subject: '',
+      selectedSubjects: []
+    });
+  };
+
+  // Function to get role badge colors
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'admin': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+      case 'teacher': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+      case 'student': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+    }
+  };
+
+  // Function to get role icons
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'admin': return <Crown className="w-3 h-3 mr-1" />;
+      case 'teacher': return <Shield className="w-3 h-3 mr-1" />;
+      case 'student': return <GraduationCap className="w-3 h-3 mr-1" />;
+      default: return null;
     }
   };
 
@@ -626,13 +860,49 @@ export default function Configuration() {
       </Card>
 
       {/* Users Management Section */}
-      <UserManagementSection />
+      <UserManagementSection 
+        showCreateUserDialog={showCreateUserDialog}
+        setShowCreateUserDialog={setShowCreateUserDialog}
+        createUserFormData={createUserFormData}
+        setCreateUserFormData={setCreateUserFormData}
+        handleCreateUser={handleCreateUser}
+        resetCreateUserForm={resetCreateUserForm}
+        getRoleColor={getRoleColor}
+        getRoleIcon={getRoleIcon}
+        availableCourses={availableCourses}
+        availableSections={availableSections}
+        availableSubjects={availableSubjects}
+      />
     </div>
   );
 }
 
 // New component for user management
-function UserManagementSection() {
+function UserManagementSection({ 
+  showCreateUserDialog, 
+  setShowCreateUserDialog, 
+  createUserFormData, 
+  setCreateUserFormData, 
+  handleCreateUser, 
+  resetCreateUserForm,
+  getRoleColor,
+  getRoleIcon,
+  availableCourses,
+  availableSections,
+  availableSubjects
+}: {
+  showCreateUserDialog: boolean;
+  setShowCreateUserDialog: (value: boolean) => void;
+  createUserFormData: any;
+  setCreateUserFormData: (value: any) => void;
+  handleCreateUser: () => Promise<void>;
+  resetCreateUserForm: () => void;
+  getRoleColor: (role: string) => string;
+  getRoleIcon: (role: string) => React.ReactElement | null;
+  availableCourses: any[];
+  availableSections: any[];
+  availableSubjects: any[];
+}) {
   const { toast } = useToast();
   const { translate } = useLanguage();
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -784,25 +1054,16 @@ function UserManagementSection() {
       setUserToDelete(null);
 
       toast({
-        title: 'Usuario eliminado',
-        description: 'El usuario ha sido eliminado correctamente',
+        title: translate('userDeleted') || 'User deleted',
+        description: translate('userDeletedSuccessfully') || 'User has been deleted successfully',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo eliminar el usuario',
+        title: translate('error') || 'Error',
+        description: translate('couldNotDeleteUser') || 'Could not delete user',
         variant: 'destructive'
       });
-    }
-  };
-
-  const getRoleColor = (type: string) => {
-    switch (type) {
-      case 'admin': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-      case 'teacher': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      case 'student': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
     }
   };
 
@@ -818,13 +1079,27 @@ function UserManagementSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center">
-          <Users className="w-5 h-5 mr-2" />
-          {translate('configAllUsersTitle') || 'Todos los Usuarios del Sistema'}
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {translate('configAllUsersDesc') || 'Gestiona y administra todos los usuarios registrados en el sistema'}
-        </p>
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center">
+              <Users className="w-5 h-5 mr-2" />
+              {translate('configAllUsersTitle') || 'Panel de Usuarios del Sistema'}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {translate('configAllUsersDesc') || 'Gestiona y administra todos los usuarios registrados en el sistema'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button 
+              onClick={() => setShowCreateUserDialog(true)}
+              className="bg-blue-500 hover:bg-blue-600"
+              size="sm"
+            >
+              <UserPlus className="w-4 h-4 mr-2" />
+              {translate('userManagementNewUser') || 'Nuevo Usuario'}
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Filters */}
@@ -906,6 +1181,7 @@ function UserManagementSection() {
                     </td>
                     <td className="px-4 py-4">
                       <Badge className={getRoleColor(user.type)}>
+                        {getRoleIcon(user.type)}
                         {getRoleLabel(user.type)}
                       </Badge>
                     </td>
@@ -982,7 +1258,285 @@ function UserManagementSection() {
               user={editingUser} 
               onClose={() => setShowEditDialog(false)}
               onUserUpdated={loadAllUsers}
+              getRoleColor={getRoleColor}
+              getRoleIcon={getRoleIcon}
             />
+          </DialogContent>
+        </Dialog>
+
+        {/* Create User Dialog */}
+        <Dialog open={showCreateUserDialog} onOpenChange={setShowCreateUserDialog}>
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center">
+                <UserPlus className="w-5 h-5 mr-2 text-blue-500" />
+                {translate('userManagementCreateNewUser') || 'Crear Nuevo Usuario'}
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-6">
+              {/* User Type Selection */}
+              <div className="flex items-center space-x-4 p-4 bg-muted rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="student"
+                    name="userType"
+                    checked={createUserFormData.role === 'student'}
+                    onChange={() => setCreateUserFormData(prev => ({ 
+                      ...prev, 
+                      role: 'student',
+                      courseId: '',
+                      section: ''
+                    }))}
+                    className="w-4 h-4"
+                  />
+                  <Label htmlFor="student" className="flex items-center cursor-pointer">
+                    <GraduationCap className="w-4 h-4 mr-1" />
+                    {translate('userManagementStudent') || 'Estudiante'}
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="teacher"
+                    name="userType"
+                    checked={createUserFormData.role === 'teacher'}
+                    onChange={() => setCreateUserFormData(prev => ({ 
+                      ...prev, 
+                      role: 'teacher',
+                      courseId: '',
+                      section: ''
+                    }))}
+                    className="w-4 h-4"
+                  />
+                  <Label htmlFor="teacher" className="flex items-center cursor-pointer">
+                    <Shield className="w-4 h-4 mr-1" />
+                    {translate('userManagementTeacher') || 'Profesor'}
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="admin"
+                    name="userType"
+                    checked={createUserFormData.role === 'admin'}
+                    onChange={() => setCreateUserFormData(prev => ({ 
+                      ...prev, 
+                      role: 'admin',
+                      courseId: '',
+                      section: ''
+                    }))}
+                    className="w-4 h-4"
+                  />
+                  <Label htmlFor="admin" className="flex items-center cursor-pointer">
+                    <Crown className="w-4 h-4 mr-1" />
+                    {translate('userManagementAdministrator') || 'Administrador'}
+                  </Label>
+                </div>
+              </div>
+
+              {/* Auto-generate credentials toggle */}
+              <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+                <div>
+                  <Label htmlFor="autoGenerate" className="text-sm font-medium">
+                    {translate('userManagementAutoGenerateCredentials') || 'Generar credenciales automáticamente'}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {translate('userManagementAutoGenerateCredentialsDesc') || 'Se generarán usuario y contraseña basados en el nombre'}
+                  </p>
+                </div>
+                <Switch
+                  id="autoGenerate"
+                  checked={createUserFormData.autoGenerate}
+                  onCheckedChange={(checked) => setCreateUserFormData(prev => ({ ...prev, autoGenerate: checked }))}
+                />
+              </div>
+
+              {/* Basic Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="name">{translate('userManagementFullName') || 'Nombre Completo'} *</Label>
+                  <Input
+                    id="name"
+                    value={createUserFormData.name}
+                    onChange={(e) => setCreateUserFormData(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder={translate('userManagementFullNamePlaceholder') || 'Nombre completo del usuario'}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="email">{translate('userManagementEmail') || 'Email'}</Label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      type="email"
+                      value={createUserFormData.email}
+                      onChange={(e) => setCreateUserFormData(prev => ({ ...prev, email: e.target.value }))}
+                      placeholder={translate('userManagementEmailPlaceholder') || 'correo@ejemplo.com (opcional)'}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Credentials */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="username">{translate('userManagementUsername') || 'Nombre de Usuario'} *</Label>
+                  <Input
+                    id="username"
+                    value={createUserFormData.username}
+                    onChange={(e) => setCreateUserFormData(prev => ({ ...prev, username: e.target.value }))}
+                    placeholder={translate('userManagementUsernamePlaceholder') || 'nombreusuario'}
+                    disabled={createUserFormData.autoGenerate}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="password">{translate('userManagementPassword') || 'Contraseña'} *</Label>
+                  <div className="relative">
+                    <Key className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                    <Input
+                      id="password"
+                      type="password"
+                      value={createUserFormData.password}
+                      onChange={(e) => setCreateUserFormData(prev => ({ ...prev, password: e.target.value }))}
+                      placeholder={translate('userManagementPasswordPlaceholder') || 'Contraseña'}
+                      disabled={createUserFormData.autoGenerate}
+                      className="pl-10"
+                    />
+                  </div>
+                  {!createUserFormData.autoGenerate && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {translate('userManagementPasswordMinChars') || 'Mínimo 4 caracteres'}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Confirm password */}
+              <div>
+                <Label htmlFor="confirmPassword">{translate('userManagementConfirmPassword') || 'Confirmar Contraseña'} *</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  value={createUserFormData.confirmPassword}
+                  onChange={(e) => setCreateUserFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                  placeholder={translate('userManagementConfirmPasswordPlaceholder') || 'Confirmar contraseña'}
+                  disabled={createUserFormData.autoGenerate}
+                />
+              </div>
+
+              {/* Student-specific fields */}
+              {createUserFormData.role === 'student' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                  <div>
+                    <Label htmlFor="course">{translate('userManagementCourse') || 'Curso'} *</Label>
+                    <select
+                      id="course"
+                      value={createUserFormData.courseId}
+                      onChange={(e) => setCreateUserFormData(prev => ({ ...prev, courseId: e.target.value, section: '' }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">{translate('userManagementSelectCourse') || 'Selecciona un curso'}</option>
+                      {availableCourses.map((course, index) => (
+                        <option key={course.id || `course-${index}`} value={course.id}>
+                          {course.name || course}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="section">{translate('userManagementSection') || 'Sección'} *</Label>
+                    <select
+                      id="section"
+                      value={createUserFormData.section}
+                      onChange={(e) => setCreateUserFormData(prev => ({ ...prev, section: e.target.value }))}
+                      disabled={!createUserFormData.courseId}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">{translate('userManagementSelectSection') || 'Selecciona una sección'}</option>
+                      {availableSections
+                        .filter((section: any) => section.courseId === createUserFormData.courseId)
+                        .map((section: any, index: number) => (
+                          <option key={section.id || `section-${index}`} value={section.id}>
+                            {section.name || section} ({section.studentCount || 0}/{section.maxStudents || translate('userManagementNoLimit') || 'Sin límite'})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Teacher-specific fields */}
+              {createUserFormData.role === 'teacher' && (
+                <div className="space-y-4 p-4 bg-green-50 dark:bg-green-950 rounded-lg">
+                  <div>
+                    <Label>{translate('userManagementSubjectsTeacherWillTeach') || 'Asignaturas que impartirá *'}</Label>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      {translate('userManagementSelectSubjectsTeacher') || 'Selecciona las asignaturas que el profesor podrá impartir (puede enseñar en cualquier curso/sección)'}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {getAllAvailableSubjects().map((subject: SubjectColor) => {
+                        const isSelected = createUserFormData.selectedSubjects?.includes(subject.name);
+                        return (
+                          <Badge
+                            key={subject.name}
+                            className={`text-xs font-bold border-0 cursor-pointer px-2 py-1 transition-all duration-200 ${
+                              isSelected
+                                ? 'ring-2 ring-blue-500 ring-offset-2'
+                                : 'hover:ring-2 hover:ring-gray-300 hover:ring-offset-1'
+                            }`}
+                            style={{
+                              backgroundColor: subject.bgColor,
+                              color: subject.textColor,
+                              opacity: isSelected ? 1 : 0.7
+                            }}
+                            title={subject.name}
+                            onClick={() => {
+                              setCreateUserFormData(prev => ({
+                                ...prev,
+                                selectedSubjects: prev.selectedSubjects?.includes(subject.name)
+                                  ? prev.selectedSubjects.filter((s: string) => s !== subject.name)
+                                  : [...(prev.selectedSubjects || []), subject.name]
+                              }));
+                            }}
+                          >
+                            {subject.abbreviation}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                    {(!createUserFormData.selectedSubjects || createUserFormData.selectedSubjects.length === 0) && (
+                      <p className="text-red-500 text-xs mt-2">{translate('userManagementSelectAtLeastOneSubject') || 'Selecciona al menos una asignatura'}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex gap-2 pt-4">
+                <Button
+                  onClick={() => {
+                    resetCreateUserForm();
+                    setShowCreateUserDialog(false);
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  {translate('userManagementCancel') || 'Cancelar'}
+                </Button>
+                <Button
+                  onClick={handleCreateUser}
+                  className="flex-1 bg-blue-500 hover:bg-blue-600"
+                >
+                  {translate('userManagementCreateUser') || 'Crear Usuario'}
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
       </CardContent>
@@ -991,10 +1545,12 @@ function UserManagementSection() {
 }
 
 // Edit User Form Component
-function EditUserForm({ user, onClose, onUserUpdated }: { 
+function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon }: { 
   user: any; 
   onClose: () => void; 
   onUserUpdated: () => void; 
+  getRoleColor: (role: string) => string;
+  getRoleIcon: (role: string) => React.ReactElement | null;
 }) {
   const { toast } = useToast();
   const { translate } = useLanguage();
@@ -1071,7 +1627,7 @@ function EditUserForm({ user, onClose, onUserUpdated }: {
   const handleSaveUser = async () => {
     if (!formData.name.trim() || !formData.username.trim()) {
       toast({
-        title: 'Error',
+        title: translate('error') || 'Error',
         description: translate('editUserRequiredFields') || 'El nombre y usuario son requeridos',
         variant: 'destructive'
       });
@@ -1080,7 +1636,7 @@ function EditUserForm({ user, onClose, onUserUpdated }: {
 
     if (formData.password && formData.password !== formData.confirmPassword) {
       toast({
-        title: 'Error',
+        title: translate('error') || 'Error',
         description: translate('editUserPasswordMismatch') || 'Las contraseñas no coinciden',
         variant: 'destructive'
       });
@@ -1149,7 +1705,7 @@ function EditUserForm({ user, onClose, onUserUpdated }: {
       });
     } catch (error) {
       toast({
-        title: 'Error',
+        title: translate('error') || 'Error',
         description: translate('editUserUpdateError') || 'No se pudo actualizar el usuario',
         variant: 'destructive'
       });
@@ -1201,11 +1757,8 @@ function EditUserForm({ user, onClose, onUserUpdated }: {
           <div>
             <Label>{translate('editUserType') || 'Tipo de Usuario'}</Label>
             <div className="mt-2">
-              <Badge className={
-                user.type === 'admin' ? 'bg-purple-100 text-purple-800' :
-                user.type === 'teacher' ? 'bg-green-100 text-green-800' :
-                'bg-blue-100 text-blue-800'
-              }>
+              <Badge className={getRoleColor(user.type)}>
+                {getRoleIcon(user.type)}
                 {user.type === 'admin' ? (translate('editUserTypeAdmin') || 'Administrador') :
                  user.type === 'teacher' ? (translate('editUserTypeTeacher') || 'Profesor') : 
                  (translate('editUserTypeStudent') || 'Estudiante')}

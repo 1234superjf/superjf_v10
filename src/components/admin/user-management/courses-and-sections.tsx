@@ -71,8 +71,8 @@ export default function CoursesAndSections() {
     } catch (error) {
       console.error('Error loading data:', error);
       toast({
-        title: 'Error',
-        description: 'No se pudieron cargar los datos',
+        title: translate('error') || 'Error',
+        description: translate('couldNotLoadData') || 'Could not load data',
         variant: 'destructive'
       });
     }
@@ -86,20 +86,20 @@ export default function CoursesAndSections() {
       console.log('=== DEBUGGING SECTION CREATION ===');
       LocalStorageManager.debugLocalStorage();
       
-      const result = EducationAutomation.createStandardSections();
+      const result = EducationAutomation.createStandardSections(translate);
       
       if (result.success) {
         // Recargar datos
         loadData();
         
         toast({
-          title: 'Éxito',
+          title: translate('success') || 'Success',
           description: result.message,
           variant: 'default'
         });
       } else {
         toast({
-          title: 'Error',
+          title: translate('error') || 'Error',
           description: result.message,
           variant: 'destructive'
         });
@@ -107,8 +107,8 @@ export default function CoursesAndSections() {
     } catch (error) {
       console.error('Error in handleCreateStandardSections:', error);
       toast({
-        title: 'Error',
-        description: 'Error al crear las secciones automáticas',
+        title: translate('error') || 'Error',
+        description: translate('errorCreatingAutomaticSections') || 'Error creating automatic sections',
         variant: 'destructive'
       });
     } finally {
@@ -123,18 +123,18 @@ export default function CoursesAndSections() {
       console.log('=== FORCE MODE DEBUGGING ===');
       LocalStorageManager.debugLocalStorage();
       
-      const result = EducationAutomation.forceCreateSectionsForAllCourses();
+      const result = EducationAutomation.forceCreateSectionsForAllCourses(translate);
       
       if (result.success) {
         loadData();
         toast({
-          title: 'Éxito (Modo Forzado)',
+          title: translate('successForcedMode') || 'Éxito (Modo Forzado)',
           description: result.message,
           variant: 'default'
         });
       } else {
         toast({
-          title: 'Error',
+          title: translate('error') || 'Error',
           description: result.message,
           variant: 'destructive'
         });
@@ -142,8 +142,8 @@ export default function CoursesAndSections() {
     } catch (error) {
       console.error('Error in handleForceCreateSections:', error);
       toast({
-        title: 'Error',
-        description: 'Error en modo forzado',
+        title: translate('error') || 'Error',
+        description: translate('errorInForcedMode') || 'Error in forced mode',
         variant: 'destructive'
       });
     } finally {
@@ -155,28 +155,28 @@ export default function CoursesAndSections() {
   const handleCreateStandardCourses = async () => {
     setIsLoading(true);
     try {
-      const result = EducationAutomation.createStandardCourses();
+      const result = EducationAutomation.createStandardCourses(translate);
       
       if (result.success) {
         // Recargar datos
         loadData();
         
         toast({
-          title: 'Éxito',
+          title: translate('success') || 'Success',
           description: result.message,
           variant: 'default'
         });
       } else {
         toast({
-          title: 'Error',
+          title: translate('error') || 'Error',
           description: result.message,
           variant: 'destructive'
         });
       }
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'Error al crear los cursos estándar',
+        title: translate('error') || 'Error',
+        description: translate('errorCreatingStandardCourses') || 'Error creating standard courses',
         variant: 'destructive'
       });
     } finally {
@@ -188,28 +188,28 @@ export default function CoursesAndSections() {
   const handleRecalculateCounters = async () => {
     setIsLoading(true);
     try {
-      const result = EducationAutomation.recalculateSectionCounts();
+      const result = EducationAutomation.recalculateSectionCounts(translate);
       
       if (result.success) {
         // Recargar datos
         loadData();
         
         toast({
-          title: 'Éxito',
+          title: translate('success') || 'Success',
           description: result.message,
           variant: 'default'
         });
       } else {
         toast({
-          title: 'Error',
+          title: translate('error') || 'Error',
           description: result.message,
           variant: 'destructive'
         });
       }
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'Error al recalcular los contadores',
+        title: translate('error') || 'Error',
+        description: translate('errorRecalculatingCounters') || 'Error recalculating counters',
         variant: 'destructive'
       });
     } finally {
@@ -221,8 +221,8 @@ export default function CoursesAndSections() {
   const handleCreateCourse = async () => {
     if (!courseForm.name.trim()) {
       toast({
-        title: 'Error',
-        description: 'El nombre del curso es requerido',
+        title: translate('error') || 'Error',
+        description: translate('courseNameRequired') || 'Course name is required',
         variant: 'destructive'
       });
       return;
@@ -307,14 +307,14 @@ export default function CoursesAndSections() {
       setShowCourseDialog(false);
 
       toast({
-        title: 'Éxito',
+        title: translate('success') || 'Success',
         description: `Curso creado con ${newSubjects.length} asignaturas y 2 secciones (A y B)`,
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo crear el curso',
+        title: translate('error') || 'Error',
+        description: translate('couldNotCreateCourse') || 'Could not create course',
         variant: 'destructive'
       });
     } finally {
@@ -347,14 +347,14 @@ export default function CoursesAndSections() {
       setShowCourseDialog(false);
 
       toast({
-        title: 'Éxito',
-        description: 'Curso actualizado correctamente',
+        title: translate('success') || 'Success',
+        description: translate('courseUpdatedSuccessfully') || 'Course updated successfully',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo actualizar el curso',
+        title: translate('error') || 'Error',
+        description: translate('couldNotUpdateCourse') || 'Could not update course',
         variant: 'destructive'
       });
     } finally {
@@ -368,8 +368,8 @@ export default function CoursesAndSections() {
       const courseSections = sections.filter(s => s.courseId === courseId);
       if (courseSections.length > 0) {
         toast({
-          title: 'Error',
-          description: 'No se puede eliminar un curso que tiene secciones',
+          title: translate('error') || 'Error',
+          description: translate('cannotDeleteCourseWithSections') || 'Cannot delete a course that has sections',
           variant: 'destructive'
         });
         return;
@@ -385,14 +385,14 @@ export default function CoursesAndSections() {
       LocalStorageManager.setSubjects(updatedSubjects);
 
       toast({
-        title: 'Éxito',
-        description: 'Curso eliminado correctamente',
+        title: translate('success') || 'Success',
+        description: translate('courseDeletedSuccessfully') || 'Course deleted successfully',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo eliminar el curso',
+        title: translate('error') || 'Error',
+        description: translate('couldNotDeleteCourse') || 'Could not delete course',
         variant: 'destructive'
       });
     }
@@ -403,8 +403,8 @@ export default function CoursesAndSections() {
       const section = sections.find(s => s.id === sectionId);
       if (!section) {
         toast({
-          title: 'Error',
-          description: 'Sección no encontrada',
+          title: translate('error') || 'Error',
+          description: translate('sectionNotFound') || 'Section not found',
           variant: 'destructive'
         });
         return;
@@ -413,8 +413,8 @@ export default function CoursesAndSections() {
       // Check if section has students
       if (section.studentCount > 0) {
         toast({
-          title: 'Error',
-          description: 'No se puede eliminar una sección que tiene estudiantes',
+          title: translate('error') || 'Error',
+          description: translate('cannotDeleteSectionWithStudents') || 'Cannot delete a section that has students',
           variant: 'destructive'
         });
         return;
@@ -425,14 +425,14 @@ export default function CoursesAndSections() {
       LocalStorageManager.setSections(updatedSections);
 
       toast({
-        title: 'Éxito',
-        description: 'Sección eliminada correctamente',
+        title: translate('success') || 'Success',
+        description: translate('sectionDeletedSuccessfully') || 'Section deleted successfully',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo eliminar la sección',
+        title: translate('error') || 'Error',
+        description: translate('couldNotDeleteSection') || 'Could not delete section',
         variant: 'destructive'
       });
     }
@@ -442,8 +442,8 @@ export default function CoursesAndSections() {
   const handleCreateSection = async () => {
     if (!sectionForm.name.trim() || !sectionForm.courseId) {
       toast({
-        title: 'Error',
-        description: 'El nombre de la sección y el curso son requeridos',
+        title: translate('error') || 'Error',
+        description: translate('sectionNameAndCourseRequired') || 'Section name and course are required',
         variant: 'destructive'
       });
       return;
@@ -471,14 +471,14 @@ export default function CoursesAndSections() {
       setShowSectionDialog(false);
 
       toast({
-        title: 'Éxito',
-        description: 'Sección creada correctamente',
+        title: translate('success') || 'Success',
+        description: translate('sectionCreatedSuccessfully') || 'Section created successfully',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo crear la sección',
+        title: translate('error') || 'Error',
+        description: translate('couldNotCreateSection') || 'Could not create section',
         variant: 'destructive'
       });
     } finally {

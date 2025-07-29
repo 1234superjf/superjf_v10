@@ -91,7 +91,7 @@ export interface UserFormData {
   email: string;
   password: string;
   confirmPassword: string;
-  role: 'student' | 'teacher';
+  role: 'student' | 'teacher' | 'admin';
   courseId?: string;
   sectionId?: string;
 }

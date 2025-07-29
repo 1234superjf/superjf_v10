@@ -31,6 +31,10 @@ export class EducationCodeGenerator {
     return this.generateCode('TCH');
   }
 
+  static generateAdminCode(): string {
+    return this.generateCode('ADM');
+  }
+
   static validateCode(code: string, expectedPrefix: string): boolean {
     const regex = new RegExp(`^${expectedPrefix}-[A-Z0-9]{5,8}$`);
     return regex.test(code);
@@ -176,7 +180,7 @@ export class LocalStorageManager {
  * Generador de nombres de usuario automáticos
  */
 export class UsernameGenerator {
-  static generateFromName(name: string, role: 'student' | 'teacher'): string {
+  static generateFromName(name: string, role: 'student' | 'teacher' | 'admin'): string {
     const cleanName = name
       .toLowerCase()
       .normalize('NFD')
@@ -196,7 +200,7 @@ export class UsernameGenerator {
     }
 
     // Add role prefix
-    const prefix = role === 'student' ? 'est' : 'prof';
+    const prefix = role === 'student' ? 'est' : role === 'teacher' ? 'prof' : 'admin';
     username = prefix + username;
 
     // Add random number to ensure uniqueness
@@ -232,7 +236,7 @@ export class EducationAutomation {
   /**
    * Crear secciones A y B para TODOS los cursos (versión de corrección)
    */
-  static forceCreateSectionsForAllCourses(): { success: boolean; created: number; message: string } {
+  static forceCreateSectionsForAllCourses(translate?: (key: string) => string): { success: boolean; created: number; message: string } {
     try {
       const courses = LocalStorageManager.getCourses();
       const existingSections = LocalStorageManager.getSections();
@@ -302,7 +306,11 @@ export class EducationAutomation {
       return {
         success: true,
         created: createdCount,
-        message: `FORZADO: Se crearon ${createdCount} secciones para ${courses.length} cursos`
+        message: translate ? 
+          `${translate('forcedMode') || 'FORZADO'}: ${translate('sectionsCreatedCount') || 'Se crearon {{count}} secciones para {{courses}} cursos'}`
+            .replace('{{count}}', createdCount.toString())
+            .replace('{{courses}}', courses.length.toString()) :
+          `FORZADO: Se crearon ${createdCount} secciones para ${courses.length} cursos`
       };
 
     } catch (error: any) {
@@ -310,11 +318,11 @@ export class EducationAutomation {
       return {
         success: false,
         created: 0,
-        message: 'Error en modo forzado'
+        message: translate ? (translate('errorInForcedMode') || 'Error en modo forzado') : 'Error en modo forzado'
       };
     }
   }
-  static createStandardSections(): { success: boolean; created: number; message: string } {
+  static createStandardSections(translate?: (key: string) => string): { success: boolean; created: number; message: string } {
     try {
       const courses = LocalStorageManager.getCourses();
       const existingSections = LocalStorageManager.getSections();
@@ -388,7 +396,11 @@ export class EducationAutomation {
       return {
         success: true,
         created: createdCount,
-        message: `Se crearon ${createdCount} secciones para ${basicaMediaCourses.length} cursos`
+        message: translate ? 
+          (translate('sectionsCreatedForCourses') || 'Se crearon {{count}} secciones para {{courses}} cursos')
+            .replace('{{count}}', createdCount.toString())
+            .replace('{{courses}}', basicaMediaCourses.length.toString()) :
+          `Se crearon ${createdCount} secciones para ${basicaMediaCourses.length} cursos`
       };
 
     } catch (error: any) {
@@ -396,7 +408,7 @@ export class EducationAutomation {
       return {
         success: false,
         created: 0,
-        message: 'Error al crear las secciones automáticas'
+        message: translate ? (translate('errorCreatingAutomaticSections') || 'Error al crear las secciones automáticas') : 'Error al crear las secciones automáticas'
       };
     }
   }
@@ -425,7 +437,7 @@ export class EducationAutomation {
   /**
    * Crear cursos estándar del sistema educativo chileno
    */
-  static createStandardCourses(): { success: boolean; created: number; message: string } {
+  static createStandardCourses(translate?: (key: string) => string): { success: boolean; created: number; message: string } {
     try {
       const existingCourses = LocalStorageManager.getCourses();
       const newCourses = [];
@@ -488,7 +500,10 @@ export class EducationAutomation {
       return {
         success: true,
         created: newCourses.length,
-        message: `Se crearon ${newCourses.length} cursos estándar`
+        message: translate ? 
+          (translate('standardCoursesCreated') || 'Se crearon {{count}} cursos estándar')
+            .replace('{{count}}', newCourses.length.toString()) :
+          `Se crearon ${newCourses.length} cursos estándar`
       };
 
     } catch (error) {
@@ -496,7 +511,7 @@ export class EducationAutomation {
       return {
         success: false,
         created: 0,
-        message: 'Error al crear los cursos estándar'
+        message: translate ? (translate('errorCreatingStandardCourses') || 'Error al crear los cursos estándar') : 'Error al crear los cursos estándar'
       };
     }
   }
@@ -504,7 +519,7 @@ export class EducationAutomation {
   /**
    * Recalcula los contadores de estudiantes en todas las secciones
    */
-  static recalculateSectionCounts(): { success: boolean; message: string; updated: number } {
+  static recalculateSectionCounts(translate?: (key: string) => string): { success: boolean; message: string; updated: number } {
     try {
       const students = LocalStorageManager.getStudents();
       const sections = LocalStorageManager.getSections();
@@ -531,7 +546,10 @@ export class EducationAutomation {
       return {
         success: true,
         updated: updatedSections.length,
-        message: `Se recalcularon los contadores de ${updatedSections.length} secciones`
+        message: translate ? 
+          (translate('countersRecalculated') || 'Se recalcularon los contadores de {{count}} secciones')
+            .replace('{{count}}', updatedSections.length.toString()) :
+          `Se recalcularon los contadores de ${updatedSections.length} secciones`
       };
 
     } catch (error) {
@@ -539,7 +557,7 @@ export class EducationAutomation {
       return {
         success: false,
         updated: 0,
-        message: 'Error al recalcular los contadores'
+        message: translate ? (translate('errorRecalculatingCounters') || 'Error al recalcular los contadores') : 'Error al recalcular los contadores'
       };
     }
   }

@@ -21,7 +21,9 @@ import {
   Save,
   X,
   Eye,
-  EyeOff
+  EyeOff,
+  Shield,
+  Crown
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
@@ -40,14 +42,15 @@ export default function UserManagement() {
   const { translate } = useLanguage();
   const [students, setStudents] = useState<Student[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [administrators, setAdministrators] = useState<any[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
   // Form states
   const [showUserDialog, setShowUserDialog] = useState(false);
-  const [userType, setUserType] = useState<'student' | 'teacher'>('student');
-  const [editingUser, setEditingUser] = useState<Student | Teacher | null>(null);
+  const [userType, setUserType] = useState<'student' | 'teacher' | 'admin'>('student');
+  const [editingUser, setEditingUser] = useState<Student | Teacher | any | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [autoGenerateCredentials, setAutoGenerateCredentials] = useState(true);
 
@@ -80,16 +83,46 @@ export default function UserManagement() {
       const teachersData = LocalStorageManager.getTeachers();
       const coursesData = LocalStorageManager.getCourses();
       const sectionsData = LocalStorageManager.getSections();
+      
+      // Load administrators from dedicated storage and main users array
+      const adminsFromStorage = JSON.parse(localStorage.getItem('smart-student-administrators') || '[]');
+      const allUsers = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const adminsFromUsers = allUsers.filter((user: any) => user.role === 'admin');
+      
+      // Combine and deduplicate administrators
+      const allAdmins = [...adminsFromStorage];
+      adminsFromUsers.forEach((admin: any) => {
+        if (!allAdmins.find(a => a.id === admin.id)) {
+          allAdmins.push(admin);
+        }
+      });
+
+      // Migrate administrators without uniqueCode
+      const migratedAdmins = allAdmins.map(admin => {
+        if (!admin.uniqueCode) {
+          return {
+            ...admin,
+            uniqueCode: EducationCodeGenerator.generateAdminCode()
+          };
+        }
+        return admin;
+      });
+
+      // Save migrated administrators back to storage
+      if (migratedAdmins.some(admin => !allAdmins.find(a => a.id === admin.id && a.uniqueCode === admin.uniqueCode))) {
+        localStorage.setItem('smart-student-administrators', JSON.stringify(migratedAdmins));
+      }
 
       setStudents(studentsData);
       setTeachers(teachersData);
+      setAdministrators(migratedAdmins);
       setCourses(coursesData);
       setSections(sectionsData);
     } catch (error) {
       console.error('Error loading data:', error);
       toast({
-        title: 'Error',
-        description: 'No se pudieron cargar los datos',
+        title: translate('userManagementError') || 'Error',
+        description: translate('userManagementCouldNotLoadData') || 'Could not load data',
         variant: 'destructive'
       });
     }
@@ -136,24 +169,24 @@ export default function UserManagement() {
 
     // Name validation
     if (!userForm.name.trim()) {
-      errors.name = 'El nombre es requerido';
+      errors.name = translate('userManagementNameRequired') || 'El nombre es requerido';
     } else if (!FormValidation.validateName(userForm.name)) {
-      errors.name = 'El nombre debe tener al menos 2 caracteres y solo letras';
+      errors.name = translate('userManagementNameInvalid') || 'El nombre debe tener al menos 2 caracteres y solo letras';
     }
 
     // Username validation
     if (!userForm.username.trim()) {
-      errors.username = 'El nombre de usuario es requerido';
+      errors.username = translate('userManagementUsernameRequired') || 'El nombre de usuario es requerido';
     } else if (!FormValidation.validateUsername(userForm.username)) {
-      errors.username = 'El usuario debe tener 3-20 caracteres alfanuméricos';
+      errors.username = translate('userManagementUsernameInvalid') || 'El usuario debe tener 3-20 caracteres alfanuméricos';
     } else {
       // Check if username exists
-      const allUsers = [...students, ...teachers];
+      const allUsers = [...students, ...teachers, ...administrators];
       const existingUser = allUsers.find(u => 
         u.username === userForm.username && (!editingUser || u.id !== editingUser.id)
       );
       if (existingUser) {
-        errors.username = 'Este nombre de usuario ya existe';
+        errors.username = translate('userManagementUsernameExists') || 'Este nombre de usuario ya existe';
       }
     }
 
@@ -161,15 +194,15 @@ export default function UserManagement() {
     if (userForm.email.trim()) {
       // Only validate format if email is provided
       if (!FormValidation.validateEmail(userForm.email)) {
-        errors.email = 'El formato del email no es válido';
+        errors.email = translate('userManagementEmailInvalid') || 'El formato del email no es válido';
       } else {
         // Check if email exists
-        const allUsers = [...students, ...teachers];
+        const allUsers = [...students, ...teachers, ...administrators];
         const existingUser = allUsers.find(u => 
           u.email === userForm.email && (!editingUser || u.id !== editingUser.id)
         );
         if (existingUser) {
-          errors.email = 'Este email ya está registrado';
+          errors.email = translate('userManagementEmailExists') || 'Este email ya está registrado';
         }
       }
     }
@@ -177,7 +210,7 @@ export default function UserManagement() {
     // Password validation (only for new users)
     if (!editingUser) {
       if (!userForm.password) {
-        errors.password = 'La contraseña es requerida';
+        errors.password = translate('userManagementPasswordRequired') || 'La contraseña es requerida';
       } else {
         const passwordValidation = FormValidation.validatePassword(userForm.password);
         if (!passwordValidation.isValid) {
@@ -186,7 +219,7 @@ export default function UserManagement() {
       }
 
       if (userForm.password !== userForm.confirmPassword) {
-        errors.confirmPassword = 'Las contraseñas no coinciden';
+        errors.confirmPassword = translate('userManagementPasswordsNoMatch') || 'Las contraseñas no coinciden';
       }
     }
 
@@ -203,7 +236,7 @@ export default function UserManagement() {
     // Teacher-specific validations
     if (userForm.role === 'teacher') {
       if (selectedSubjects.length === 0) {
-        errors.subjects = 'Selecciona al menos una asignatura para el profesor';
+        errors.subjects = translate('userManagementSelectSubjectForTeacher') || 'Selecciona al menos una asignatura para el profesor';
       }
     }
 
@@ -215,8 +248,8 @@ export default function UserManagement() {
   const handleSaveUser = async () => {
     if (!validateForm()) {
       toast({
-        title: 'Error de validación',
-        description: 'Por favor corrige los errores en el formulario',
+        title: translate('userManagementValidationError') || 'Validation error',
+        description: translate('userManagementFixFormErrors') || 'Please fix the errors in the form',
         variant: 'destructive'
       });
       return;
@@ -231,8 +264,8 @@ export default function UserManagement() {
       }
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo guardar el usuario',
+        title: translate('userManagementError') || 'Error',
+        description: translate('userManagementCouldNotSaveUser') || 'Could not save user',
         variant: 'destructive'
       });
     } finally {
@@ -274,7 +307,7 @@ export default function UserManagement() {
       setSections(updatedSections);
       LocalStorageManager.setSections(updatedSections);
 
-    } else {
+    } else if (userForm.role === 'teacher') {
       const newTeacher: Teacher = {
         ...baseUser,
         uniqueCode: EducationCodeGenerator.generateTeacherCode(),
@@ -286,6 +319,19 @@ export default function UserManagement() {
       const updatedTeachers = [...teachers, newTeacher];
       setTeachers(updatedTeachers);
       LocalStorageManager.setTeachers(updatedTeachers);
+    } else if (userForm.role === 'admin') {
+      const newAdmin = {
+        ...baseUser,
+        uniqueCode: EducationCodeGenerator.generateAdminCode(),
+        role: 'admin',
+        displayName: userForm.name.trim(),
+        activeCourses: [], // Admin has access to all courses
+        password: userForm.password
+      };
+
+      const updatedAdministrators = [...administrators, newAdmin];
+      setAdministrators(updatedAdministrators);
+      localStorage.setItem('smart-student-administrators', JSON.stringify(updatedAdministrators));
     }
 
     // Also save to main users array (for backward compatibility)
@@ -301,8 +347,12 @@ export default function UserManagement() {
     setShowUserDialog(false);
 
     toast({
-      title: 'Éxito',
-      description: `${userForm.role === 'student' ? 'Estudiante' : 'Profesor'} creado correctamente`,
+      title: translate('userManagementSuccess') || 'Success',
+      description: `${
+        userForm.role === 'student' ? translate('userManagementStudent') || 'Student' : 
+        userForm.role === 'teacher' ? translate('userManagementTeacher') || 'Teacher' : 
+        translate('userManagementAdministrator') || 'Administrator'
+      } ${translate('userManagementCreatedSuccessfully') || 'created successfully'}`,
       variant: 'default'
     });
   };
@@ -340,7 +390,7 @@ export default function UserManagement() {
         LocalStorageManager.setStudents(updatedStudents);
 
         // Recalculate section counts automatically
-        const recalculateResult = EducationAutomation.recalculateSectionCounts();
+        const recalculateResult = EducationAutomation.recalculateSectionCounts(translate);
         if (recalculateResult.success) {
           // Reload sections with updated counts
           const updatedSections = LocalStorageManager.getSections();
@@ -354,7 +404,7 @@ export default function UserManagement() {
         setStudents(updatedStudents);
         LocalStorageManager.setStudents(updatedStudents);
       }
-    } else {
+    } else if (editingUser.role === 'teacher') {
       // Update teacher data
       const teacherData = updatedUserData as Teacher;
       teacherData.preferredCourseId = userForm.courseId;
@@ -365,6 +415,17 @@ export default function UserManagement() {
       );
       setTeachers(updatedTeachers);
       LocalStorageManager.setTeachers(updatedTeachers);
+    } else if (editingUser.role === 'admin') {
+      // Update administrator data
+      const adminData = {
+        ...updatedUserData,
+        displayName: userForm.name.trim()
+      };
+      
+      const updatedAdministrators = administrators.map(a => 
+        a.id === editingUser.id ? adminData : a
+      );
+      setAdministrators(updatedAdministrators);
     }
 
     // Update main users array
@@ -380,13 +441,13 @@ export default function UserManagement() {
     setShowUserDialog(false);
 
     toast({
-      title: 'Éxito',
-      description: 'Usuario actualizado correctamente',
+      title: translate('userManagementSuccess') || 'Success',
+      description: translate('userManagementUserUpdatedSuccessfully') || 'User updated successfully',
       variant: 'default'
     });
   };
 
-  const handleDeleteUser = (user: Student | Teacher) => {
+  const handleDeleteUser = (user: Student | Teacher | any) => {
     try {
       if (user.role === 'student') {
         const student = user as Student;
@@ -405,10 +466,13 @@ export default function UserManagement() {
         const updatedStudents = students.filter(s => s.id !== user.id);
         setStudents(updatedStudents);
         LocalStorageManager.setStudents(updatedStudents);
-      } else {
+      } else if (user.role === 'teacher') {
         const updatedTeachers = teachers.filter(t => t.id !== user.id);
         setTeachers(updatedTeachers);
         LocalStorageManager.setTeachers(updatedTeachers);
+      } else if (user.role === 'admin') {
+        const updatedAdministrators = administrators.filter(a => a.id !== user.id);
+        setAdministrators(updatedAdministrators);
       }
 
       // Remove from main users array
@@ -417,14 +481,14 @@ export default function UserManagement() {
       localStorage.setItem('smart-student-users', JSON.stringify(updatedAllUsers));
 
       toast({
-        title: 'Éxito',
-        description: 'Usuario eliminado correctamente',
+        title: translate('userManagementSuccess') || 'Success',
+        description: translate('userManagementUserDeletedSuccessfully') || 'User deleted successfully',
         variant: 'default'
       });
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'No se pudo eliminar el usuario',
+        title: translate('userManagementError') || 'Error',
+        description: translate('userManagementCouldNotDeleteUser') || 'Could not delete user',
         variant: 'destructive'
       });
     }
@@ -447,11 +511,11 @@ export default function UserManagement() {
     setAutoGenerateCredentials(true);
   };
 
-  const openEditDialog = (user: Student | Teacher) => {
+  const openEditDialog = (user: Student | Teacher | any) => {
     setEditingUser(user);
     setUserForm({
       username: user.username,
-      name: user.name,
+      name: user.name || user.displayName,
       email: user.email,
       password: '', // Always empty when editing
       confirmPassword: '', // Always empty when editing
@@ -489,6 +553,26 @@ export default function UserManagement() {
     };
   };
 
+  // Function to get role badge colors (matching configuration)
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'admin': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+      case 'teacher': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+      case 'student': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+    }
+  };
+
+  // Function to get role icons
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'admin': return <Crown className="w-3 h-3 mr-1" />;
+      case 'teacher': return <Shield className="w-3 h-3 mr-1" />;
+      case 'student': return <GraduationCap className="w-3 h-3 mr-1" />;
+      default: return null;
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -509,8 +593,7 @@ export default function UserManagement() {
               <Button 
                 onClick={() => {
                   resetForm();
-                  setUserType('student');
-                  setUserForm(prev => ({ ...prev, role: 'student' }));
+                  setUserForm(prev => ({ ...prev, role: 'student' })); // Default to student
                 }}
                 className="bg-blue-500 hover:bg-blue-600"
               >
@@ -548,7 +631,7 @@ export default function UserManagement() {
                       />
                       <Label htmlFor="student" className="flex items-center cursor-pointer">
                         <GraduationCap className="w-4 h-4 mr-1" />
-                        Estudiante
+                        {translate('userManagementStudent') || 'Estudiante'}
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -566,8 +649,27 @@ export default function UserManagement() {
                         className="w-4 h-4"
                       />
                       <Label htmlFor="teacher" className="flex items-center cursor-pointer">
-                        <Users className="w-4 h-4 mr-1" />
-                        Profesor
+                        <Shield className="w-4 h-4 mr-1" />
+                        {translate('userManagementTeacher') || 'Profesor'}
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        id="admin"
+                        name="userType"
+                        checked={userForm.role === 'admin'}
+                        onChange={() => setUserForm(prev => ({ 
+                          ...prev, 
+                          role: 'admin',
+                          courseId: '',
+                          sectionId: ''
+                        }))}
+                        className="w-4 h-4"
+                      />
+                      <Label htmlFor="admin" className="flex items-center cursor-pointer">
+                        <Crown className="w-4 h-4 mr-1" />
+                        {translate('userManagementAdministrator') || 'Administrador'}
                       </Label>
                     </div>
                   </div>
@@ -578,10 +680,10 @@ export default function UserManagement() {
                   <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
                     <div>
                       <Label htmlFor="autoGenerate" className="text-sm font-medium">
-                        Generar credenciales automáticamente
+                        {translate('userManagementAutoGenerateCredentials') || 'Generar credenciales automáticamente'}
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        Se generarán usuario y contraseña basados en el nombre
+                        {translate('userManagementAutoGenerateCredentialsDesc') || 'Se generarán usuario y contraseña basados en el nombre'}
                       </p>
                     </div>
                     <Switch
@@ -595,12 +697,12 @@ export default function UserManagement() {
                 {/* Basic Information */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="name">Nombre Completo *</Label>
+                    <Label htmlFor="name">{translate('userManagementFullName') || 'Nombre Completo'} *</Label>
                     <Input
                       id="name"
                       value={userForm.name}
                       onChange={(e) => setUserForm(prev => ({ ...prev, name: e.target.value }))}
-                      placeholder="Nombre completo del usuario"
+                      placeholder={translate('userManagementFullNamePlaceholder') || 'Nombre completo del usuario'}
                       className={validationErrors.name ? 'border-red-500' : ''}
                     />
                     {validationErrors.name && (
@@ -609,7 +711,7 @@ export default function UserManagement() {
                   </div>
 
                   <div>
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">{translate('userManagementEmail') || 'Email'}</Label>
                     <div className="relative">
                       <Mail className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
                       <Input
@@ -617,7 +719,7 @@ export default function UserManagement() {
                         type="email"
                         value={userForm.email}
                         onChange={(e) => setUserForm(prev => ({ ...prev, email: e.target.value }))}
-                        placeholder="correo@ejemplo.com (opcional)"
+                        placeholder={translate('userManagementEmailPlaceholder') || 'correo@ejemplo.com (opcional)'}
                         className={`pl-10 ${validationErrors.email ? 'border-red-500' : ''}`}
                       />
                     </div>
@@ -630,12 +732,12 @@ export default function UserManagement() {
                 {/* Credentials */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="username">Nombre de Usuario *</Label>
+                    <Label htmlFor="username">{translate('userManagementUsername') || 'Nombre de Usuario'} *</Label>
                     <Input
                       id="username"
                       value={userForm.username}
                       onChange={(e) => setUserForm(prev => ({ ...prev, username: e.target.value }))}
-                      placeholder="nombreusuario"
+                      placeholder={translate('userManagementUsernamePlaceholder') || 'nombreusuario'}
                       disabled={autoGenerateCredentials && !editingUser}
                       className={validationErrors.username ? 'border-red-500' : ''}
                     />
@@ -647,7 +749,7 @@ export default function UserManagement() {
                   {/* Only show password fields when creating new user */}
                   {!editingUser && (
                     <div>
-                      <Label htmlFor="password">Contraseña *</Label>
+                      <Label htmlFor="password">{translate('userManagementPassword') || 'Contraseña'} *</Label>
                       <div className="relative">
                         <Key className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
                         <Input
@@ -655,7 +757,7 @@ export default function UserManagement() {
                           type={showPassword ? 'text' : 'password'}
                           value={userForm.password}
                           onChange={(e) => setUserForm(prev => ({ ...prev, password: e.target.value }))}
-                          placeholder="Contraseña"
+                          placeholder={translate('userManagementPasswordPlaceholder') || 'Contraseña'}
                           disabled={autoGenerateCredentials}
                           className={`pl-10 pr-10 ${validationErrors.password ? 'border-red-500' : ''}`}
                         />
@@ -674,7 +776,7 @@ export default function UserManagement() {
                       )}
                       {!autoGenerateCredentials && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          Mínimo 4 caracteres
+                          {translate('userManagementPasswordMinChars') || 'Mínimo 4 caracteres'}
                         </p>
                       )}
                     </div>
@@ -684,13 +786,13 @@ export default function UserManagement() {
                 {/* Only show confirm password when creating new user */}
                 {!editingUser && (
                   <div>
-                    <Label htmlFor="confirmPassword">Confirmar Contraseña *</Label>
+                    <Label htmlFor="confirmPassword">{translate('userManagementConfirmPassword') || 'Confirmar Contraseña'} *</Label>
                     <Input
                       id="confirmPassword"
                       type="password"
                       value={userForm.confirmPassword}
                       onChange={(e) => setUserForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                      placeholder="Confirmar contraseña"
+                      placeholder={translate('userManagementConfirmPasswordPlaceholder') || 'Confirmar contraseña'}
                       disabled={autoGenerateCredentials}
                       className={validationErrors.confirmPassword ? 'border-red-500' : ''}
                     />
@@ -704,7 +806,7 @@ export default function UserManagement() {
                 {userForm.role === 'student' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
                     <div>
-                      <Label htmlFor="courseId">Curso *</Label>
+                      <Label htmlFor="courseId">{translate('userManagementCourse') || 'Curso'} *</Label>
                       <Select
                         value={userForm.courseId}
                         onValueChange={(value) => setUserForm(prev => ({ 
@@ -714,12 +816,12 @@ export default function UserManagement() {
                         }))}
                       >
                         <SelectTrigger className={validationErrors.courseId ? 'border-red-500' : ''}>
-                          <SelectValue placeholder="Selecciona un curso" />
+                          <SelectValue placeholder={translate('userManagementSelectCourse') || 'Selecciona un curso'} />
                         </SelectTrigger>
                         <SelectContent>
                           {courses.map(course => (
                             <SelectItem key={course.id} value={course.id}>
-                              {course.name} ({course.level === 'basica' ? 'Básica' : 'Media'})
+                              {course.name} ({course.level === 'basica' ? translate('userManagementBasicLevel') || 'Básica' : translate('userManagementHighLevel') || 'Media'})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -730,19 +832,19 @@ export default function UserManagement() {
                     </div>
 
                     <div>
-                      <Label htmlFor="sectionId">Sección *</Label>
+                      <Label htmlFor="sectionId">{translate('userManagementSection') || 'Sección'} *</Label>
                       <Select
                         value={userForm.sectionId}
                         onValueChange={(value) => setUserForm(prev => ({ ...prev, sectionId: value }))}
                         disabled={!userForm.courseId}
                       >
                         <SelectTrigger className={validationErrors.sectionId ? 'border-red-500' : ''}>
-                          <SelectValue placeholder="Selecciona una sección" />
+                          <SelectValue placeholder={translate('userManagementSelectSection') || 'Selecciona una sección'} />
                         </SelectTrigger>
                         <SelectContent>
                           {getAvailableSections().map(section => (
                             <SelectItem key={section.id} value={section.id}>
-                              {section.name} ({section.studentCount}/{section.maxStudents || 'Sin límite'})
+                              {section.name} ({section.studentCount}/{section.maxStudents || translate('userManagementNoLimit') || 'Sin límite'})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -784,7 +886,7 @@ export default function UserManagement() {
                         ))}
                       </div>
                       {selectedSubjects.length === 0 && (
-                        <p className="text-red-500 text-xs mt-2">Selecciona al menos una asignatura</p>
+                        <p className="text-red-500 text-xs mt-2">{translate('userManagementSelectAtLeastOneSubject') || 'Selecciona al menos una asignatura'}</p>
                       )}
                       {validationErrors.subjects && (
                         <p className="text-red-500 text-xs mt-2">{validationErrors.subjects}</p>
@@ -854,14 +956,15 @@ export default function UserManagement() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">
-              {translate('userManagementTotalUsers') || 'Total Usuarios'}
+            <CardTitle className="text-sm font-medium flex items-center">
+              <Shield className="w-4 h-4 mr-2" />
+              {translate('userManagementAdministrators') || 'Administradores'}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{students.length + teachers.length}</div>
+            <div className="text-2xl font-bold">{administrators.length}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              {translate('userManagementInTheSystem') || 'En el sistema'}
+              {administrators.filter(a => a.isActive !== false).length} {translate('userManagementActive') || 'activos'}
             </div>
           </CardContent>
         </Card>
@@ -869,13 +972,13 @@ export default function UserManagement() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">
-              {translate('userManagementActiveCourses') || 'Cursos Activos'}
+              {translate('userManagementTotalUsers') || 'Total Usuarios'}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{courses.length}</div>
+            <div className="text-2xl font-bold">{students.length + teachers.length + administrators.length}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              {sections.length} {translate('userManagementSections') || 'secciones'}
+              {translate('userManagementInTheSystem') || 'En el sistema'}
             </div>
           </CardContent>
         </Card>
@@ -917,6 +1020,10 @@ export default function UserManagement() {
                           <div className="flex items-center gap-2 mt-1">
                             <Badge variant="outline" className="text-xs">
                               {student.uniqueCode}
+                            </Badge>
+                            <Badge className={`text-xs ${getRoleColor('student')}`}>
+                              {getRoleIcon('student')}
+                              {translate('userManagementStudent') || 'Estudiante'}
                             </Badge>
                             <Badge variant="secondary" className="text-xs">
                               {courseName} - {sectionName}
@@ -992,6 +1099,10 @@ export default function UserManagement() {
                           <Badge variant="outline" className="text-xs">
                             {teacher.uniqueCode}
                           </Badge>
+                          <Badge className={`text-xs ${getRoleColor('teacher')}`}>
+                            {getRoleIcon('teacher')}
+                            {translate('userManagementTeacher') || 'Profesor'}
+                          </Badge>
                           <Badge variant="secondary" className="text-xs">
                             {teacherInfo.courseName}
                           </Badge>
@@ -1047,6 +1158,80 @@ export default function UserManagement() {
                 </div>
                 );
               })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Administrators Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Shield className="w-5 h-5 mr-2" />
+            {translate('userManagementAdministrators') || 'Administradores'} ({administrators.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {administrators.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Shield className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>{translate('userManagementNoAdministratorsRegistered') || 'No hay administradores registrados'}</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {administrators.map(admin => (
+                <div
+                  key={admin.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <h4 className="font-medium">{admin.name || admin.displayName}</h4>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span>@{admin.username}</span>
+                          <span>•</span>
+                          <span>{admin.email}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          {admin.uniqueCode && (
+                            <Badge variant="outline" className="text-xs">
+                              {admin.uniqueCode}
+                            </Badge>
+                          )}
+                          <Badge className={`text-xs ${getRoleColor('admin')}`}>
+                            {getRoleIcon('admin')}
+                            {translate('userManagementAdministrator') || 'Administrador'}
+                          </Badge>
+                          {admin.isActive === false && (
+                            <Badge variant="destructive" className="text-xs">
+                              Inactivo
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => openEditDialog(admin)}
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDeleteUser(admin)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
