@@ -23,7 +23,9 @@ import {
   Eye,
   EyeOff,
   Shield,
-  Crown
+  Crown,
+  CheckCircle,
+  AlertTriangle
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
@@ -75,6 +77,31 @@ export default function UserManagement() {
   // Load data on component mount
   useEffect(() => {
     loadData();
+  }, []);
+
+  // Listen for changes in teacher assignments to refresh data automatically
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'smart-student-teacher-assignments') {
+        // Recargar datos cuando cambien las asignaciones
+        loadData();
+      }
+    };
+
+    // Agregar listener para cambios en localStorage
+    window.addEventListener('storage', handleStorageChange);
+
+    // También detectar cambios en el mismo tab usando un custom event
+    const handleCustomStorageChange = () => {
+      loadData();
+    };
+
+    window.addEventListener('teacherAssignmentsChanged', handleCustomStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('teacherAssignmentsChanged', handleCustomStorageChange);
+    };
   }, []);
 
   const loadData = () => {
@@ -545,11 +572,51 @@ export default function UserManagement() {
   };
 
   const getTeacherCourseInfo = (teacher: Teacher) => {
+    // Obtener asignaciones de la pestaña Asignaciones
+    const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+    const teacherAssignmentsList = teacherAssignments.filter((assignment: any) => assignment.teacherId === teacher.id);
+    
+    if (teacherAssignmentsList.length > 0) {
+      // Obtener información de las secciones asignadas agrupadas por sección
+      const sectionAssignments = teacherAssignmentsList.reduce((acc: any, assignment: any) => {
+        const section = sections.find(s => s.id === assignment.sectionId);
+        const course = section ? courses.find(c => c.id === section.courseId) : null;
+        
+        if (section && course) {
+          const sectionKey = `${course.name} - ${section.name}`;
+          if (!acc[sectionKey]) {
+            acc[sectionKey] = {
+              courseName: course.name,
+              sectionName: section.name,
+              subjects: []
+            };
+          }
+          acc[sectionKey].subjects.push(assignment.subjectName);
+        }
+        return acc;
+      }, {});
+      
+      const assignedSectionNames = Object.keys(sectionAssignments);
+      
+      return {
+        courseName: assignedSectionNames.length > 0 
+          ? assignedSectionNames.join(', ')
+          : (translate('userManagementNoSectionAssigned') || 'Sin sección asignada'),
+        courseLevel: null,
+        subjects: teacher.selectedSubjects || [],
+        assignments: sectionAssignments,
+        hasAssignments: assignedSectionNames.length > 0
+      };
+    }
+    
+    // Fallback a la implementación anterior si no hay asignaciones
     const course = courses.find(c => c.id === teacher.preferredCourseId);
     return {
       courseName: course?.name || (translate('userManagementNoCourseAssigned') || 'Sin curso asignado'),
       courseLevel: course?.level || null,
-      subjects: teacher.selectedSubjects || []
+      subjects: teacher.selectedSubjects || [],
+      assignments: {},
+      hasAssignments: false
     };
   };
 
@@ -821,7 +888,7 @@ export default function UserManagement() {
                         <SelectContent>
                           {courses.map(course => (
                             <SelectItem key={course.id} value={course.id}>
-                              {course.name} ({course.level === 'basica' ? translate('userManagementBasicLevel') || 'Básica' : translate('userManagementHighLevel') || 'Media'})
+                              {course.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1103,18 +1170,63 @@ export default function UserManagement() {
                             {getRoleIcon('teacher')}
                             {translate('userManagementTeacher') || 'Profesor'}
                           </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            {teacherInfo.courseName}
-                          </Badge>
+                          {teacherInfo.hasAssignments ? (
+                            <Badge variant="default" className="text-xs bg-green-500 hover:bg-green-600">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Asignado
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                              <AlertTriangle className="w-3 h-3 mr-1" />
+                              No asignado
+                            </Badge>
+                          )}
                           {!teacher.isActive && (
                             <Badge variant="destructive" className="text-xs">
                               Inactivo
                             </Badge>
                           )}
                         </div>
+                        
+                        {/* Mostrar asignaciones específicas si las hay */}
+                        {teacherInfo.hasAssignments && (
+                          <div className="mt-2 space-y-2">
+                            {Object.entries(teacherInfo.assignments).map(([sectionKey, info]: [string, any]) => (
+                              <div key={sectionKey} className="flex flex-wrap items-center gap-2">
+                                {/* Badge del curso y sección */}
+                                <Badge variant="outline" className="text-xs font-semibold bg-blue-50 text-blue-700 border-blue-200">
+                                  {info.courseName} - {info.sectionName}
+                                </Badge>
+                                
+                                {/* Badges de las asignaturas */}
+                                <div className="flex flex-wrap gap-1">
+                                  {info.subjects.map((subjectName: string) => {
+                                    const subjectColor = getAllAvailableSubjects()
+                                      .find(s => s.name === subjectName);
+                                    return (
+                                      <Badge
+                                        key={`${sectionKey}-${subjectName}`}
+                                        className="text-xs font-bold border-0 px-2 py-1"
+                                        style={{
+                                          backgroundColor: subjectColor?.bgColor || '#e5e7eb',
+                                          color: subjectColor?.textColor || '#374151'
+                                        }}
+                                        title={subjectName}
+                                      >
+                                        {subjectColor?.abbreviation || subjectName.substring(0, 3).toUpperCase()}
+                                      </Badge>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
                         {/* Subject badges */}
                         {teacherInfo.subjects.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2">
+                            <span className="text-xs text-muted-foreground mr-1">Capacitado en:</span>
                             {teacherInfo.subjects.map(subjectName => {
                               const subjectColor = getAllAvailableSubjects()
                                 .find(s => s.name === subjectName);

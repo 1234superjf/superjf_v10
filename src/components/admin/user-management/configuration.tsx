@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/language-context';
 import { 
@@ -131,21 +132,27 @@ export default function Configuration() {
       const subjects = LocalStorageManager.getSubjects();
       const assignments = LocalStorageManager.getAssignments();
       
+      // Obtener datos adicionales
+      const administrators = JSON.parse(localStorage.getItem('smart-student-administrators') || '[]');
+      const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+      
       return {
-        totalUsers: students.length + teachers.length,
+        totalUsers: students.length + teachers.length + administrators.length,
         students: students.length,
         teachers: teachers.length,
+        administrators: administrators.length,
         courses: courses.length,
         sections: sections.length,
         subjects: subjects.length,
         assignments: assignments.filter((a: any) => a.isActive).length,
+        teacherAssignments: teacherAssignments.length,
         assignedStudents: students.filter((s: any) => s.courseId && s.sectionId).length,
         assignedTeachers: teachers.filter((t: any) => t.assignedSections && t.assignedSections.length > 0).length
       };
     } catch (error) {
       return {
-        totalUsers: 0, students: 0, teachers: 0, courses: 0, 
-        sections: 0, subjects: 0, assignments: 0, 
+        totalUsers: 0, students: 0, teachers: 0, administrators: 0, courses: 0, 
+        sections: 0, subjects: 0, assignments: 0, teacherAssignments: 0,
         assignedStudents: 0, assignedTeachers: 0
       };
     }
@@ -161,8 +168,14 @@ export default function Configuration() {
         teachers: LocalStorageManager.getTeachers(),
         assignments: LocalStorageManager.getAssignments(),
         config: LocalStorageManager.getConfig(),
+        // Agregar usuarios administradores
+        administrators: JSON.parse(localStorage.getItem('smart-student-administrators') || '[]'),
+        // Agregar asignaciones de profesores a cursos-secciones
+        teacherAssignments: JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]'),
+        // Agregar usuarios principales (para compatibilidad)
+        users: JSON.parse(localStorage.getItem('smart-student-users') || '[]'),
         exportDate: new Date().toISOString(),
-        version: '1.0'
+        version: '1.1'
       };
 
       const dataStr = JSON.stringify(data, null, 2);
@@ -175,7 +188,7 @@ export default function Configuration() {
 
       toast({
         title: translate('configExportSuccessTitle') || 'Exportación exitosa',
-        description: translate('configExportSuccessDescription') || 'Los datos del sistema han sido exportados',
+        description: translate('configExportSuccessDescription') || 'Datos exportados: cursos, secciones, estudiantes, profesores, asignaciones, administradores y configuración del sistema',
         variant: 'default'
       });
     } catch (error) {
@@ -203,7 +216,7 @@ export default function Configuration() {
 
         // Confirm before importing
         if (window.confirm(translate('configImportConfirm') || '¿Estás seguro de que quieres importar estos datos? Esto sobrescribirá todos los datos existentes.')) {
-          // Import data
+          // Import basic data
           LocalStorageManager.setCourses(importedData.courses || []);
           LocalStorageManager.setSections(importedData.sections || []);
           LocalStorageManager.setSubjects(importedData.subjects || []);
@@ -211,14 +224,30 @@ export default function Configuration() {
           LocalStorageManager.setTeachers(importedData.teachers || []);
           LocalStorageManager.setAssignments(importedData.assignments || []);
           
+          // Import configuration
           if (importedData.config) {
             LocalStorageManager.setConfig(importedData.config);
             setConfig({ ...config, ...importedData.config });
           }
 
+          // Import administrators (nuevo)
+          if (importedData.administrators) {
+            localStorage.setItem('smart-student-administrators', JSON.stringify(importedData.administrators));
+          }
+
+          // Import teacher assignments (nuevo)
+          if (importedData.teacherAssignments) {
+            localStorage.setItem('smart-student-teacher-assignments', JSON.stringify(importedData.teacherAssignments));
+          }
+
+          // Import main users for compatibility (nuevo)
+          if (importedData.users) {
+            localStorage.setItem('smart-student-users', JSON.stringify(importedData.users));
+          }
+
           toast({
             title: translate('configImportSuccessTitle') || 'Importación exitosa',
-            description: translate('configImportSuccessDescription') || 'Los datos han sido importados correctamente',
+            description: translate('configImportSuccessDescription') || 'Datos importados correctamente: cursos, secciones, estudiantes, profesores, asignaciones, administradores y configuración',
             variant: 'default'
           });
 
@@ -242,7 +271,7 @@ export default function Configuration() {
 
   const resetAllData = () => {
     try {
-      // Clear all data
+      // Clear all main data
       localStorage.removeItem('smart-student-courses');
       localStorage.removeItem('smart-student-sections');
       localStorage.removeItem('smart-student-subjects');
@@ -250,6 +279,10 @@ export default function Configuration() {
       localStorage.removeItem('smart-student-teachers');
       localStorage.removeItem('smart-student-assignments');
       localStorage.removeItem('smart-student-config');
+
+      // Clear additional data (nuevo)
+      localStorage.removeItem('smart-student-administrators');
+      localStorage.removeItem('smart-student-teacher-assignments');
 
       // Also clear legacy data
       localStorage.removeItem('smart-student-users');
@@ -1434,39 +1467,43 @@ function UserManagementSection({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
                   <div>
                     <Label htmlFor="course">{translate('userManagementCourse') || 'Curso'} *</Label>
-                    <select
-                      id="course"
-                      value={createUserFormData.courseId}
-                      onChange={(e) => setCreateUserFormData(prev => ({ ...prev, courseId: e.target.value, section: '' }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    <Select 
+                      value={createUserFormData.courseId} 
+                      onValueChange={(value) => setCreateUserFormData(prev => ({ ...prev, courseId: value, section: '' }))}
                     >
-                      <option value="">{translate('userManagementSelectCourse') || 'Selecciona un curso'}</option>
-                      {availableCourses.map((course, index) => (
-                        <option key={course.id || `course-${index}`} value={course.id}>
-                          {course.name || course}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={translate('userManagementSelectCourse') || 'Selecciona un curso'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableCourses.map((course, index) => (
+                          <SelectItem key={course.id || `course-${index}`} value={course.id}>
+                            {course.name || course}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div>
                     <Label htmlFor="section">{translate('userManagementSection') || 'Sección'} *</Label>
-                    <select
-                      id="section"
-                      value={createUserFormData.section}
-                      onChange={(e) => setCreateUserFormData(prev => ({ ...prev, section: e.target.value }))}
+                    <Select 
+                      value={createUserFormData.section} 
+                      onValueChange={(value) => setCreateUserFormData(prev => ({ ...prev, section: value }))}
                       disabled={!createUserFormData.courseId}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="">{translate('userManagementSelectSection') || 'Selecciona una sección'}</option>
-                      {availableSections
-                        .filter((section: any) => section.courseId === createUserFormData.courseId)
-                        .map((section: any, index: number) => (
-                          <option key={section.id || `section-${index}`} value={section.id}>
-                            {section.name || section} ({section.studentCount || 0}/{section.maxStudents || translate('userManagementNoLimit') || 'Sin límite'})
-                          </option>
-                        ))}
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={translate('userManagementSelectSection') || 'Selecciona una sección'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableSections
+                          .filter((section: any) => section.courseId === createUserFormData.courseId)
+                          .map((section: any, index: number) => (
+                            <SelectItem key={section.id || `section-${index}`} value={section.id}>
+                              {section.name || section} ({section.studentCount || 0}/{section.maxStudents || translate('userManagementNoLimit') || 'Sin límite'})
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               )}
@@ -1817,39 +1854,44 @@ function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="course">{translate('editUserCourse') || 'Curso'}</Label>
-              <select
-                id="course"
-                className="w-full p-2 border border-gray-300 rounded-md"
+              <Select
                 value={formData.courseId}
-                onChange={(e) => handleInputChange('courseId', e.target.value)}
+                onValueChange={(value) => handleInputChange('courseId', value)}
               >
-                <option value="">{translate('editUserSelectCourse') || 'Seleccionar curso'}</option>
-                {availableCourses.map(course => (
-                  <option key={course.id} value={course.id}>
-                    {course.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={translate('editUserSelectCourse') || 'Seleccionar curso'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableCourses.map(course => (
+                    <SelectItem key={course.id} value={course.id}>
+                      {course.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             
             <div>
               <Label htmlFor="section">{translate('editUserSection') || 'Sección'}</Label>
-              <select
-                id="section"
-                className="w-full p-2 border border-gray-300 rounded-md"
+              <Select
                 value={formData.sectionId}
-                onChange={(e) => handleInputChange('sectionId', e.target.value)}
+                onValueChange={(value) => handleInputChange('sectionId', value)}
+                disabled={!formData.courseId}
               >
-                <option value="">{translate('editUserSelectSection') || 'Seleccionar sección'}</option>
-                {availableSections
-                  .filter(section => !formData.courseId || section.courseId === formData.courseId)
-                  .map(section => (
-                    <option key={section.id} value={section.id}>
-                      {translate('editUserSectionPrefix') || 'Sección'} {section.name}
-                    </option>
-                  ))
-                }
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={translate('editUserSelectSection') || 'Seleccionar sección'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableSections
+                    .filter(section => !formData.courseId || section.courseId === formData.courseId)
+                    .map(section => (
+                      <SelectItem key={section.id} value={section.id}>
+                        {translate('editUserSectionPrefix') || 'Sección'} {section.name}
+                      </SelectItem>
+                    ))
+                  }
+                </SelectContent>
+              </Select>
             </div>
           </div>
           

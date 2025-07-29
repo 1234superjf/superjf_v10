@@ -146,6 +146,9 @@ export default function Assignments() {
       setTeacherAssignments(updatedAssignments);
       localStorage.setItem('smart-student-teacher-assignments', JSON.stringify(updatedAssignments));
 
+      // Disparar evento personalizado para notificar cambios
+      window.dispatchEvent(new CustomEvent('teacherAssignmentsChanged'));
+
       setShowAssignDialog(false);
       setSelectedSectionId('');
       setSelectedSubjectName('');
@@ -175,6 +178,9 @@ export default function Assignments() {
       );
       setTeacherAssignments(updatedAssignments);
       localStorage.setItem('smart-student-teacher-assignments', JSON.stringify(updatedAssignments));
+
+      // Disparar evento personalizado para notificar cambios
+      window.dispatchEvent(new CustomEvent('teacherAssignmentsChanged'));
 
       toast({
         title: translate('success') || 'Success',
