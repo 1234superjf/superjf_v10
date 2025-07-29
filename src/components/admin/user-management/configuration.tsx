@@ -316,7 +316,7 @@ export default function Configuration() {
   const handleCreateUser = async () => {
     try {
       // Validation
-      if (!createUserFormData.name.trim() || !createUserFormData.email.trim()) {
+      if (!createUserFormData.name.trim()) {
         toast({
           title: translate('error') || 'Error',
           description: translate('userManagementFillAllFields') || 'Por favor, completa todos los campos requeridos',
