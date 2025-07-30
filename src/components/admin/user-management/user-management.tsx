@@ -804,7 +804,7 @@ export default function UserManagement() {
                       id="username"
                       value={userForm.username}
                       onChange={(e) => setUserForm(prev => ({ ...prev, username: e.target.value }))}
-                      placeholder={translate('userManagementUsernamePlaceholder') || 'nombreusuario'}
+                      placeholder={translate('userManagementUsernamePlaceholder') || 'Ingresa el nombre de usuario'}
                       disabled={autoGenerateCredentials && !editingUser}
                       className={validationErrors.username ? 'border-red-500' : ''}
                     />

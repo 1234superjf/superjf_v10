@@ -877,7 +877,7 @@ export default function GestionUsuariosPage() {
                 onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
                 className="col-span-3"
                 disabled={!!editingUser}
-                placeholder="nombre_usuario"
+                placeholder="Ingresa el nombre de usuario"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">

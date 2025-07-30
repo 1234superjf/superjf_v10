@@ -45,6 +45,7 @@ export default function Configuration() {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showCreateUserDialog, setShowCreateUserDialog] = useState(false);
+  const [refreshUsers, setRefreshUsers] = useState(0); // State to trigger user list refresh
 
   // Form state for creating new user
   const [createUserFormData, setCreateUserFormData] = useState({
@@ -487,12 +488,15 @@ export default function Configuration() {
       resetCreateUserForm();
       setShowCreateUserDialog(false);
 
+      // Refresh the user list to show the new user
+      setRefreshUsers(prev => prev + 1);
+
       toast({
         title: translate('userManagementSuccess') || 'Éxito',
         description: `${
           createUserFormData.role === 'student' ? translate('userManagementStudent') || 'Estudiante' : 
           createUserFormData.role === 'teacher' ? translate('userManagementTeacher') || 'Profesor' : 
-          translate('userManagementAdministrator') || 'Administrador'
+          translate('userManagementAdministrador') || 'Administrador'
         } ${translate('userManagementCreatedSuccessfully') || 'creado exitosamente'}`,
         variant: 'default'
       });
@@ -905,6 +909,7 @@ export default function Configuration() {
         availableCourses={availableCourses}
         availableSections={availableSections}
         availableSubjects={availableSubjects}
+        refreshUsers={refreshUsers}
       />
     </div>
   );
@@ -922,7 +927,8 @@ function UserManagementSection({
   getRoleIcon,
   availableCourses,
   availableSections,
-  availableSubjects
+  availableSubjects,
+  refreshUsers
 }: {
   showCreateUserDialog: boolean;
   setShowCreateUserDialog: (value: boolean) => void;
@@ -935,6 +941,7 @@ function UserManagementSection({
   availableCourses: any[];
   availableSections: any[];
   availableSubjects: any[];
+  refreshUsers: number;
 }) {
   const { toast } = useToast();
   const { translate } = useLanguage();
@@ -949,7 +956,7 @@ function UserManagementSection({
 
   useEffect(() => {
     loadAllUsers();
-  }, []);
+  }, [refreshUsers]);
 
   useEffect(() => {
     filterUsers();
@@ -1267,7 +1274,10 @@ function UserManagementSection({
               <DialogTitle>{translate('configConfirmDeleteTitle') || 'Confirmar Eliminación'}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <p>{translate('configConfirmDeleteText') || '¿Estás seguro de que quieres eliminar al usuario {{username}}?'.replace('{{username}}', '')} <strong>{userToDelete?.name}</strong>?</p>
+              <p>
+                {translate('configConfirmDeleteText')?.replace('{{username}}', userToDelete?.name || userToDelete?.username || 'este usuario') || 
+                 `¿Estás seguro de que quieres eliminar al usuario ${userToDelete?.name || userToDelete?.username || 'este usuario'}?`}
+              </p>
               <p className="text-sm text-muted-foreground">{translate('configDeleteCannotUndo') || 'Esta acción no se puede deshacer.'}</p>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
@@ -1422,7 +1432,7 @@ function UserManagementSection({
                     id="username"
                     value={createUserFormData.username}
                     onChange={(e) => setCreateUserFormData(prev => ({ ...prev, username: e.target.value }))}
-                    placeholder={translate('userManagementUsernamePlaceholder') || 'nombreusuario'}
+                    placeholder={translate('userManagementUsernamePlaceholder') || 'Ingresa el nombre de usuario'}
                     disabled={createUserFormData.autoGenerate}
                   />
                 </div>
@@ -1776,7 +1786,7 @@ function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon 
               id="username"
               value={formData.username}
               onChange={(e) => handleInputChange('username', e.target.value)}
-              placeholder={translate('editUserUsernamePlaceholder') || 'Nombre de usuario'}
+              placeholder={translate('editUserUsernamePlaceholder') || 'Ingresa el nombre de usuario'}
             />
           </div>
           
