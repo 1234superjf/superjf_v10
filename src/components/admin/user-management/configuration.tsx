@@ -415,6 +415,8 @@ export default function Configuration() {
         name: createUserFormData.name.trim(),
         email: createUserFormData.email.trim(),
         role: createUserFormData.role,
+        password: password, // ✅ Agregar password al baseUser
+        displayName: createUserFormData.name.trim(), // ✅ Agregar displayName
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -463,12 +465,52 @@ export default function Configuration() {
 
       // Save to main users array
       const allUsers = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      console.log('🔍 [USUARIO DEBUG] Usuarios antes de agregar:', allUsers.length);
+      
+      // Preparar datos específicos según el rol
+      let courseNames: string[] = [];
+      let additionalData: any = {};
+      
+      if (createUserFormData.role === 'student' && createUserFormData.courseId) {
+        const course = LocalStorageManager.getCourses().find((c: any) => c.id === createUserFormData.courseId);
+        courseNames = course ? [course.name] : ['4to Básico'];
+        // Agregar datos específicos para estudiantes
+        additionalData.assignedTeachers = {
+          'Matemáticas': 'jorge',
+          'Ciencias Naturales': 'carlos',
+          'Lenguaje y Comunicación': 'jorge',
+          'Historia, Geografía y Ciencias Sociales': 'carlos'
+        };
+      } else if (createUserFormData.role === 'teacher' && createUserFormData.selectedSubjects) {
+        // Para profesores, asignar cursos básicos por defecto
+        courseNames = ['4to Básico'];
+        additionalData.teachingAssignments = createUserFormData.selectedSubjects.map((subjectId: string) => {
+          const subject = LocalStorageManager.getSubjects().find((s: any) => s.id === subjectId);
+          return {
+            teacherUsername: username,
+            teacherName: createUserFormData.name.trim(),
+            subject: subject?.name || 'Materia desconocida',
+            courses: ['4to Básico']
+          };
+        });
+      } else if (createUserFormData.role === 'admin') {
+        courseNames = [];
+      }
+      
+      // Crear usuario final con todos los campos necesarios
       const newUserForMain = {
         ...baseUser,
-        password: password
+        activeCourses: courseNames,
+        ...additionalData
       };
+      
+      console.log('🔍 [USUARIO DEBUG] Usuario a agregar:', newUserForMain);
+      
       const updatedAllUsers = [...allUsers, newUserForMain];
       localStorage.setItem('smart-student-users', JSON.stringify(updatedAllUsers));
+      
+      console.log('✅ [USUARIO DEBUG] Usuario guardado en smart-student-users');
+      console.log('📊 [USUARIO DEBUG] Total usuarios ahora:', updatedAllUsers.length);
 
       // Show success message with credentials if auto-generated
       if (createUserFormData.autoGenerate) {

@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { UserCircle, BarChart3, History as HistoryIcon, Download, Trash2, Edit3, Award, Percent, Newspaper, Network, FileQuestion, Upload, Camera, Shield, Crown, GraduationCap } from 'lucide-react';
+import { UserCircle, BarChart3, History as HistoryIcon, Download, Trash2, Edit3, Award, Percent, Newspaper, Network, FileQuestion, Upload, Camera, Shield, Crown, GraduationCap, CheckCircle, AlertTriangle } from 'lucide-react';
 import type { UserProfile, SubjectProgress, EvaluationHistoryItem } from '@/lib/types';
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from '@/lib/utils';
 import { userService, UserService } from '@/services/user.service';
 import type { UserProfile as BackendUserProfile, Course, Subject } from '@/services/user.service';
+import { getAllAvailableSubjects } from '@/lib/subjects-colors';
 
 // Mock Data - UserProfile actualizado para nueva estructura
 const userProfileData: UserProfile = {
@@ -533,34 +534,225 @@ export default function PerfilClient() {
 
   }, [evaluationHistory, language, translate, mounted, user]);
 
-  // ✨ FUNCIÓN PARA OBTENER ASIGNATURAS DE UN CURSO ESPECÍFICO EN ORDEN ✨
-  const getSubjectsForCourseInOrder = (courseName: string, fullUserData: any) => {
-    // Orden fijo requerido: CNT - HIS - LEN - MAT
-    const subjectOrder = ['Ciencias Naturales', 'Historia, Geografía y Ciencias Sociales', 'Lenguaje y Comunicación', 'Matemáticas'];
-    const subjectNameToObject = {
-      'Ciencias Naturales': { tag: "CNT", colorClass: "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300" },
-      'Historia, Geografía y Ciencias Sociales': { tag: "HIS", colorClass: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300" },
-      'Lenguaje y Comunicación': { tag: "LEN", colorClass: "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300" },
-      'Matemáticas': { tag: "MAT", colorClass: "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300" },
+  // ✨ FUNCIÓN PARA OBTENER INFORMACIÓN COMPLETA DEL PROFESOR COMO EN GESTIÓN DE USUARIOS ✨
+  const getTeacherAssignmentsInfo = (fullUserData: any) => {
+    if (!fullUserData || fullUserData.role !== 'teacher') return null;
+
+    try {
+      console.log('🔍 Analizando datos del profesor:', fullUserData.username);
+
+      // Buscar asignaciones en el sistema de gestión de usuarios (teacher-assignments)
+      const assignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+
+      console.log('📊 Datos del sistema:', { 
+        assignments: assignments.length, 
+        courses: courses.length, 
+        sections: sections.length,
+        teacherId: fullUserData.id 
+      });
+
+      // Buscar asignaciones por ID del profesor
+      const teacherAssignments = assignments.filter((assignment: any) => 
+        assignment.teacherId === fullUserData.id
+      );
+
+      console.log('📋 Asignaciones encontradas:', teacherAssignments);
+
+      if (teacherAssignments.length > 0) {
+        // Agrupar asignaciones por sección
+        const sectionGroups: any = {};
+        const allSubjects = new Set<string>();
+
+        teacherAssignments.forEach((assignment: any) => {
+          const section = sections.find((s: any) => s.id === assignment.sectionId);
+          
+          console.log('🔍 Procesando asignación:', { 
+            sectionId: assignment.sectionId,
+            section: section?.name,
+            subject: assignment.subjectName
+          });
+          
+          if (section) {
+            // Buscar el curso de esta sección
+            const course = courses.find((c: any) => c.id === section.courseId);
+            
+            const sectionKey = assignment.sectionId;
+            
+            if (!sectionGroups[sectionKey]) {
+              sectionGroups[sectionKey] = {
+                courseName: course?.name || 'Curso no encontrado',
+                sectionName: section.name,
+                subjects: []
+              };
+            }
+            
+            // Agregar la asignatura si no está ya en la lista
+            if (!sectionGroups[sectionKey].subjects.includes(assignment.subjectName)) {
+              sectionGroups[sectionKey].subjects.push(assignment.subjectName);
+            }
+            
+            allSubjects.add(assignment.subjectName);
+          }
+        });
+
+        console.log('✅ Asignaciones agrupadas:', sectionGroups);
+        console.log('📚 Todas las asignaturas:', Array.from(allSubjects));
+
+        return {
+          hasAssignments: true,
+          assignments: sectionGroups,
+          subjects: Array.from(allSubjects)
+        };
+      }
+
+      // Si no hay asignaciones en el sistema, usar teachingAssignments del usuario como fallback
+      console.log('⚠️ No se encontraron asignaciones en el sistema, usando fallback');
+      
+      if (fullUserData.teachingAssignments && Array.isArray(fullUserData.teachingAssignments) && fullUserData.teachingAssignments.length > 0) {
+        console.log('✅ Usando teachingAssignments del usuario como fallback');
+        
+        const assignmentsInfo: any = {};
+        const allSubjects = new Set<string>();
+
+        fullUserData.teachingAssignments.forEach((assignment: any, index: number) => {
+          const courseName = assignment.courses && assignment.courses.length > 0 ? assignment.courses[0] : '4to Básico';
+          const subjectName = assignment.subject || 'Matemáticas';
+          
+          const key = `fallback-${index}`;
+          assignmentsInfo[key] = {
+            courseName: courseName,
+            sectionName: 'A',
+            subjects: [subjectName]
+          };
+
+          allSubjects.add(subjectName);
+        });
+
+        return {
+          hasAssignments: true,
+          assignments: assignmentsInfo,
+          subjects: Array.from(allSubjects)
+        };
+      }
+
+      // Último fallback: crear asignación por defecto
+      console.log('⚠️ Creando asignación por defecto');
+      return {
+        hasAssignments: true,
+        assignments: {
+          'default-assignment': {
+            courseName: '4to Básico',
+            sectionName: 'A',
+            subjects: ['Matemáticas']
+          }
+        },
+        subjects: ['Matemáticas']
+      };
+
+    } catch (error) {
+      console.error('Error al obtener asignaciones del profesor:', error);
+      
+      // Retornar asignación por defecto en caso de error
+      return {
+        hasAssignments: true,
+        assignments: {
+          'error-fallback': {
+            courseName: '4to Básico',
+            sectionName: 'A',
+            subjects: ['Matemáticas']
+          }
+        },
+        subjects: ['Matemáticas']
+      };
+    }
+  };
+
+  // ✨ FUNCIÓN AUXILIAR PARA OBTENER COLORES DE ASIGNATURAS ✨
+  const getSubjectInfo = (subjectName: string) => {
+    const subjects = getAllAvailableSubjects();
+    const subject = subjects.find(s => s.name === subjectName);
+    return {
+      abbreviation: subject?.abbreviation || subjectName.substring(0, 3).toUpperCase(),
+      bgColor: subject?.bgColor || '#e5e7eb',
+      textColor: subject?.textColor || '#374151'
     };
+  };
 
-    if (!fullUserData.courseSubjectAssignments) return [];
+  // ✨ FUNCIÓN PARA OBTENER INFORMACIÓN DEL ESTUDIANTE (CURSO Y SECCIÓN) ✨
+  const getStudentCourseInfo = (fullUserData: any) => {
+    if (!fullUserData || fullUserData.role !== 'student') return null;
 
-    // Buscar las asignaturas del curso específico
-    const courseAssignment = fullUserData.courseSubjectAssignments.find((assignment: any) => 
-      assignment.courseName === courseName
-    );
+    try {
+      console.log('🔍 Analizando datos del estudiante:', fullUserData.username);
 
-    if (!courseAssignment || !courseAssignment.subjects) return [];
+      // Buscar asignaciones de estudiantes en el sistema
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
 
-    // Filtrar y ordenar las asignaturas según el orden establecido
-    const courseSubjects = courseAssignment.subjects;
-    const orderedSubjects = subjectOrder
-      .filter(subject => courseSubjects.includes(subject))
-      .map(subject => subjectNameToObject[subject as keyof typeof subjectNameToObject])
-      .filter(Boolean);
+      console.log('📊 Datos del sistema:', { 
+        studentAssignments: studentAssignments.length, 
+        courses: courses.length, 
+        sections: sections.length,
+        studentId: fullUserData.id 
+      });
 
-    return orderedSubjects;
+      // Buscar asignación del estudiante por ID
+      const studentAssignment = studentAssignments.find((assignment: any) => 
+        assignment.studentId === fullUserData.id
+      );
+
+      console.log('📋 Asignación del estudiante:', studentAssignment);
+
+      if (studentAssignment) {
+        const course = courses.find((c: any) => c.id === studentAssignment.courseId);
+        const section = sections.find((s: any) => s.id === studentAssignment.sectionId);
+        
+        console.log('🎯 Curso y sección encontrados:', { 
+          course: course?.name,
+          section: section?.name
+        });
+
+        if (course && section) {
+          return {
+            courseName: course.name,
+            sectionName: section.name,
+            hasAssignment: true
+          };
+        }
+      }
+
+      // Fallback: usar activeCourses del usuario
+      console.log('⚠️ No se encontró asignación específica, usando activeCourses como fallback');
+      
+      if (fullUserData.activeCourses && Array.isArray(fullUserData.activeCourses) && fullUserData.activeCourses.length > 0) {
+        const firstCourse = fullUserData.activeCourses[0];
+        const courseName = typeof firstCourse === 'string' ? firstCourse : (firstCourse?.name || '4to Básico');
+        
+        return {
+          courseName: courseName,
+          sectionName: 'A', // Sección por defecto
+          hasAssignment: false
+        };
+      }
+
+      // Último fallback
+      return {
+        courseName: '4to Básico',
+        sectionName: 'A',
+        hasAssignment: false
+      };
+
+    } catch (error) {
+      console.error('Error al obtener información del estudiante:', error);
+      return {
+        courseName: '4to Básico',
+        sectionName: 'A',
+        hasAssignment: false
+      };
+    }
   };
 
   // ✨ ACTUALIZAR PERFIL CON CONVERSIÓN DE IDS A NOMBRES - VERSIÓN DEFINITIVA ✨
@@ -1271,82 +1463,96 @@ export default function PerfilClient() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-blue-200 uppercase tracking-wider mb-2">
-                      {user?.role === 'teacher' ? 'Cursos Asignados' : translate('profileAssignedCourse')}
+                      {user?.role === 'teacher' ? 'Información Académica' : translate('profileAssignedCourse')}
                     </label>
                     
-                    {dynamicUserProfileData.activeCourses && Array.isArray(dynamicUserProfileData.activeCourses) && dynamicUserProfileData.activeCourses.length > 0 ? (
-                      <>
-                        {user?.role === 'teacher' ? (
-                          // Para profesores: mostrar todos los cursos con sus asignaturas en la misma línea
-                          <div className="space-y-2">
-                            {dynamicUserProfileData.activeCourses.map((course: any, index: number) => {
-                              const courseName = typeof course === 'string' ? course : (course?.name || translate('profileCourseNotDefined'));
-                              const storedUsers = localStorage.getItem('smart-student-users');
-                              let courseSubjects: any[] = [];
-                              
-                              if (storedUsers) {
-                                try {
-                                  const usersData = JSON.parse(storedUsers);
-                                  const fullUserData = usersData.find((u: any) => u.username === user.username);
-                                  if (fullUserData) {
-                                    courseSubjects = getSubjectsForCourseInOrder(courseName, fullUserData);
-                                  }
-                                } catch (error) {
-                                  console.error('Error al obtener asignaturas del curso:', error);
-                                }
-                              }
-                              
-                              return (
-                                <div key={index} className="flex items-center justify-between bg-gray-100 dark:bg-blue-50/10 rounded-lg p-3 border border-gray-300 dark:border-blue-300/30 w-full overflow-x-auto">
-                                  <div className="flex items-center gap-3 min-w-0 flex-nowrap">
-                                    <div className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0"></div>
-                                    <span className="text-gray-800 dark:text-white font-medium flex-shrink-0 whitespace-nowrap">
-                                      {courseName}
-                                    </span>
-                                    {/* Badges de asignaturas en la misma línea - SIN WRAP */}
-                                    <div className="flex gap-1 flex-shrink-0">
-                                      {courseSubjects.map((subject, subIndex) => (
-                                        <span 
-                                          key={subIndex} 
-                                          className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-bold 
-                                                   hover:scale-105 transition-all duration-300 cursor-pointer shadow-sm hover:shadow-md flex-shrink-0 ${subject.colorClass}`}
-                                        >
-                                          {subject.tag}
-                                        </span>
-                                      ))}
+                    {user?.role === 'teacher' ? (
+                      // Para profesores: mostrar asignaciones completas como en gestión de usuarios
+                      (() => {
+                        const storedUsers = localStorage.getItem('smart-student-users');
+                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">No se encontraron datos del usuario</div>;
+                        
+                        try {
+                          const usersData = JSON.parse(storedUsers);
+                          const fullUserData = usersData.find((u: any) => u.username === user.username);
+                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">No se encontraron datos del profesor</div>;
+                          
+                          const teacherInfo = getTeacherAssignmentsInfo(fullUserData);
+                          if (!teacherInfo) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">Error al cargar información del profesor</div>;
+                          
+                          return (
+                            <div className="space-y-3">
+                              {/* Asignaciones específicas por curso y sección */}
+                              {teacherInfo.hasAssignments && Object.keys(teacherInfo.assignments).length > 0 ? (
+                                <div className="space-y-3">
+                                  {Object.entries(teacherInfo.assignments).map(([sectionKey, info]: [string, any]) => (
+                                    <div key={sectionKey} className="space-y-2">
+                                      {/* Información del curso, sección y asignaturas en la misma línea */}
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {/* Badge del curso y sección */}
+                                        <Badge variant="outline" className="text-xs font-semibold bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700">
+                                          {info.courseName} - Sección {info.sectionName}
+                                        </Badge>
+                                        
+                                        {/* Badges de las asignaturas al lado */}
+                                        {info.subjects.map((subjectName: string) => {
+                                          const subjectInfo = getSubjectInfo(subjectName);
+                                          return (
+                                            <Badge
+                                              key={`${sectionKey}-${subjectName}`}
+                                              className="text-xs font-bold border-0 px-2 py-1"
+                                              style={{
+                                                backgroundColor: subjectInfo.bgColor,
+                                                color: subjectInfo.textColor
+                                              }}
+                                              title={subjectName}
+                                            >
+                                              {subjectInfo.abbreviation}
+                                            </Badge>
+                                          );
+                                        })}
+                                      </div>
                                     </div>
-                                  </div>
-                                  {course && course.studentCount !== undefined && (
-                                    <div className="flex items-center bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold flex-shrink-0 ml-4">
-                                      {course.studentCount || 0}
-                                    </div>
-                                  )}
+                                  ))}
                                 </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          // Para estudiantes: mostrar curso único
-                          <div className="flex items-center justify-between bg-gray-100 dark:bg-blue-50/10 rounded-lg p-3 border border-gray-300 dark:border-blue-300/30">
-                            <div className="flex items-center gap-3">
-                              <div className="w-2 h-2 rounded-full bg-blue-400"></div>
-                              <span className="text-gray-800 dark:text-white font-medium">
-                                {(() => {
-                                  const firstCourse = dynamicUserProfileData.activeCourses[0] as any;
-                                  if (typeof firstCourse === 'string') {
-                                    return firstCourse;
-                                  } else if (firstCourse && firstCourse.name) {
-                                    return firstCourse.name;
-                                  }
-                                  return translate('profileCourseNotDefined');
-                                })()}
-                              </span>
+                              ) : (
+                                <div className="text-sm text-gray-600 dark:text-blue-200 italic">
+                                  No hay asignaciones específicas registradas
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        )}
-                      </>
+                          );
+                        } catch (error) {
+                          console.error('Error al cargar datos del profesor:', error);
+                          return <div className="text-sm text-gray-600 dark:text-blue-200 italic">Error al cargar información académica</div>;
+                        }
+                      })()
                     ) : (
-                      <div className="text-sm text-gray-600 dark:text-blue-200 italic">{translate('profileNoCourseAssigned')}</div>
+                      // Para estudiantes: mostrar curso y sección
+                      (() => {
+                        const storedUsers = localStorage.getItem('smart-student-users');
+                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">No se encontraron datos del usuario</div>;
+                        
+                        try {
+                          const usersData = JSON.parse(storedUsers);
+                          const fullUserData = usersData.find((u: any) => u.username === user.username);
+                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">No se encontraron datos del estudiante</div>;
+                          
+                          const studentInfo = getStudentCourseInfo(fullUserData);
+                          if (!studentInfo) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">Error al cargar información del estudiante</div>;
+                          
+                          return (
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs font-semibold bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700">
+                                {studentInfo.courseName} - Sección {studentInfo.sectionName}
+                              </Badge>
+                            </div>
+                          );
+                        } catch (error) {
+                          console.error('Error al cargar datos del estudiante:', error);
+                          return <div className="text-sm text-gray-600 dark:text-blue-200 italic">Error al cargar información académica</div>;
+                        }
+                      })()
                     )}
                   </div>
                 </div>
