@@ -1289,13 +1289,13 @@ export default function PerfilClient() {
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       {/* ✨ SECCIÓN DE PERFIL PERSONAL MODERNA CON GRADIENTE NEGRO A AZUL ✨ */}
-      <Card className="shadow-lg bg-gradient-to-br from-gray-100 via-blue-50 to-indigo-100 dark:from-black dark:via-gray-900 dark:to-blue-900 text-gray-800 dark:text-white border-0">
+      <Card className="shadow-lg bg-gradient-to-br from-gray-100 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-700 text-gray-800 dark:text-white border border-gray-200 dark:border-slate-600">
         <CardContent className="p-8">
           <div className="flex items-center gap-4 mb-8">
             <UserCircle className="w-8 h-8 text-blue-600 dark:text-blue-300" />
             <div>
               <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{translate('profilePersonalTitle')}</h1>
-              <p className="text-gray-600 dark:text-blue-200 text-sm">{translate('profilePersonalSub')}</p>
+              <p className="text-gray-600 dark:text-slate-300 text-sm">{translate('profilePersonalSub')}</p>
             </div>
           </div>
 
@@ -1348,7 +1348,7 @@ export default function PerfilClient() {
 
             {/* 👤 DATOS PERSONALES - Columna central */}
             <div className="lg:col-span-4">
-              <div className="bg-gray-200/50 dark:bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-gray-300 dark:border-white/20">
+              <div className="bg-gray-200/50 dark:bg-slate-800/80 backdrop-blur-sm rounded-xl p-6 border border-gray-300 dark:border-slate-600/50 shadow-lg dark:shadow-slate-900/30">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-green-400"></div>
@@ -1368,7 +1368,7 @@ export default function PerfilClient() {
                 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-blue-200 uppercase tracking-wider mb-2">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-slate-300 uppercase tracking-wider mb-2">
                       {translate('profileName')}
                     </label>
                     {isEditingProfile ? (
@@ -1380,7 +1380,7 @@ export default function PerfilClient() {
                         placeholder={translate('profileEnterName')}
                       />
                     ) : (
-                      <div className="flex items-center justify-between bg-gray-100 dark:bg-blue-50/10 rounded-lg p-3 border border-gray-300 dark:border-blue-300/30">
+                      <div className="flex items-center justify-between bg-gray-100 dark:bg-slate-700/60 rounded-lg p-3 border border-gray-300 dark:border-slate-600/50 shadow-sm">
                         <div className="flex items-center gap-3">
                           <div className="w-2 h-2 rounded-full bg-blue-400"></div>
                           <span className="text-gray-800 dark:text-white font-medium">
@@ -1392,7 +1392,7 @@ export default function PerfilClient() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-blue-200 uppercase tracking-wider mb-2">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-slate-300 uppercase tracking-wider mb-2">
                       {translate('profileEmail')}
                     </label>
                     {isEditingProfile ? (
@@ -1404,7 +1404,7 @@ export default function PerfilClient() {
                         placeholder={translate('profileEmailPlaceholder')}
                       />
                     ) : (
-                      <div className="flex items-center justify-between bg-gray-100 dark:bg-blue-50/10 rounded-lg p-3 border border-gray-300 dark:border-blue-300/30">
+                      <div className="flex items-center justify-between bg-gray-100 dark:bg-slate-700/60 rounded-lg p-3 border border-gray-300 dark:border-slate-600/50 shadow-sm">
                         <div className="flex items-center gap-3">
                           <div className="w-2 h-2 rounded-full bg-blue-400"></div>
                           <span className="text-gray-800 dark:text-white font-medium">
@@ -1416,14 +1416,14 @@ export default function PerfilClient() {
                   </div>
                   
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-blue-200 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-slate-300 uppercase tracking-wider mb-1">
                       {translate('profileSystemRole')}
                     </label>
                     {renderRoleBadge()}
                   </div>
 
                   {isEditingProfile && (
-                    <div className="flex gap-3 pt-4 border-t border-gray-300 dark:border-white/20">
+                    <div className="flex gap-3 pt-4 border-t border-gray-300 dark:border-slate-600/60">
                       <Button
                         onClick={handleSaveProfile}
                         disabled={isSavingProfile}
@@ -1442,7 +1442,7 @@ export default function PerfilClient() {
                         variant="outline"
                         onClick={handleCancelEditing}
                         disabled={isSavingProfile}
-                        className="bg-transparent border-gray-400 dark:border-white/30 text-gray-700 dark:text-white hover:bg-gray-200 dark:hover:bg-white/20 transition-colors"
+                        className="bg-transparent border-gray-400 dark:border-slate-500 text-gray-700 dark:text-slate-200 hover:bg-gray-200 dark:hover:bg-slate-700/50 transition-colors"
                       >
                         {translate('profileCancel')}
                       </Button>
@@ -1454,7 +1454,7 @@ export default function PerfilClient() {
 
             {/* 🎓 DATOS ACADÉMICOS - Columna derecha */}
             <div className="lg:col-span-5">
-              <div className="bg-gray-200/50 dark:bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-gray-300 dark:border-white/20">
+              <div className="bg-gray-200/50 dark:bg-slate-800/80 backdrop-blur-sm rounded-xl p-6 border border-gray-300 dark:border-slate-600/50 shadow-lg dark:shadow-slate-900/30">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-2 h-2 rounded-full bg-blue-400"></div>
                   <h3 className="text-lg font-bold text-gray-800 dark:text-white">{translate('profileAcademicData')}</h3>
@@ -1462,7 +1462,7 @@ export default function PerfilClient() {
                 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-blue-200 uppercase tracking-wider mb-2">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-slate-300 uppercase tracking-wider mb-2">
                       {user?.role === 'teacher' ? 'Información Académica' : translate('profileAssignedCourse')}
                     </label>
                     
@@ -1470,15 +1470,15 @@ export default function PerfilClient() {
                       // Para profesores: mostrar asignaciones completas como en gestión de usuarios
                       (() => {
                         const storedUsers = localStorage.getItem('smart-student-users');
-                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">No se encontraron datos del usuario</div>;
+                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">No se encontraron datos del usuario</div>;
                         
                         try {
                           const usersData = JSON.parse(storedUsers);
                           const fullUserData = usersData.find((u: any) => u.username === user.username);
-                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">No se encontraron datos del profesor</div>;
+                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">No se encontraron datos del profesor</div>;
                           
                           const teacherInfo = getTeacherAssignmentsInfo(fullUserData);
-                          if (!teacherInfo) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">Error al cargar información del profesor</div>;
+                          if (!teacherInfo) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">Error al cargar información del profesor</div>;
                           
                           return (
                             <div className="space-y-3">
@@ -1516,7 +1516,7 @@ export default function PerfilClient() {
                                   ))}
                                 </div>
                               ) : (
-                                <div className="text-sm text-gray-600 dark:text-blue-200 italic">
+                                <div className="text-sm text-gray-600 dark:text-slate-300 italic">
                                   No hay asignaciones específicas registradas
                                 </div>
                               )}
@@ -1524,22 +1524,22 @@ export default function PerfilClient() {
                           );
                         } catch (error) {
                           console.error('Error al cargar datos del profesor:', error);
-                          return <div className="text-sm text-gray-600 dark:text-blue-200 italic">Error al cargar información académica</div>;
+                          return <div className="text-sm text-gray-600 dark:text-slate-300 italic">Error al cargar información académica</div>;
                         }
                       })()
                     ) : (
                       // Para estudiantes: mostrar curso y sección
                       (() => {
                         const storedUsers = localStorage.getItem('smart-student-users');
-                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">No se encontraron datos del usuario</div>;
+                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">No se encontraron datos del usuario</div>;
                         
                         try {
                           const usersData = JSON.parse(storedUsers);
                           const fullUserData = usersData.find((u: any) => u.username === user.username);
-                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">No se encontraron datos del estudiante</div>;
+                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">No se encontraron datos del estudiante</div>;
                           
                           const studentInfo = getStudentCourseInfo(fullUserData);
-                          if (!studentInfo) return <div className="text-sm text-gray-600 dark:text-blue-200 italic">Error al cargar información del estudiante</div>;
+                          if (!studentInfo) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">Error al cargar información del estudiante</div>;
                           
                           return (
                             <div className="flex items-center gap-2">
@@ -1550,7 +1550,7 @@ export default function PerfilClient() {
                           );
                         } catch (error) {
                           console.error('Error al cargar datos del estudiante:', error);
-                          return <div className="text-sm text-gray-600 dark:text-blue-200 italic">Error al cargar información académica</div>;
+                          return <div className="text-sm text-gray-600 dark:text-slate-300 italic">Error al cargar información académica</div>;
                         }
                       })()
                     )}
@@ -1559,10 +1559,10 @@ export default function PerfilClient() {
               </div>
               
               {/* 🛠️ ACCIONES RÁPIDAS - Sección compacta debajo */}
-              <div className="mt-4 bg-gray-200/30 dark:bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-gray-300 dark:border-white/10">
+              <div className="mt-4 bg-gray-200/30 dark:bg-slate-700/60 backdrop-blur-sm rounded-xl p-4 border border-gray-300 dark:border-slate-600/50 shadow-md dark:shadow-slate-900/20">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-2 h-2 rounded-full bg-pink-400"></div>
-                  <h4 className="text-sm font-bold text-gray-600 dark:text-blue-200 uppercase tracking-wider">
+                  <h4 className="text-sm font-bold text-gray-600 dark:text-slate-200 uppercase tracking-wider">
                     {translate('profileQuickActions')}
                   </h4>
                 </div>
@@ -1597,18 +1597,18 @@ export default function PerfilClient() {
       {/* Profile Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
         {dynamicProfileCards.map((card, index) => (
-          <Card key={index} className="shadow-lg bg-gradient-to-br from-gray-100 via-blue-50 to-indigo-100 dark:from-black dark:via-gray-900 dark:to-blue-900 text-gray-800 dark:text-white border-0 relative overflow-hidden group hover:scale-105 hover:shadow-xl transition-all duration-300 cursor-pointer">
+          <Card key={index} className="shadow-lg bg-gradient-to-br from-gray-100 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-700 text-gray-800 dark:text-white border border-gray-200 dark:border-slate-600 relative overflow-hidden group hover:scale-105 hover:shadow-xl transition-all duration-300 cursor-pointer">
             <div className={cn("absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity duration-300", card.bgClass)}></div>
             <CardContent className="p-6 relative z-10 text-center">
               <div className="flex items-center justify-center gap-4 mb-3">
                 <div className={cn("w-12 h-12 rounded-full flex items-center justify-center", card.colorClass, "shadow-md group-hover:shadow-lg transition-shadow")}>
                   <card.icon className="w-6 h-6 text-white" />
                 </div>
-                <div className="text-3xl font-bold text-primary group-hover:text-primary/80 transition-colors">
+                <div className="text-3xl font-bold text-gray-800 dark:text-white group-hover:text-primary/80 transition-colors">
                   {card.value}
                 </div>
               </div>
-              <div className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
+              <div className="text-sm font-medium text-gray-600 dark:text-slate-300 group-hover:text-foreground transition-colors">
                 {translate(card.labelKey)}
               </div>
             </CardContent>
@@ -1617,13 +1617,13 @@ export default function PerfilClient() {
       </div>
 
       {/* Learning Progress */}
-      <Card className="shadow-lg bg-gradient-to-br from-gray-100 via-blue-50 to-indigo-100 dark:from-black dark:via-gray-900 dark:to-blue-900 text-gray-800 dark:text-white border-0">
+      <Card className="shadow-lg bg-gradient-to-br from-gray-100 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-700 text-gray-800 dark:text-white border border-gray-200 dark:border-slate-600">
         <CardHeader>
           <div className="flex items-center gap-4 mb-2">
             <BarChart3 className="w-8 h-8 text-blue-600 dark:text-blue-300" />
             <CardTitle className="text-2xl font-headline text-gray-800 dark:text-white">{translate('learningProgressTitle')}</CardTitle>
           </div>
-          <CardDescription className="text-gray-600 dark:text-blue-200">{translate('learningProgressSub')}</CardDescription>
+          <CardDescription className="text-gray-600 dark:text-slate-300">{translate('learningProgressSub')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
@@ -1647,7 +1647,7 @@ export default function PerfilClient() {
       </Card>
 
       {/* Evaluation History */}
-      <Card className="shadow-lg bg-gradient-to-br from-gray-100 via-blue-50 to-indigo-100 dark:from-black dark:via-gray-900 dark:to-blue-900 text-gray-800 dark:text-white border-0">
+      <Card className="shadow-lg bg-gradient-to-br from-gray-100 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-700 text-gray-800 dark:text-white border border-gray-200 dark:border-slate-600">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -1655,7 +1655,7 @@ export default function PerfilClient() {
                 <HistoryIcon className="w-8 h-8 text-blue-600 dark:text-blue-300" />
                 <CardTitle className="text-2xl font-headline text-gray-800 dark:text-white">{translate('evaluationHistoryTitle')}</CardTitle>
               </div>
-              <CardDescription className="text-gray-600 dark:text-blue-200">{translate('evaluationHistorySub')}</CardDescription>
+              <CardDescription className="text-gray-600 dark:text-slate-300">{translate('evaluationHistorySub')}</CardDescription>
             </div>
             {evaluationHistory.length > 0 && (
               <Button 
