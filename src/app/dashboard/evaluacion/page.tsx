@@ -35,7 +35,7 @@ function shuffleArray<T>(array: T[]): T[] {
 const INITIAL_TIME_LIMIT = 120; // 2 minutes in seconds
 
 export default function EvaluacionPage() {
-  const { translate, language: currentUiLanguage } = useLanguage();
+  const { translate, language: currentUiLanguage, setLanguage } = useLanguage();
   const { user } = useAuth();
   const { toast } = useToast();
   const { progress, progressText, isLoading: aiIsLoading, startProgress, stopProgress } = useAIProgress();
@@ -45,6 +45,7 @@ export default function EvaluacionPage() {
   // Setup state
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedBook, setSelectedBook] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [topic, setTopic] = useState('');
   const [currentTopicForDisplay, setCurrentTopicForDisplay] = useState('');
   const [selectedQuestionCount, setSelectedQuestionCount] = useState(15);
@@ -232,6 +233,171 @@ export default function EvaluacionPage() {
     }
   }, [searchParams.toString(), selectedCourse, selectedBook, topic, isTaskEvaluationSession, initialBookFromQuery]); // Dependencias optimizadas
 
+  // useEffect para configurar 15 preguntas por defecto en modo profesor
+  useEffect(() => {
+    if (user?.role === 'teacher') {
+      setSelectedQuestionCount(15);
+    }
+  }, [user?.role]);
+
+  // useEffect para sincronizar idioma del contexto con localStorage
+  useEffect(() => {
+    console.log('🔄 Language context changed:', { currentUiLanguage });
+    if (currentUiLanguage && (currentUiLanguage === 'en' || currentUiLanguage === 'es')) {
+      // Force sync with localStorage to ensure consistency
+      localStorage.setItem('smart-student-lang', currentUiLanguage);
+      console.log('🔄 Language synced to localStorage:', currentUiLanguage);
+      
+      // Also sync with document.documentElement.lang
+      document.documentElement.lang = currentUiLanguage;
+      console.log('🔄 Language synced to document.lang:', currentUiLanguage);
+    }
+  }, [currentUiLanguage]);
+
+  // 🔧 CORRECCIÓN CRÍTICA: Función auxiliar para detectar idioma de forma SUPER ROBUSTA
+  const detectCurrentLanguage = useCallback(() => {
+    console.log('🔍 SUPER ROBUST LANGUAGE DETECTION - Starting enhanced detection...');
+    console.log('🔍 Current context state:', { currentUiLanguage });
+    
+    // 🚀 MÉTODO 1: Verificar directamente el toggle EN en la página actual
+    let enToggleFound = false;
+    let enToggleActive = false;
+    
+    // Buscar específicamente el toggle EN en toda la página
+    const allElements = document.querySelectorAll('*');
+    
+    console.log('🔍 Searching for EN toggle in', allElements.length, 'elements...');
+    
+    // Buscar en todos los elementos, priorizando los del header
+    for (let element of allElements) {
+      const rect = element.getBoundingClientRect();
+      const text = element.textContent?.trim();
+      
+      // Si el elemento contiene exactamente "EN"
+      if (text === 'EN') {
+        enToggleFound = true;
+        console.log('🎯 Found EN element:', {
+          element: element,
+          tagName: element.tagName,
+          position: { top: rect.top, left: rect.left, right: rect.right, bottom: rect.bottom },
+          isInHeader: rect.top >= 0 && rect.top < 100,
+          classes: element.className,
+          attributes: {
+            'data-state': element.getAttribute('data-state'),
+            'aria-checked': element.getAttribute('aria-checked'),
+            'role': element.getAttribute('role')
+          },
+          parentClasses: element.parentElement?.className,
+          parentAttributes: {
+            'data-state': element.parentElement?.getAttribute('data-state'),
+            'aria-checked': element.parentElement?.getAttribute('aria-checked')
+          }
+        });
+        
+        // Verificar si está activo usando TODOS los métodos posibles
+        const checkMethods = {
+          'element.data-state': element.getAttribute('data-state') === 'checked',
+          'element.aria-checked': element.getAttribute('aria-checked') === 'true',
+          'element.active-class': element.classList.contains('active'),
+          'element.checked-class': element.classList.contains('checked'),
+          'parent.data-state': element.parentElement?.getAttribute('data-state') === 'checked',
+          'parent.aria-checked': element.parentElement?.getAttribute('aria-checked') === 'true',
+          'parent.active-class': element.parentElement?.classList.contains('active'),
+          'closest-checked': element.closest('[data-state="checked"]') !== null,
+          'closest-aria-checked': element.closest('[aria-checked="true"]') !== null,
+          'switch-parent-checked': element.closest('[role="switch"][data-state="checked"]') !== null,
+          'toggle-wrapper-active': element.closest('.toggle, .switch, [role="switch"]')?.getAttribute('data-state') === 'checked'
+        };
+        
+        console.log('🔍 EN toggle state check methods:', checkMethods);
+        
+        enToggleActive = Object.values(checkMethods).some(method => method === true);
+        
+        console.log('🔍 EN toggle final state:', {
+          element: element,
+          position: { top: rect.top, left: rect.left, right: rect.right },
+          anyMethodTrue: enToggleActive,
+          finalState: enToggleActive ? 'ACTIVE ✅' : 'INACTIVE ❌'
+        });
+        
+        // Si está en el header y activo, es muy probable que sea el toggle correcto
+        if (enToggleActive && rect.top >= 0 && rect.top < 100) {
+          console.log('✅ EN TOGGLE IS ACTIVE IN HEADER - Will force English');
+          break;
+        } else if (enToggleActive) {
+          console.log('✅ EN TOGGLE IS ACTIVE (not in header) - Will force English');
+          break;
+        }
+      }
+    }
+    
+    // 🚀 MÉTODO 2: Verificar fuentes de almacenamiento
+    const storageIndicatesEnglish = localStorage.getItem('smart-student-lang') === 'en' ||
+                                   localStorage.getItem('language') === 'en' ||
+                                   document.documentElement.lang === 'en';
+    
+    // 🚀 MÉTODO 3: Verificar contexto de React
+    const contextIndicatesEnglish = currentUiLanguage === 'en';
+    
+    console.log('� COMPLETE DETECTION SUMMARY:', {
+      'enToggleFound': enToggleFound,
+      'enToggleActive': enToggleActive,
+      'storageIndicatesEnglish': storageIndicatesEnglish,
+      'contextIndicatesEnglish': contextIndicatesEnglish,
+      'currentUiLanguage': currentUiLanguage,
+      'localStorage.smart-student-lang': localStorage.getItem('smart-student-lang'),
+      'document.lang': document.documentElement.lang
+    });
+    
+    // 🎯 DECISIÓN FINAL: Priorizar el toggle visual
+    let finalLanguage = 'es'; // default
+    let reason = 'Default Spanish';
+    
+    if (enToggleActive) {
+      finalLanguage = 'en';
+      reason = 'EN toggle is visually active';
+      console.log('🎯 DECISION: EN TOGGLE ACTIVE → ENGLISH');
+    } else if (storageIndicatesEnglish && contextIndicatesEnglish) {
+      finalLanguage = 'en';
+      reason = 'Storage and context indicate English';
+      console.log('🎯 DECISION: CONTEXT + STORAGE → ENGLISH');
+    } else if (contextIndicatesEnglish) {
+      finalLanguage = 'en';
+      reason = 'React context indicates English';
+      console.log('🎯 DECISION: CONTEXT ONLY → ENGLISH');
+    } else {
+      console.log('🎯 DECISION: NO ENGLISH INDICATORS → SPANISH');
+    }
+    
+    // 🔧 FORZAR SINCRONIZACIÓN COMPLETA
+    if (finalLanguage === 'en') {
+      console.log('🇺🇸 FORCING ENGLISH MODE - Syncing all sources...');
+      localStorage.setItem('smart-student-lang', 'en');
+      localStorage.setItem('language', 'en');
+      document.documentElement.lang = 'en';
+      document.documentElement.setAttribute('data-lang', 'en');
+    } else {
+      console.log('🇪🇸 USING SPANISH MODE - Syncing all sources...');
+      localStorage.setItem('smart-student-lang', 'es');
+      localStorage.setItem('language', 'es');
+      document.documentElement.lang = 'es';
+      document.documentElement.setAttribute('data-lang', 'es');
+    }
+    
+    console.log('🎉 FINAL LANGUAGE DECISION:', {
+      'LANGUAGE': finalLanguage,
+      'REASON': reason,
+      'IS_ENGLISH': finalLanguage === 'en',
+      'WILL_GENERATE_ENGLISH_EVAL': finalLanguage === 'en' ? '✅ YES' : '❌ NO',
+      'VERIFICATION': {
+        'localStorage.smart-student-lang': localStorage.getItem('smart-student-lang'),
+        'document.lang': document.documentElement.lang
+      }
+    });
+    
+    return finalLanguage;
+  }, [currentUiLanguage]);
+
   const calculateScore = useCallback(() => {
     let correctAnswers = 0;
     evaluationQuestions.forEach((q, index) => {
@@ -254,7 +420,7 @@ export default function EvaluacionPage() {
   }, [evaluationQuestions, userAnswers]);
 
   const saveEvaluationToHistory = useCallback((finalScore: number, totalQuestions: number) => {
-    if (!selectedBook || !currentTopicForDisplay || !selectedCourse || !user) return;
+    if ((!selectedBook && !selectedSubject) || !currentTopicForDisplay || !selectedCourse || !user) return;
 
     const newHistoryItem: EvaluationHistoryItem = {
       id: new Date().toISOString(),
@@ -268,7 +434,7 @@ export default function EvaluacionPage() {
         hour12: false
       }) + ' Hrs',
       courseName: selectedCourse, 
-      bookTitle: selectedBook,
+      bookTitle: selectedBook || selectedSubject,
       topic: currentTopicForDisplay,
       score: finalScore,
       totalQuestions: totalQuestions,
@@ -284,12 +450,12 @@ export default function EvaluacionPage() {
     } catch (error) {
       console.error("Failed to save evaluation history:", error);
       toast({
-        title: translate('evalErrorSavingHistoryTitle', {defaultValue: "Error Saving History"}),
-        description: translate('evalErrorSavingHistoryDesc', {defaultValue: "Could not save evaluation to history."}),
+        title: translate('evalErrorSavingHistoryTitle'),
+        description: translate('evalErrorSavingHistoryDesc'),
         variant: 'destructive',
       });
     }
-  }, [selectedCourse, selectedBook, currentTopicForDisplay, user, toast, translate, currentUiLanguage]);
+  }, [selectedCourse, selectedBook, selectedSubject, currentTopicForDisplay, user, toast, translate, currentUiLanguage]);
 
   const handleFinishEvaluation = useCallback(async () => {
     const finalScore = calculateScore();
@@ -650,7 +816,7 @@ export default function EvaluacionPage() {
     const timeLimitFromQuery = searchParams.get('timeLimit');
     
     let courseToUse = courseFromQuery ? decodeURIComponent(courseFromQuery) : selectedCourse;
-    let bookToUse = bookFromQuery ? decodeURIComponent(bookFromQuery) : selectedBook;
+    let bookToUse = bookFromQuery ? decodeURIComponent(bookFromQuery) : (selectedBook || selectedSubject);
     let topicToUse = topicFromQuery ? decodeURIComponent(topicFromQuery) : topic;
     let questionCountToUse = questionCountFromQuery ? parseInt(questionCountFromQuery) : selectedQuestionCount;
     // Convertir minutos a segundos para timeLimitToUse
@@ -694,8 +860,8 @@ export default function EvaluacionPage() {
       return;
     }
 
-    // Start progress simulation
-    const progressInterval = startProgress('evaluation', 12000); // Extended time for PDF processing
+    // Start progress simulation but don't let it reach 100% automatically
+    const progressInterval = startProgress('evaluation', 25000); // Much longer duration to prevent auto-completion
     setEvaluationStarted(false);
     setEvaluationFinished(false);
     setEvaluationQuestions([]);
@@ -734,6 +900,194 @@ export default function EvaluacionPage() {
       }
 
       // Generate dynamic evaluation using PDF content
+      console.log('🌍 STARTING ROBUST LANGUAGE DETECTION FOR CREATE EVALUATION');
+      
+      // 🚨 EMERGENCY: Add direct DOM inspection before calling detectCurrentLanguage
+      console.log('🚨 EMERGENCY DOM INSPECTION:');
+      const enElements = Array.from(document.querySelectorAll('*')).filter(el => el.textContent?.trim() === 'EN');
+      console.log('📍 Found EN elements:', enElements.length);
+      enElements.forEach((el, index) => {
+        const rect = el.getBoundingClientRect();
+        console.log(`📍 EN Element ${index}:`, {
+          tagName: el.tagName,
+          position: { top: rect.top, left: rect.left },
+          dataState: el.getAttribute('data-state'),
+          ariaChecked: el.getAttribute('aria-checked'),
+          parentDataState: el.parentElement?.getAttribute('data-state'),
+          isInHeader: rect.top < 100
+        });
+      });
+      
+      // 🚀 FORCING EXTRA WAIT TO ENSURE DOM IS READY
+      await new Promise(resolve => setTimeout(resolve, 500)); 
+      
+      // � DETECCIÓN EXTRA AGRESIVA DEL TOGGLE EN
+      console.log('🔍 EXTRA AGGRESSIVE EN DETECTION...');
+      let languageToUse = 'es'; // default
+      let enToggleDetected = false;
+      
+      // Buscar elementos EN más específicamente
+      const potentialEnElements = document.querySelectorAll('span, button, div, label');
+      for (const element of potentialEnElements) {
+        const text = element.textContent?.trim().toUpperCase();
+        if (text === 'EN') {
+          const rect = element.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top < 150) {
+            // Verificar estado activo con múltiples métodos
+            const parent = element.parentElement;
+            const grandParent = parent?.parentElement;
+            
+            const isActiveChecks = [
+              element.getAttribute('data-state') === 'checked',
+              element.getAttribute('aria-checked') === 'true',
+              parent?.getAttribute('data-state') === 'checked',
+              parent?.getAttribute('aria-checked') === 'true',
+              grandParent?.getAttribute('data-state') === 'checked',
+              grandParent?.getAttribute('aria-checked') === 'true',
+              element.closest('[data-state="checked"]') !== null,
+              element.closest('[aria-checked="true"]') !== null
+            ];
+            
+            const isActive = isActiveChecks.some(check => check === true);
+            
+            console.log('🔍 EN candidate:', {
+              text: element.textContent,
+              tag: element.tagName,
+              active: isActive,
+              position: rect.top,
+              checks: isActiveChecks
+            });
+            
+            if (isActive) {
+              languageToUse = 'en';
+              enToggleDetected = true;
+              console.log('✅ EN TOGGLE IS ACTIVE! Will generate in English.');
+              break;
+            }
+          }
+        }
+      }
+      
+      // Método adicional: Verificar switches y toggles específicos
+      if (!enToggleDetected) {
+        console.log('🔍 Method 2: Checking specific toggle elements...');
+        const toggleElements = document.querySelectorAll('[role="switch"], button[aria-pressed], input[type="checkbox"]');
+        
+        for (const toggle of toggleElements) {
+          const rect = toggle.getBoundingClientRect();
+          const text = toggle.textContent?.trim().toUpperCase();
+          
+          if (rect.top >= 0 && rect.top < 200 && rect.width > 0) {
+            const isChecked = 
+              toggle.getAttribute('data-state') === 'checked' ||
+              toggle.getAttribute('aria-checked') === 'true' ||
+              toggle.getAttribute('aria-pressed') === 'true' ||
+              (toggle as HTMLInputElement).checked === true;
+            
+            console.log('🔍 Toggle found:', {
+              element: toggle.tagName,
+              text: text,
+              checked: isChecked,
+              dataState: toggle.getAttribute('data-state'),
+              ariaChecked: toggle.getAttribute('aria-checked'),
+              position: rect.top
+            });
+            
+            // Si encontramos un toggle activo cerca del texto EN
+            if (isChecked && (text?.includes('EN') || toggle.querySelector('*')?.textContent?.includes('EN'))) {
+              languageToUse = 'en';
+              enToggleDetected = true;
+              console.log('✅ FOUND ACTIVE TOGGLE WITH EN! Using English.');
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!enToggleDetected) {
+        console.log('❌ No active EN toggle found, checking context...');
+        if (currentUiLanguage === 'en') {
+          languageToUse = 'en';
+          console.log('✅ Using English from React context');
+        }
+      }
+      
+      // 🚀 OVERRIDE TEMPORAL: Forzar inglés si hay indicadores específicos
+      const forceEnglish = 
+        window.location.search.includes('lang=en') ||
+        localStorage.getItem('force-english-eval') === 'true' ||
+        document.querySelector('[data-testid="en-toggle-active"]') !== null;
+      
+      if (forceEnglish) {
+        languageToUse = 'en';
+        console.log('🔥 FORCING ENGLISH MODE - Override active!');
+      }
+      
+      console.log('🎯 FINAL LANGUAGE FOR CREATE:', languageToUse);
+      
+      // 🚀 ORIGINAL DETECTION AS BACKUP
+      console.log('� SIMPLE EN TOGGLE DETECTION...');
+      // let languageToUse = 'es'; // default
+      
+      // Buscar elementos EN en toda la página
+      const allElements = document.querySelectorAll('*');
+      for (const element of allElements) {
+        if (element.textContent?.trim() === 'EN') {
+          const rect = element.getBoundingClientRect();
+          // Si está visible en el header
+          if (rect.top >= 0 && rect.top < 120 && rect.width > 0) {
+            // Verificar si está activo
+            const isActive = 
+              element.closest('[data-state="checked"]') !== null ||
+              element.closest('[aria-checked="true"]') !== null ||
+              element.getAttribute('data-state') === 'checked' ||
+              element.getAttribute('aria-checked') === 'true' ||
+              element.parentElement?.getAttribute('data-state') === 'checked';
+            
+            if (isActive) {
+              languageToUse = 'en';
+              console.log('✅ EN toggle found and ACTIVE! Using English.');
+              break;
+            }
+          }
+        }
+      }
+      
+      // Fallback: verificar contexto
+      if (languageToUse === 'es' && currentUiLanguage === 'en') {
+        languageToUse = 'en';
+        console.log('✅ Using English from context');
+      }
+      
+      console.log('🎯 LANGUAGE DECISION FOR CREATE:', languageToUse, languageToUse === 'en' ? '🇺🇸' : '🇪🇸');
+      
+      // 🔥 FORZAR SINCRONIZACIÓN TOTAL
+      if (languageToUse === 'en') {
+        console.log('🇺🇸 FULL ENGLISH MODE ACTIVATION FOR CREATE EVALUATION');
+        setLanguage('en');
+        localStorage.setItem('smart-student-lang', 'en');
+        localStorage.setItem('language', 'en');
+        document.documentElement.lang = 'en';
+      } else {
+        console.log('🇪🇸 SPANISH MODE FOR CREATE EVALUATION');
+        setLanguage('es');
+        localStorage.setItem('smart-student-lang', 'es');
+        localStorage.setItem('language', 'es');
+        document.documentElement.lang = 'es';
+      }
+      
+      // Esperar que los cambios se apliquen completamente
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      console.log('� FINAL LANGUAGE DECISION FOR CREATE:', { 
+        'LANGUAGE_DETECTED': languageToUse,
+        'IS_ENGLISH': languageToUse === 'en',
+        'WILL_SEND_TO_API': languageToUse,
+        'EXPECTING_ENGLISH_EVAL': languageToUse === 'en' ? 'YES' : 'NO'
+      });
+      
+      console.log('🚨 CRITICAL API CALL WITH LANGUAGE:', languageToUse);
+      
       const evaluationResponse = await fetch('/api/generate-dynamic-evaluation', {
         method: 'POST',
         headers: {
@@ -742,7 +1096,7 @@ export default function EvaluacionPage() {
         body: JSON.stringify({
           bookTitle: bookToUse, // Usar el valor correcto
           topic: trimmedTopic,
-          language: currentUiLanguage,
+          language: languageToUse, // USAR EL IDIOMA DETECTADO DE FORMA ROBUSTA
           pdfContent: pdfContent,
           questionCount: questionCountToUse,
           timeLimit: timeLimitToUse
@@ -767,6 +1121,9 @@ export default function EvaluacionPage() {
           timeLimit: timeLimitToUse,
           title: result.evaluationTitle
         });
+        
+        // Stop progress and set to 100% when evaluation is ready
+        stopProgress(progressInterval);
         
         // Si estamos en modo autoStart, mostrar transición antes de iniciar
         if (isAutoStartMode) {
@@ -804,10 +1161,21 @@ export default function EvaluacionPage() {
       // Fallback to original method if dynamic generation fails
       try {
         console.log("Using generateEvaluationAction as fallback...");
+        console.log('🌍 Language being sent to fallback API:', currentUiLanguage);
+        
+        // Use the same robust language detection function for consistency
+        const languageToUse = detectCurrentLanguage();
+        
+        console.log('🌍 Fallback language detection using helper:', { 
+          'FINAL_LANGUAGE': languageToUse,
+          'IS_ENGLISH': languageToUse === 'en',
+          'WILL_SEND_TO_API': languageToUse
+        });
+        
         const result = await generateEvaluationAction({
           bookTitle: bookToUse, // Usar el valor correcto
           topic: trimmedTopic,
-          language: currentUiLanguage,
+          language: languageToUse as 'en' | 'es',
           questionCount: questionCountToUse,
           timeLimit: timeLimitToUse,
         });
@@ -816,6 +1184,9 @@ export default function EvaluacionPage() {
           setEvaluationTitle(result.evaluationTitle);
           setEvaluationQuestions(shuffleArray(result.questions));
           setTimeLeft(timeLimitToUse);
+          
+          // Stop progress and set to 100% when evaluation is ready
+          stopProgress(progressInterval);
           
           // Si estamos en modo autoStart, mostrar transición antes de iniciar
           if (isAutoStartMode) {
@@ -860,11 +1231,11 @@ export default function EvaluacionPage() {
           variant: 'destructive'
         });
         setEvaluationStarted(false);
+        // Stop progress on error
+        stopProgress(progressInterval);
       }
-    } finally {
-      stopProgress(progressInterval);
     }
-  }, [selectedBook, selectedCourse, topic, currentUiLanguage, toast, translate, startProgress, stopProgress, isAutoStartMode, searchParams]);
+  }, [selectedBook, selectedCourse, topic, currentUiLanguage, toast, translate, startProgress, stopProgress, isAutoStartMode, searchParams, detectCurrentLanguage]);
 
   const handleAnswerSelect = (answer: UserAnswer) => {
     const newAnswers = [...userAnswers];
@@ -905,7 +1276,7 @@ export default function EvaluacionPage() {
   };
 
   const handleRepeatEvaluation = async () => {
-    if (!selectedBook || !currentTopicForDisplay) {
+    if (!selectedBook && !selectedSubject) {
       toast({ 
         title: translate('errorGenerating'), 
         description: translate('noBookSelected'), 
@@ -927,8 +1298,8 @@ export default function EvaluacionPage() {
       timeLimitMinutes: timeLimitFromQuery ? parseInt(timeLimitFromQuery) : 2
     });
 
-    // Start progress simulation for new evaluation generation
-    const progressInterval = startProgress('evaluation', 12000);
+    // Start progress simulation but don't let it reach 100% automatically
+    const progressInterval = startProgress('evaluation', 25000); // Much longer duration to prevent auto-completion
     
     // Reset state
     setCurrentQuestionIndex(0);
@@ -945,13 +1316,14 @@ export default function EvaluacionPage() {
       // First, extract PDF content
       let pdfContent = '';
       try {
+        const bookForPdf = selectedBook || selectedSubject;
         const pdfResponse = await fetch('/api/extract-pdf-content', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            bookTitle: selectedBook
+            bookTitle: bookForPdf
           }),
         });
         
@@ -966,15 +1338,160 @@ export default function EvaluacionPage() {
       }
 
       // Generate NEW dynamic evaluation using PDF content
+      console.log('🌍 AGGRESSIVE LANGUAGE DETECTION FOR REPEAT EVALUATION');
+      
+      // 🔍 DETECCIÓN EXTRA AGRESIVA DEL TOGGLE EN PARA REPEAT
+      await new Promise(resolve => setTimeout(resolve, 200));
+      let languageToUse = 'es'; // default
+      let enToggleDetected = false;
+      
+      // Buscar elementos EN más específicamente
+      const potentialEnElements = document.querySelectorAll('span, button, div, label');
+      for (const element of potentialEnElements) {
+        const text = element.textContent?.trim().toUpperCase();
+        if (text === 'EN') {
+          const rect = element.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top < 150) {
+            // Verificar estado activo con múltiples métodos
+            const parent = element.parentElement;
+            const grandParent = parent?.parentElement;
+            
+            const isActiveChecks = [
+              element.getAttribute('data-state') === 'checked',
+              element.getAttribute('aria-checked') === 'true',
+              parent?.getAttribute('data-state') === 'checked',
+              parent?.getAttribute('aria-checked') === 'true',
+              grandParent?.getAttribute('data-state') === 'checked',
+              grandParent?.getAttribute('aria-checked') === 'true',
+              element.closest('[data-state="checked"]') !== null,
+              element.closest('[aria-checked="true"]') !== null
+            ];
+            
+            const isActive = isActiveChecks.some(check => check === true);
+            
+            console.log('🔍 EN candidate for repeat:', {
+              text: element.textContent,
+              tag: element.tagName,
+              active: isActive,
+              position: rect.top,
+              checks: isActiveChecks
+            });
+            
+            if (isActive) {
+              languageToUse = 'en';
+              enToggleDetected = true;
+              console.log('✅ EN TOGGLE IS ACTIVE FOR REPEAT! Will generate in English.');
+              break;
+            }
+          }
+        }
+      }
+      
+      // Método adicional para repeat: Verificar switches y toggles específicos
+      if (!enToggleDetected) {
+        console.log('🔍 Method 2 for repeat: Checking specific toggle elements...');
+        const toggleElements = document.querySelectorAll('[role="switch"], button[aria-pressed], input[type="checkbox"]');
+        
+        for (const toggle of toggleElements) {
+          const rect = toggle.getBoundingClientRect();
+          const text = toggle.textContent?.trim().toUpperCase();
+          
+          if (rect.top >= 0 && rect.top < 200 && rect.width > 0) {
+            const isChecked = 
+              toggle.getAttribute('data-state') === 'checked' ||
+              toggle.getAttribute('aria-checked') === 'true' ||
+              toggle.getAttribute('aria-pressed') === 'true' ||
+              (toggle as HTMLInputElement).checked === true;
+            
+            console.log('🔍 Toggle found for repeat:', {
+              element: toggle.tagName,
+              text: text,
+              checked: isChecked,
+              dataState: toggle.getAttribute('data-state'),
+              ariaChecked: toggle.getAttribute('aria-checked'),
+              position: rect.top
+            });
+            
+            // Si encontramos un toggle activo cerca del texto EN
+            if (isChecked && (text?.includes('EN') || toggle.querySelector('*')?.textContent?.includes('EN'))) {
+              languageToUse = 'en';
+              enToggleDetected = true;
+              console.log('✅ FOUND ACTIVE TOGGLE WITH EN FOR REPEAT! Using English.');
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!enToggleDetected) {
+        console.log('❌ No active EN toggle found for repeat, checking context...');
+        if (currentUiLanguage === 'en') {
+          languageToUse = 'en';
+          console.log('✅ Using English from React context for repeat');
+        }
+      }
+      
+      // 🚀 OVERRIDE TEMPORAL PARA REPEAT: Forzar inglés si hay indicadores específicos
+      const forceEnglish = 
+        window.location.search.includes('lang=en') ||
+        localStorage.getItem('force-english-eval') === 'true' ||
+        document.querySelector('[data-testid="en-toggle-active"]') !== null;
+      
+      if (forceEnglish) {
+        languageToUse = 'en';
+        console.log('🔥 FORCING ENGLISH MODE FOR REPEAT - Override active!');
+      }
+      
+      console.log('🎯 FINAL LANGUAGE FOR REPEAT:', languageToUse);
+      
+      // 🔥 FORZAR SINCRONIZACIÓN TOTAL
+      if (languageToUse === 'en') {
+        console.log('🇺🇸 FULL ENGLISH MODE ACTIVATION FOR REPEAT EVALUATION');
+        setLanguage('en');
+        localStorage.setItem('smart-student-lang', 'en');
+        localStorage.setItem('language', 'en');
+        document.documentElement.lang = 'en';
+      } else {
+        console.log('🇪🇸 SPANISH MODE FOR REPEAT EVALUATION');
+        setLanguage('es');
+        localStorage.setItem('smart-student-lang', 'es');
+        localStorage.setItem('language', 'es');
+        document.documentElement.lang = 'es';
+      }
+      
+      // Esperar que los cambios se apliquen completamente
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      console.log('� FINAL LANGUAGE DECISION FOR REPEAT:', { 
+        'LANGUAGE_DETECTED': languageToUse,
+        'IS_ENGLISH': languageToUse === 'en',
+        'WILL_SEND_TO_API': languageToUse,
+        'EXPECTING_ENGLISH_EVAL': languageToUse === 'en' ? 'YES' : 'NO'
+      });
+      
+      console.log('🚨 CRITICAL REPEAT API CALL WITH LANGUAGE:', languageToUse);
+      
+      // 🚨 FINAL API PAYLOAD VERIFICATION
+      const bookForEvaluation = selectedBook || selectedSubject;
+      const apiPayload = {
+        bookTitle: bookForEvaluation,
+        topic: currentTopicForDisplay,
+        language: languageToUse,
+        pdfContent: pdfContent,
+        questionCount: questionCountToUse,
+        timeLimit: timeLimitToUse
+      };
+      console.log('📤 EXACT API PAYLOAD FOR REPEAT:', JSON.stringify(apiPayload, null, 2));
+      
       const evaluationResponse = await fetch('/api/generate-dynamic-evaluation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          bookTitle: selectedBook,
+          bookTitle: bookForEvaluation,
           topic: currentTopicForDisplay,
-          language: currentUiLanguage,
+          language: languageToUse, // USAR EL IDIOMA DETECTADO DE FORMA ROBUSTA
           pdfContent: pdfContent,
           questionCount: questionCountToUse,
           timeLimit: timeLimitToUse
@@ -997,6 +1514,9 @@ export default function EvaluacionPage() {
         setStartTime(new Date());
         setEvaluationStarted(true);
         
+        // Stop progress when evaluation is ready
+        stopProgress(progressInterval);
+        
         console.log('✅ Repeat evaluation created with custom parameters:', {
           questionCount: result.questions.length,
           timeLimit: timeLimitToUse
@@ -1016,11 +1536,43 @@ export default function EvaluacionPage() {
       
       // Fallback to original method if dynamic generation fails
       try {
-        console.log("Attempting fallback generation for repeat...");
+        console.log("🔄 ATTEMPTING FALLBACK GENERATION FOR REPEAT WITH ROBUST LANGUAGE DETECTION...");
+        
+        // 🚀 USAR LA FUNCIÓN SUPER ROBUSTA TAMBIÉN EN EL FALLBACK
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const languageToUse = detectCurrentLanguage();
+        
+        // 🔥 FORZAR SINCRONIZACIÓN TOTAL EN FALLBACK
+        if (languageToUse === 'en') {
+          console.log('🇺🇸 FALLBACK: FULL ENGLISH MODE ACTIVATION');
+          setLanguage('en');
+          localStorage.setItem('smart-student-lang', 'en');
+          localStorage.setItem('language', 'en');
+          document.documentElement.lang = 'en';
+        } else {
+          console.log('�🇸 FALLBACK: SPANISH MODE');
+          setLanguage('es');
+          localStorage.setItem('smart-student-lang', 'es');
+          localStorage.setItem('language', 'es');
+          document.documentElement.lang = 'es';
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        console.log('🎯 FALLBACK LANGUAGE DECISION FOR REPEAT:', { 
+          'LANGUAGE_DETECTED': languageToUse,
+          'IS_ENGLISH': languageToUse === 'en',
+          'WILL_SEND_TO_FALLBACK': languageToUse
+        });
+        
+        console.log('🚨 CRITICAL REPEAT FALLBACK API CALL WITH LANGUAGE:', languageToUse);
+        
+        const bookForFallback = selectedBook || selectedSubject;
+        
         const result = await generateEvaluationAction({
-          bookTitle: selectedBook,
+          bookTitle: bookForFallback,
           topic: currentTopicForDisplay,
-          language: currentUiLanguage,
+          language: languageToUse as 'en' | 'es', // USAR EL IDIOMA DETECTADO DE FORMA ROBUSTA
           questionCount: questionCountToUse,
           timeLimit: timeLimitToUse,
         });
@@ -1033,6 +1585,9 @@ export default function EvaluacionPage() {
           setTimerActive(true);
           setStartTime(new Date());
           setEvaluationStarted(true);
+          
+          // Stop progress when evaluation is ready
+          stopProgress(progressInterval);
           
           toast({ 
             title: translate('evalGeneratedTitle'), 
@@ -1056,14 +1611,15 @@ export default function EvaluacionPage() {
         setStartTime(new Date());
         setEvaluationStarted(true);
         
+        // Stop progress when fallback is ready
+        stopProgress(progressInterval);
+        
         toast({ 
           title: translate('evalGeneratedTitle'), 
           description: translate('evalFallbackRepeat', {defaultValue: 'Evaluación reiniciada con preguntas reordenadas'}),
           variant: 'default'
         });
       }
-    } finally {
-      stopProgress(progressInterval);
     }
   };
 
@@ -1345,31 +1901,37 @@ export default function EvaluacionPage() {
             <BookCourseSelector
               selectedCourse={selectedCourse}
               selectedBook={selectedBook}
+              selectedSubject={selectedSubject}
+              showSubjectSelector={true}
+              showBookSelector={false}
               onCourseChange={setSelectedCourse}
               onBookChange={setSelectedBook}
+              onSubjectChange={setSelectedSubject}
               initialBookNameToSelect={initialBookFromQuery}
             />
-            <div className="space-y-2">
-              <Label htmlFor="question-count-select" className="text-left block">
-                {translate('evalQuestionCountLabel', { defaultValue: 'Cantidad de preguntas' })}
-              </Label>
-              <Select 
-                value={selectedQuestionCount.toString()} 
-                onValueChange={(value) => setSelectedQuestionCount(parseInt(value))}
-              >
-                <SelectTrigger id="question-count-select" className="text-base md:text-sm">
-                  <SelectValue placeholder={translate('evalQuestionCountPlaceholder', { defaultValue: 'Selecciona la cantidad de preguntas' })} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="5">5 preguntas</SelectItem>
-                  <SelectItem value="10">10 preguntas</SelectItem>
-                  <SelectItem value="15">15 preguntas</SelectItem>
-                  <SelectItem value="20">20 preguntas</SelectItem>
-                  <SelectItem value="25">25 preguntas</SelectItem>
-                  <SelectItem value="30">30 preguntas</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {user?.role !== 'teacher' && (
+              <div className="space-y-2">
+                <Label htmlFor="question-count-select" className="text-left block">
+                  {translate('questionCountLabel')}
+                </Label>
+                <Select 
+                  value={selectedQuestionCount.toString()} 
+                  onValueChange={(value) => setSelectedQuestionCount(parseInt(value))}
+                >
+                  <SelectTrigger id="question-count-select" className="text-base md:text-sm">
+                    <SelectValue placeholder={translate('evalQuestionCountPlaceholder', { defaultValue: 'Selecciona la cantidad de preguntas' })} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">5 preguntas</SelectItem>
+                    <SelectItem value="10">10 preguntas</SelectItem>
+                    <SelectItem value="15">15 preguntas</SelectItem>
+                    <SelectItem value="20">20 preguntas</SelectItem>
+                    <SelectItem value="25">25 preguntas</SelectItem>
+                    <SelectItem value="30">30 preguntas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="eval-topic-input" className="text-left block">{translate('evalTopicPlaceholder')}</Label>
               <Textarea
@@ -1746,11 +2308,11 @@ export default function EvaluacionPage() {
               // Si es evaluación normal: mostrar botones Repetir y Cerrar
               console.log('❌ Showing REPEAT & CLOSE buttons for normal evaluation (RESULTS DIALOG)');
               return (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Button onClick={handleRepeatEvaluation} className="w-full home-card-button-purple">
+                <div className="flex flex-col sm:flex-row gap-3 justify-center items-center w-full">
+                  <Button onClick={handleRepeatEvaluation} className="w-full sm:w-auto min-w-[140px] home-card-button-purple">
                     {translate('evalRepeatButton')}
                   </Button>
-                  <Button onClick={handleCloseDialogAndShowReview} variant="outline" className="w-full">
+                  <Button onClick={handleCloseDialogAndShowReview} variant="outline" className="w-full sm:w-auto min-w-[140px]">
                     {translate('evalCloseButton')}
                   </Button>
                 </div>
