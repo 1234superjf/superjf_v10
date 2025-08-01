@@ -161,6 +161,40 @@ export default function Configuration() {
 
   const exportSystemData = () => {
     try {
+      // ✅ MEJORAR EXPORTACIÓN: Asegurar que todos los usuarios tengan campos completos
+      const rawUsers = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const exportUsers = rawUsers.map((user: any) => {
+        // Garantizar que cada usuario exportado tenga TODOS los campos necesarios para login
+        return {
+          // Campos obligatorios para login
+          id: user.id || crypto.randomUUID(),
+          username: user.username || user.name || `user_${Date.now()}_${Math.random()}`,
+          password: user.password || '1234',
+          role: user.role || 'student',
+          displayName: user.displayName || user.name || 'Usuario Sin Nombre',
+          activeCourses: Array.isArray(user.activeCourses) ? user.activeCourses : 
+                        (user.role === 'admin' ? [] : ['4to Básico']),
+          email: user.email || `${user.username || user.name}@example.com`,
+          isActive: user.isActive !== undefined ? user.isActive : true,
+          createdAt: user.createdAt || new Date().toISOString(),
+          updatedAt: user.updatedAt || new Date().toISOString(),
+          
+          // Preservar campos adicionales del usuario original
+          ...(user.name && { name: user.name }),
+          ...(user.assignedTeachers && { assignedTeachers: user.assignedTeachers }),
+          ...(user.teachingAssignments && { teachingAssignments: user.teachingAssignments }),
+          ...(user.uniqueCode && { uniqueCode: user.uniqueCode }),
+          ...(user.courseId && { courseId: user.courseId }),
+          ...(user.sectionId && { sectionId: user.sectionId }),
+          ...(user.selectedSubjects && { selectedSubjects: user.selectedSubjects }),
+          ...(user.assignedSections && { assignedSections: user.assignedSections }),
+          ...(user.subjects && { subjects: user.subjects }),
+          ...(user.section && { section: user.section })
+        };
+      });
+
+      console.log('📦 [EXPORTACIÓN] Usuarios preparados con campos completos:', exportUsers.length);
+
       const data = {
         courses: LocalStorageManager.getCourses(),
         sections: LocalStorageManager.getSections(),
@@ -173,10 +207,10 @@ export default function Configuration() {
         administrators: JSON.parse(localStorage.getItem('smart-student-administrators') || '[]'),
         // Agregar asignaciones de profesores a cursos-secciones
         teacherAssignments: JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]'),
-        // Agregar usuarios principales (para compatibilidad)
-        users: JSON.parse(localStorage.getItem('smart-student-users') || '[]'),
+        // ✅ USUARIOS PRINCIPALES CON CAMPOS COMPLETOS PARA LOGIN
+        users: exportUsers,
         exportDate: new Date().toISOString(),
-        version: '1.1'
+        version: '1.2' // Incrementar versión para indicar mejora de exportación
       };
 
       const dataStr = JSON.stringify(data, null, 2);
@@ -189,7 +223,7 @@ export default function Configuration() {
 
       toast({
         title: translate('configExportSuccessTitle') || 'Exportación exitosa',
-        description: translate('configExportSuccessDescription') || 'Datos exportados: cursos, secciones, estudiantes, profesores, asignaciones, administradores y configuración del sistema',
+        description: translate('configExportSuccessDescription') || 'Datos exportados con campos completos para login. La importación será automática.',
         variant: 'default'
       });
     } catch (error) {
@@ -241,14 +275,83 @@ export default function Configuration() {
             localStorage.setItem('smart-student-teacher-assignments', JSON.stringify(importedData.teacherAssignments));
           }
 
-          // Import main users for compatibility (nuevo)
+          // ✅ MEJORAR IMPORTACIÓN: Consolidar todos los usuarios y garantizar campos completos
           if (importedData.users) {
-            localStorage.setItem('smart-student-users', JSON.stringify(importedData.users));
+            const consolidatedUsers = [...(importedData.users || [])];
+            
+            // Agregar usuarios de ubicaciones específicas si existen
+            if (importedData.students) {
+              importedData.students.forEach((student: any) => {
+                const exists = consolidatedUsers.find(u => u.username === student.username || u.name === student.name);
+                if (!exists) {
+                  consolidatedUsers.push({ ...student, role: 'student' });
+                }
+              });
+            }
+            
+            if (importedData.teachers) {
+              importedData.teachers.forEach((teacher: any) => {
+                const exists = consolidatedUsers.find(u => u.username === teacher.username || u.name === teacher.name);
+                if (!exists) {
+                  consolidatedUsers.push({ ...teacher, role: 'teacher' });
+                }
+              });
+            }
+            
+            if (importedData.administrators) {
+              importedData.administrators.forEach((admin: any) => {
+                const exists = consolidatedUsers.find(u => u.username === admin.username || u.name === admin.name);
+                if (!exists) {
+                  consolidatedUsers.push({ ...admin, role: 'admin' });
+                }
+              });
+            }
+
+            // Reparar y validar TODOS los usuarios consolidados
+            const repairedUsers = consolidatedUsers.map((user: any, index: number) => {
+              const repairedUser = {
+                // Campos obligatorios para login
+                id: user.id || crypto.randomUUID(),
+                username: user.username || user.name || `imported_user_${Date.now()}_${index}`,
+                password: user.password || '1234',
+                role: user.role || 'student',
+                displayName: user.displayName || user.name || `Usuario Importado ${index + 1}`,
+                activeCourses: Array.isArray(user.activeCourses) ? user.activeCourses : 
+                              (user.role === 'admin' ? [] : ['4to Básico']),
+                email: user.email || `${user.username || user.name || `user${index}`}@example.com`,
+                isActive: user.isActive !== undefined ? user.isActive : true,
+                createdAt: user.createdAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                
+                // Preservar campos adicionales
+                ...(user.name && { name: user.name }),
+                ...(user.assignedTeachers && { assignedTeachers: user.assignedTeachers }),
+                ...(user.teachingAssignments && { teachingAssignments: user.teachingAssignments }),
+                ...(user.uniqueCode && { uniqueCode: user.uniqueCode }),
+                ...(user.courseId && { courseId: user.courseId }),
+                ...(user.sectionId && { sectionId: user.sectionId }),
+                ...(user.selectedSubjects && { selectedSubjects: user.selectedSubjects }),
+                ...(user.assignedSections && { assignedSections: user.assignedSections }),
+                ...(user.subjects && { subjects: user.subjects }),
+                ...(user.section && { section: user.section })
+              };
+              
+              return repairedUser;
+            });
+            
+            console.log('🔧 [IMPORTACIÓN] Usuarios consolidados y reparados:', repairedUsers.length);
+            console.log('📊 [IMPORTACIÓN] Por roles:', {
+              admins: repairedUsers.filter(u => u.role === 'admin').length,
+              teachers: repairedUsers.filter(u => u.role === 'teacher').length,
+              students: repairedUsers.filter(u => u.role === 'student').length
+            });
+            
+            localStorage.setItem('smart-student-users', JSON.stringify(repairedUsers));
           }
 
           toast({
             title: translate('configImportSuccessTitle') || 'Importación exitosa',
-            description: translate('configImportSuccessDescription') || 'Datos importados correctamente: cursos, secciones, estudiantes, profesores, asignaciones, administradores y configuración',
+            description: translate('configImportSuccessDescription') || 'Datos importados y usuarios reparados automáticamente. Todos los usuarios pueden hacer login.',
             variant: 'default'
           });
 
@@ -268,6 +371,101 @@ export default function Configuration() {
     
     reader.readAsText(file);
     event.target.value = ''; // Reset input
+  };
+
+  // ✅ NUEVA FUNCIÓN: Reparar usuarios existentes con campos faltantes
+  const repairExistingUsers = () => {
+    try {
+      const allUsers = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      if (allUsers.length === 0) return;
+
+      console.log('🔧 [REPARACIÓN] Iniciando reparación de usuarios existentes...');
+      
+      let repairedCount = 0;
+      const repairedUsers = allUsers.map((user: any) => {
+        const originalUser = { ...user };
+        let needsRepair = false;
+
+        // Verificar y reparar campos obligatorios
+        if (!user.id) {
+          user.id = crypto.randomUUID();
+          needsRepair = true;
+        }
+        
+        if (!user.username || user.username.trim() === '') {
+          user.username = 'user_' + Math.random().toString(36).substr(2, 8);
+          needsRepair = true;
+        }
+        
+        if (!user.displayName) {
+          user.displayName = user.name || 'Usuario Sin Nombre';
+          needsRepair = true;
+        }
+        
+        if (!user.password) {
+          user.password = '1234'; // Password por defecto
+          needsRepair = true;
+        }
+        
+        if (!user.role) {
+          user.role = 'student'; // Rol por defecto
+          needsRepair = true;
+        }
+        
+        if (!Array.isArray(user.activeCourses)) {
+          user.activeCourses = user.role === 'admin' ? [] : ['4to Básico'];
+          needsRepair = true;
+        }
+        
+        if (!user.email) {
+          user.email = `${user.username}@example.com`;
+          needsRepair = true;
+        }
+        
+        if (user.isActive === undefined || user.isActive === null) {
+          user.isActive = true;
+          needsRepair = true;
+        }
+        
+        if (!user.createdAt) {
+          user.createdAt = new Date();
+          needsRepair = true;
+        }
+        
+        if (!user.updatedAt) {
+          user.updatedAt = new Date();
+          needsRepair = true;
+        }
+
+        if (needsRepair) {
+          repairedCount++;
+          console.log(`🔧 Usuario reparado: ${user.username}`);
+        }
+
+        return user;
+      });
+
+      if (repairedCount > 0) {
+        localStorage.setItem('smart-student-users', JSON.stringify(repairedUsers));
+        
+        toast({
+          title: translate('configUsersRepairedTitle') || 'Usuarios reparados',
+          description: translate('configUsersRepairedDescription') || `Se repararon ${repairedCount} usuarios con campos faltantes`,
+          variant: 'default'
+        });
+        
+        console.log(`✅ [REPARACIÓN] ${repairedCount} usuarios reparados exitosamente`);
+      } else {
+        console.log('✅ [REPARACIÓN] Todos los usuarios ya tienen los campos necesarios');
+      }
+    } catch (error) {
+      console.error('❌ Error reparando usuarios:', error);
+      toast({
+        title: translate('error') || 'Error',
+        description: translate('configRepairUsersError') || 'Error al reparar usuarios',
+        variant: 'destructive'
+      });
+    }
   };
 
   const resetAllData = () => {
@@ -481,6 +679,15 @@ export default function Configuration() {
           'Lenguaje y Comunicación': 'jorge',
           'Historia, Geografía y Ciencias Sociales': 'carlos'
         };
+      } else if (createUserFormData.role === 'student') {
+        // ✅ FALLBACK: Si es estudiante pero no tiene courseId, asignar curso por defecto
+        courseNames = ['4to Básico'];
+        additionalData.assignedTeachers = {
+          'Matemáticas': 'jorge',
+          'Ciencias Naturales': 'carlos',
+          'Lenguaje y Comunicación': 'jorge',
+          'Historia, Geografía y Ciencias Sociales': 'carlos'
+        };
       } else if (createUserFormData.role === 'teacher' && createUserFormData.selectedSubjects) {
         // Para profesores, asignar cursos básicos por defecto
         courseNames = ['4to Básico'];
@@ -493,16 +700,43 @@ export default function Configuration() {
             courses: ['4to Básico']
           };
         });
+      } else if (createUserFormData.role === 'teacher') {
+        // ✅ FALLBACK: Si es profesor pero no tiene materias, asignar configuración básica
+        courseNames = ['4to Básico'];
+        additionalData.teachingAssignments = [{
+          teacherUsername: username,
+          teacherName: createUserFormData.name.trim(),
+          subject: 'Matemáticas',
+          courses: ['4to Básico']
+        }];
       } else if (createUserFormData.role === 'admin') {
+        // ✅ Los administradores no necesitan cursos específicos pero sí el array vacío
         courseNames = [];
       }
       
-      // Crear usuario final con todos los campos necesarios
+      // ✅ GARANTIZAR que siempre tengamos todos los campos mínimos necesarios
       const newUserForMain = {
         ...baseUser,
-        activeCourses: courseNames,
+        activeCourses: courseNames, // ✅ Siempre definido como array
         ...additionalData
       };
+      
+      // ✅ VALIDACIÓN ADICIONAL: Verificar que tenga todos los campos requeridos
+      const requiredFields = ['id', 'username', 'role', 'displayName', 'activeCourses', 'password'];
+      const missingFields = requiredFields.filter(field => 
+        newUserForMain[field] === undefined || newUserForMain[field] === null ||
+        (field === 'activeCourses' && !Array.isArray(newUserForMain[field]))
+      );
+      
+      if (missingFields.length > 0) {
+        console.error('❌ [USUARIO DEBUG] Campos faltantes:', missingFields);
+        toast({
+          title: translate('error') || 'Error',
+          description: `Error en creación: faltan campos ${missingFields.join(', ')}`,
+          variant: 'destructive'
+        });
+        return;
+      }
       
       console.log('🔍 [USUARIO DEBUG] Usuario a agregar:', newUserForMain);
       
@@ -768,7 +1002,7 @@ export default function Configuration() {
             {translate('configDataManagementTitle') || 'Gestión de Datos'}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent>mo
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Export Data */}
             <div className="p-4 border rounded-lg">
@@ -892,7 +1126,7 @@ export default function Configuration() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Regenerate Passwords */}
             <div className="p-4 border rounded-lg">
               <h4 className="font-medium mb-2 flex items-center">
@@ -910,6 +1144,26 @@ export default function Configuration() {
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
                 {translate('configRegenerateAllButton') || 'Regenerar Todas'}
+              </Button>
+            </div>
+
+            {/* ✅ NUEVO: Reparar Usuarios */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-medium mb-2 flex items-center">
+                <Shield className="w-4 h-4 mr-2 text-blue-500" />
+                {translate('configRepairUsersTitle') || 'Reparar Usuarios'}
+              </h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                {translate('configRepairUsersDesc') || 'Corrige usuarios con campos faltantes para garantizar acceso al login'}
+              </p>
+              <Button 
+                onClick={repairExistingUsers}
+                disabled={isLoading}
+                variant="outline" 
+                className="w-full"
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                {translate('configRepairUsersButton') || 'Reparar Usuarios'}
               </Button>
             </div>
 

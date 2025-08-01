@@ -60,7 +60,7 @@ const MultipleSelectionQuestionSchema = z.object({
 });
 
 const EvaluationQuestionSchema = z.union([TrueFalseQuestionSchema, MultipleChoiceQuestionSchema, MultipleSelectionQuestionSchema]);
-type EvaluationQuestion = z.infer<typeof EvaluationQuestionSchema>;
+export type EvaluationQuestion = z.infer<typeof EvaluationQuestionSchema>;
 
 const GenerateEvaluationOutputSchema = z.object({
   evaluationTitle: z.string().describe('The title of the evaluation, formatted as "EVALUACIÓN - [TOPIC_NAME_IN_UPPERCASE]" if language is "es", or "EVALUATION - [TOPIC_NAME_IN_UPPERCASE]" if language is "en".'),
@@ -78,12 +78,15 @@ export async function generateEvaluationContent(input: GenerateEvaluationInput):
       questionCountUsed: questionCount,
       topic: input.topic,
       bookTitle: input.bookTitle,
-      timeLimit: input.timeLimit
+      timeLimit: input.timeLimit,
+      language: input.language
     });
+    console.log('🌍 generateEvaluationContent received language:', input.language);
     
     // Check if API key is available
     if (!process.env.GOOGLE_API_KEY || process.env.GOOGLE_API_KEY === 'your_google_api_key_here') {
       console.log('📝 Using mock generation with questionCount:', questionCount);
+      console.log('⚠️ Using mock data - API key not available. Language:', input.language);
       // Generate mock data dynamically based on questionCount
       const mockQuestions: EvaluationQuestion[] = [];
       
@@ -96,37 +99,59 @@ export async function generateEvaluationContent(input: GenerateEvaluationInput):
           mockQuestions.push({
             id: i.toString(),
             type: 'TRUE_FALSE',
-            questionText: `¿El concepto ${i} de "${input.topic}" está relacionado con "${input.bookTitle}"?`,
+            questionText: input.language === 'es' 
+              ? `¿El concepto ${i} de "${input.topic}" está relacionado con "${input.bookTitle}"?`
+              : `Is concept ${i} of "${input.topic}" related to "${input.bookTitle}"?`,
             correctAnswer: i % 2 === 1, // Alternate true/false
-            explanation: `Esta es una pregunta de ejemplo ${i} mientras se configura la API.`
+            explanation: input.language === 'es'
+              ? `Esta es una pregunta de ejemplo ${i} mientras se configura la API.`
+              : `This is a sample question ${i} while the API is being configured.`
           });
         } else if (type === 'MULTIPLE_CHOICE') {
           mockQuestions.push({
             id: i.toString(),
             type: 'MULTIPLE_CHOICE',
-            questionText: `¿Cuál es el aspecto más importante del concepto ${i} en "${input.topic}"?`,
-            options: [
+            questionText: input.language === 'es'
+              ? `¿Cuál es el aspecto más importante del concepto ${i} en "${input.topic}"?`
+              : `What is the most important aspect of concept ${i} in "${input.topic}"?`,
+            options: input.language === 'es' ? [
               `Característica A del concepto ${i}`,
               `Característica B del concepto ${i}`,
               `Característica C del concepto ${i}`,
               `Característica D del concepto ${i}`
+            ] : [
+              `Feature A of concept ${i}`,
+              `Feature B of concept ${i}`,
+              `Feature C of concept ${i}`,
+              `Feature D of concept ${i}`
             ],
             correctAnswerIndex: (i - 1) % 4, // Distribute answers
-            explanation: `Esta es una pregunta de ejemplo ${i} mientras se configura la API.`
+            explanation: input.language === 'es'
+              ? `Esta es una pregunta de ejemplo ${i} mientras se configura la API.`
+              : `This is a sample question ${i} while the API is being configured.`
           });
         } else {
           mockQuestions.push({
             id: i.toString(),
             type: 'MULTIPLE_SELECTION',
-            questionText: `¿Cuáles son las características principales del concepto ${i} en "${input.topic}"? (Selecciona todas las correctas)`,
-            options: [
+            questionText: input.language === 'es'
+              ? `¿Cuáles son las características principales del concepto ${i} en "${input.topic}"? (Selecciona todas las correctas)`
+              : `What are the main characteristics of concept ${i} in "${input.topic}"? (Select all correct ones)`,
+            options: input.language === 'es' ? [
               `Característica principal A del concepto ${i}`,
               `Característica principal B del concepto ${i}`,
               `Característica principal C del concepto ${i}`,
               `Característica principal D del concepto ${i}`
+            ] : [
+              `Main feature A of concept ${i}`,
+              `Main feature B of concept ${i}`,
+              `Main feature C of concept ${i}`,
+              `Main feature D of concept ${i}`
             ],
             correctAnswerIndices: [0, (i % 3) + 1], // Two correct answers
-            explanation: `Esta es una pregunta de ejemplo ${i} mientras se configura la API.`
+            explanation: input.language === 'es'
+              ? `Esta es una pregunta de ejemplo ${i} mientras se configura la API.`
+              : `This is a sample question ${i} while the API is being configured.`
           });
         }
       }
@@ -138,7 +163,9 @@ export async function generateEvaluationContent(input: GenerateEvaluationInput):
       });
       
       return {
-        evaluationTitle: `Evaluación - ${input.topic.toUpperCase()}`,
+        evaluationTitle: input.language === 'es' 
+          ? `Evaluación - ${input.topic.toUpperCase()}`
+          : `Evaluation - ${input.topic.toUpperCase()}`,
         questions: mockQuestions
       };
     }
@@ -148,14 +175,20 @@ export async function generateEvaluationContent(input: GenerateEvaluationInput):
     console.error('Error generating evaluation content:', error);
     // Return fallback data
     return {
-      evaluationTitle: `Evaluación - ${input.topic.toUpperCase()}`,
+      evaluationTitle: input.language === 'es' 
+        ? `Evaluación - ${input.topic.toUpperCase()}`
+        : `Evaluation - ${input.topic.toUpperCase()}`,
       questions: [
         {
           id: '1',
           type: 'TRUE_FALSE',
-          questionText: `¿El tema "${input.topic}" está relacionado con "${input.bookTitle}"?`,
+          questionText: input.language === 'es'
+            ? `¿El tema "${input.topic}" está relacionado con "${input.bookTitle}"?`
+            : `Is the topic "${input.topic}" related to "${input.bookTitle}"?`,
           correctAnswer: true,
-          explanation: 'Pregunta generada como respaldo debido a un error en la API.'
+          explanation: input.language === 'es'
+            ? 'Pregunta generada como respaldo debido a un error en la API.'
+            : 'Question generated as fallback due to an API error.'
         }
       ]
     };
@@ -337,17 +370,23 @@ const generateDynamicEvaluationFlow = ai.defineFlow(
   }
 );
 
-// Export both functions
-export { type EvaluationQuestion };
-
 // New export for dynamic evaluation
 export async function generateDynamicEvaluationContent(input: GenerateDynamicEvaluationInput): Promise<GenerateEvaluationOutput> {
   try {
+    console.log('🌍 generateDynamicEvaluationContent received language:', input.language);
+    console.log('📚 generateDynamicEvaluationContent input:', { 
+      bookTitle: input.bookTitle, 
+      topic: input.topic, 
+      language: input.language 
+    });
+    
     // Check if API key is available
     if (!process.env.GOOGLE_API_KEY || process.env.GOOGLE_API_KEY === 'your_google_api_key_here') {
       // Return mock data with uniqueness for development
       const timestamp = input.timestamp || Date.now();
       const randomSeed = input.randomSeed || Math.floor(Math.random() * 1000);
+      
+      console.log('⚠️ Using mock data - API key not available. Language:', input.language);
       
       return {
         evaluationTitle: `${input.language === 'es' ? 'EVALUACIÓN' : 'EVALUATION'} - ${input.topic.toUpperCase()}`,

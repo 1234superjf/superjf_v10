@@ -1463,22 +1463,24 @@ export default function PerfilClient() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-slate-300 uppercase tracking-wider mb-2">
-                      {user?.role === 'teacher' ? 'Información Académica' : translate('profileAssignedCourse')}
+                      {user?.role === 'teacher' ? translate('editUserAcademicInfo') : translate('profileAssignedCourse')}
                     </label>
                     
                     {user?.role === 'teacher' ? (
                       // Para profesores: mostrar asignaciones completas como en gestión de usuarios
                       (() => {
+                        if (!user?.username) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileNoUserDataFound')}</div>;
+                        
                         const storedUsers = localStorage.getItem('smart-student-users');
-                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">No se encontraron datos del usuario</div>;
+                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileNoUserDataFound')}</div>;
                         
                         try {
                           const usersData = JSON.parse(storedUsers);
                           const fullUserData = usersData.find((u: any) => u.username === user.username);
-                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">No se encontraron datos del profesor</div>;
+                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileNoTeacherDataFound')}</div>;
                           
                           const teacherInfo = getTeacherAssignmentsInfo(fullUserData);
-                          if (!teacherInfo) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">Error al cargar información del profesor</div>;
+                          if (!teacherInfo) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileErrorLoadingTeacherInfo')}</div>;
                           
                           return (
                             <div className="space-y-3">
@@ -1491,7 +1493,7 @@ export default function PerfilClient() {
                                       <div className="flex items-center gap-2 flex-wrap">
                                         {/* Badge del curso y sección */}
                                         <Badge variant="outline" className="text-xs font-semibold bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700">
-                                          {info.courseName} - Sección {info.sectionName}
+                                          {info.courseName} - {translate('userManagementSection')} {info.sectionName}
                                         </Badge>
                                         
                                         {/* Badges de las asignaturas al lado */}
@@ -1517,40 +1519,42 @@ export default function PerfilClient() {
                                 </div>
                               ) : (
                                 <div className="text-sm text-gray-600 dark:text-slate-300 italic">
-                                  No hay asignaciones específicas registradas
+                                  {translate('profileNoSpecificAssignments')}
                                 </div>
                               )}
                             </div>
                           );
                         } catch (error) {
                           console.error('Error al cargar datos del profesor:', error);
-                          return <div className="text-sm text-gray-600 dark:text-slate-300 italic">Error al cargar información académica</div>;
+                          return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileErrorLoadingAcademicInfo')}</div>;
                         }
                       })()
                     ) : (
                       // Para estudiantes: mostrar curso y sección
                       (() => {
+                        if (!user?.username) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileNoUserDataFound')}</div>;
+                        
                         const storedUsers = localStorage.getItem('smart-student-users');
-                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">No se encontraron datos del usuario</div>;
+                        if (!storedUsers) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileNoUserDataFound')}</div>;
                         
                         try {
                           const usersData = JSON.parse(storedUsers);
                           const fullUserData = usersData.find((u: any) => u.username === user.username);
-                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">No se encontraron datos del estudiante</div>;
+                          if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileNoStudentDataFound')}</div>;
                           
                           const studentInfo = getStudentCourseInfo(fullUserData);
-                          if (!studentInfo) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">Error al cargar información del estudiante</div>;
+                          if (!studentInfo) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileErrorLoadingStudentInfo')}</div>;
                           
                           return (
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-xs font-semibold bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700">
-                                {studentInfo.courseName} - Sección {studentInfo.sectionName}
+                                {studentInfo.courseName} - {translate('userManagementSection')} {studentInfo.sectionName}
                               </Badge>
                             </div>
                           );
                         } catch (error) {
                           console.error('Error al cargar datos del estudiante:', error);
-                          return <div className="text-sm text-gray-600 dark:text-slate-300 italic">Error al cargar información académica</div>;
+                          return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileErrorLoadingAcademicInfo')}</div>;
                         }
                       })()
                     )}

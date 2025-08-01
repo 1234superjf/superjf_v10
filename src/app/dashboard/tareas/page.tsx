@@ -166,6 +166,41 @@
       timeLimit: 0
     });
 
+    // Estado para asignaturas filtradas basadas en la sección seleccionada
+    const [filteredSubjects, setFilteredSubjects] = useState<string[]>([]);
+
+    // useEffect para actualizar asignaturas filtradas cuando cambie el curso seleccionado
+    useEffect(() => {
+      console.log(`🔄 [useEffect] Curso cambiado a: "${formData.course}"`);
+      
+      const subjects = getSubjectsForCourseSection(formData.course);
+      console.log(`📚 [useEffect] Asignaturas obtenidas:`, subjects);
+      
+      setFilteredSubjects(subjects);
+      
+      // Si la asignatura actual no está disponible para la nueva sección, limpiarla
+      if (formData.subject && !subjects.includes(formData.subject)) {
+        console.log(`⚠️ [useEffect] Asignatura "${formData.subject}" no disponible en nueva sección, limpiando...`);
+        setFormData(prev => ({ ...prev, subject: '' }));
+      }
+    }, [formData.course, user]);
+
+    // useEffect para inicializar asignaturas filtradas al cargar el componente
+    useEffect(() => {
+      console.log(`🚀 [useEffect init] Inicializando asignaturas filtradas, curso actual: "${formData.course}"`);
+      
+      if (!formData.course) {
+        // Si no hay curso seleccionado, NO mostrar asignaturas (lista vacía)
+        console.log(`📚 [useEffect init] No hay curso seleccionado, dejando lista vacía`);
+        setFilteredSubjects([]);
+      } else {
+        // Si hay curso, obtener las asignaturas para ese curso
+        const subjects = getSubjectsForCourseSection(formData.course);
+        console.log(`📚 [useEffect init] Curso seleccionado, obteniendo asignaturas:`, subjects);
+        setFilteredSubjects(subjects);
+      }
+    }, [user]);
+
     // Estados para evaluación mejorada
     const [showEvaluationDialog, setShowEvaluationDialog] = useState(false);
     const [showLoadingDialog, setShowLoadingDialog] = useState(false);
@@ -749,14 +784,65 @@
       return teacherId;
     };
 
-    // Function to get all courses with their names for dropdown
+    // Function to get all courses with their names and sections for dropdown
     const getAvailableCoursesWithNames = () => {
       if (user?.role === 'teacher') {
-        const courseIds = user.activeCourses || [];
-        return courseIds.map(courseId => ({
-          id: courseId,
-          name: getCourseNameById(courseId)
-        }));
+        try {
+          // Intentar obtener asignaciones específicas del sistema de asignaciones
+          const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+          const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+          const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+          
+          // Buscar asignaciones del profesor actual
+          const userAssignments = teacherAssignments.filter((assignment: any) => 
+            assignment.teacherId === user.id
+          );
+
+          if (userAssignments.length > 0) {
+            // Crear lista de cursos y secciones únicos del profesor
+            const courseSectionsMap = new Map();
+            
+            userAssignments.forEach((assignment: any) => {
+              const section = sections.find((s: any) => s.id === assignment.sectionId);
+              if (section) {
+                const course = courses.find((c: any) => c.id === section.courseId);
+                if (course) {
+                  const key = `${course.id}-${section.id}`;
+                  if (!courseSectionsMap.has(key)) {
+                    courseSectionsMap.set(key, {
+                      id: key, // Usar la clave combinada como ID único
+                      courseId: course.id, // Mantener el ID original del curso para lógica de filtrado
+                      name: `${course.name} ${translate('userManagementSection')} ${section.name}`,
+                      originalCourseName: course.name,
+                      sectionName: section.name
+                    });
+                  }
+                }
+              }
+            });
+
+            if (courseSectionsMap.size > 0) {
+              return Array.from(courseSectionsMap.values());
+            }
+          }
+
+          // Fallback al método original si no hay asignaciones específicas
+          const courseIds = user.activeCourses || [];
+          return courseIds.map(courseId => ({
+            id: courseId,
+            name: getCourseNameById(courseId),
+            originalCourseName: getCourseNameById(courseId)
+          }));
+        } catch (error) {
+          console.error('Error al obtener cursos con secciones:', error);
+          // Fallback en caso de error
+          const courseIds = user.activeCourses || [];
+          return courseIds.map(courseId => ({
+            id: courseId,
+            name: getCourseNameById(courseId),
+            originalCourseName: getCourseNameById(courseId)
+          }));
+        }
       }
       return [];
     };
@@ -766,6 +852,150 @@
         return [...new Set(user.teachingAssignments.map(ta => ta.subject))];
       }
       return ['Matemáticas', 'Lenguaje y Comunicación', 'Ciencias Naturales', 'Historia, Geografía y Ciencias Sociales'];
+    };
+
+    // Function to get subjects available for a specific course-section combination
+    const getSubjectsForCourseSection = (courseSectionId: string): string[] => {
+      console.log(`🔍 [getSubjectsForCourseSection] Iniciando con courseSectionId: "${courseSectionId}"`);
+      
+      if (!courseSectionId || !user?.id) {
+        console.log(`⚠️ [getSubjectsForCourseSection] Faltan datos: courseSectionId=${courseSectionId}, userId=${user?.id}`);
+        return [];
+      }
+
+      // Mapeo de abreviaciones a nombres completos
+      const subjectAbbreviationMap: { [key: string]: string } = {
+        'MAT': 'Matemáticas',
+        'LEN': 'Lenguaje y Comunicación', 
+        'CNT': 'Ciencias Naturales',
+        'HIS': 'Historia, Geografía y Ciencias Sociales',
+        'FIS': 'Física',
+        'QUI': 'Química',
+        'BIO': 'Biología',
+        'ING': 'Inglés'
+      };
+
+      try {
+        // Buscar si el courseSectionId es un ID combinado (courseId-sectionId)
+        const availableCourses = getAvailableCoursesWithNames();
+        console.log(`📋 [getSubjectsForCourseSection] Cursos disponibles:`, availableCourses);
+        
+        const selectedCourse = availableCourses.find(course => course.id === courseSectionId);
+        console.log(`🎯 [getSubjectsForCourseSection] Curso seleccionado:`, selectedCourse);
+
+        if (selectedCourse && selectedCourse.courseId) {
+          // Es un ID combinado, extraer sectionId de manera más robusta
+          console.log(`🔧 [getSubjectsForCourseSection] Procesando courseSectionId: "${courseSectionId}"`);
+          
+          // El formato es: "courseId-sectionId" donde ambos son UUIDs
+          // Ejemplo: "9077a79d-c290-45f9-b549-6e57df8828d2-d326c181-fa30-4c50-ab68-efa085a3ffd3"
+          // Necesitamos extraer: "d326c181-fa30-4c50-ab68-efa085a3ffd3"
+          
+          let sectionId = '';
+          const parts = courseSectionId.split('-');
+          
+          if (parts.length === 10) {
+            // Es un ID combinado de dos UUIDs (5 partes cada uno)
+            // Reconstruir el segundo UUID (sectionId)
+            sectionId = parts.slice(5).join('-');
+          } else if (courseSectionId.includes('seccion-')) {
+            // Formato alternativo: "4to-basico-seccion-A"
+            sectionId = courseSectionId.split('seccion-')[1];
+          } else {
+            // Fallback: usar el ID completo
+            sectionId = courseSectionId;
+          }
+          
+          console.log(`🔧 [getSubjectsForCourseSection] SectionId extraído: "${sectionId}"`);
+          console.log(`🔧 [DEBUG] Partes del courseSectionId: ${parts.length} - [${parts.join(', ')}]`);
+          
+          // 🔍 DEBUG: Verificar datos en localStorage
+          console.log(`🔍 [DEBUG] Verificando localStorage...`);
+          const teacherAssignmentsRaw = localStorage.getItem('smart-student-teacher-assignments');
+          console.log(`🔍 [DEBUG] teacherAssignmentsRaw:`, teacherAssignmentsRaw);
+          
+          // Obtener asignaciones del profesor desde localStorage
+          const teacherAssignments = JSON.parse(teacherAssignmentsRaw || '[]');
+          console.log(`📚 [getSubjectsForCourseSection] Total asignaciones de profesores:`, teacherAssignments.length);
+          console.log(`📝 [getSubjectsForCourseSection] Todas las asignaciones:`, teacherAssignments);
+          
+          // 🔍 DEBUG: Verificar ID del usuario actual
+          console.log(`🔍 [DEBUG] user.id actual: "${user.id}"`);
+          console.log(`🔍 [DEBUG] sectionId buscado: "${sectionId}"`);
+          
+          // 🔍 DEBUG: Mostrar todas las secciones disponibles del profesor
+          const allTeacherAssignments = teacherAssignments.filter((assignment: any) => 
+            assignment.teacherId === user.id
+          );
+          console.log(`🔍 [DEBUG] TODAS las asignaciones del profesor ${user.id}:`, allTeacherAssignments);
+          
+          if (allTeacherAssignments.length > 0) {
+            const availableSections = [...new Set(allTeacherAssignments.map((a: any) => a.sectionId))];
+            console.log(`🔍 [DEBUG] Secciones disponibles: [${availableSections.join(', ')}]`);
+          }
+          
+          // Buscar asignaciones específicas para esta sección
+          const sectionAssignments = teacherAssignments.filter((assignment: any) => {
+            console.log(`🔍 [DEBUG] Comparando assignment:`, {
+              teacherId: assignment.teacherId,
+              sectionId: assignment.sectionId,
+              subjectName: assignment.subjectName,
+              coincideTeacher: assignment.teacherId === user.id,
+              coincideSection: assignment.sectionId === sectionId
+            });
+            return assignment.teacherId === user.id && assignment.sectionId === sectionId;
+          });
+          console.log(`🎓 [getSubjectsForCourseSection] Asignaciones para profesor ${user.id} en sección ${sectionId}:`, sectionAssignments);
+
+          if (sectionAssignments.length > 0) {
+            // Obtener las asignaturas únicas de estas asignaciones
+            const subjectNames = sectionAssignments.map((assignment: any) => assignment.subjectName);
+            console.log(`📝 [getSubjectsForCourseSection] Nombres de asignaturas en asignaciones:`, subjectNames);
+            
+            // Mapear abreviaciones a nombres completos
+            const mappedSubjects: string[] = subjectNames
+              .map((subjectName: string) => {
+                // Si es una abreviación, mapearla al nombre completo
+                const fullName = subjectAbbreviationMap[subjectName] || subjectName;
+                console.log(`🔄 [getSubjectsForCourseSection] Mapeando "${subjectName}" → "${fullName}"`);
+                return fullName;
+              })
+              .filter((subject: string) => typeof subject === 'string' && subject.length > 0);
+            
+            const uniqueSubjects: string[] = [...new Set(mappedSubjects)];
+            console.log(`✅ [getSubjectsForCourseSection] Asignaturas filtradas para sección ${sectionId}:`, uniqueSubjects);
+            return uniqueSubjects;
+          } else {
+            console.log(`⚠️ [getSubjectsForCourseSection] No se encontraron asignaciones específicas para sección ${sectionId}`);
+            
+            // 🔍 DEBUG: Intentar encontrar asignaciones para CUALQUIER sección de este profesor
+            const allTeacherAssignments = teacherAssignments.filter((assignment: any) => 
+              assignment.teacherId === user.id
+            );
+            console.log(`🔍 [DEBUG] TODAS las asignaciones del profesor ${user.id}:`, allTeacherAssignments);
+            
+            if (allTeacherAssignments.length > 0) {
+              console.log(`� [DEBUG] Encontradas ${allTeacherAssignments.length} asignaciones del profesor para otras secciones`);
+              // Mostrar las materias de cualquier sección como fallback temporal
+              const allSubjectNames = allTeacherAssignments.map((assignment: any) => assignment.subjectName);
+              const mappedFallbackSubjects: string[] = allSubjectNames
+                .map((subjectName: string) => subjectAbbreviationMap[subjectName] || subjectName)
+                .filter((subject: string) => typeof subject === 'string' && subject.length > 0);
+              const uniqueFallbackSubjects: string[] = [...new Set(mappedFallbackSubjects)];
+              console.log(`🔄 [DEBUG] Secciones disponibles, pero no usando fallback para ser específico por sección`);
+              // ❌ NO usar fallback - debe ser específico por sección
+            }
+            
+            return [];
+          }
+        } else {
+          console.log(`⚠️ [getSubjectsForCourseSection] No es un ID combinado o no se encontró el curso`);
+          return [];
+        }
+      } catch (error) {
+        console.error('🚨 [getSubjectsForCourseSection] Error al obtener asignaturas para la sección:', error);
+        return [];
+      }
     };
 
     // Get students for selected course
@@ -1006,7 +1236,19 @@
         // Los profesores ven solo las tareas que crearon
         let filtered = tasks.filter(task => task.assignedById === user.id);
         if (selectedCourseFilter !== 'all') {
-          filtered = filtered.filter(task => task.course === selectedCourseFilter);
+          filtered = filtered.filter(task => {
+            // Obtener los cursos disponibles para comparar correctamente
+            const availableCourses = getAvailableCoursesWithNames();
+            const selectedCourse = availableCourses.find(course => course.id === selectedCourseFilter);
+            
+            if (selectedCourse && selectedCourse.courseId) {
+              // Si el filtro es un ID combinado (courseId-sectionId), comparar con el courseId original
+              return task.course === selectedCourse.courseId;
+            } else {
+              // Si es un courseId simple, comparar directamente
+              return task.course === selectedCourseFilter;
+            }
+          });
         }
 
         // Verificar estado de evaluaciones pendientes para actualizar automáticamente
@@ -1150,13 +1392,18 @@
         return;
       }
 
+      // Extraer el courseId real del formData.course (que puede ser un ID combinado)
+      const availableCourses = getAvailableCoursesWithNames();
+      const selectedCourse = availableCourses.find(course => course.id === formData.course);
+      const actualCourseId = selectedCourse && selectedCourse.courseId ? selectedCourse.courseId : formData.course;
+
       const taskId = `task_${Date.now()}`;
       const newTask: Task = {
         id: taskId,
         title: formData.title,
         description: formData.description,
         subject: formData.subject, // This might become subjectId later
-        course: formData.course, // This is expected to be courseId from the form
+        course: actualCourseId, // Use the actual courseId, not the combined ID
         assignedById: user?.id || '', // Use user ID
         assignedByName: user?.displayName || '', // Keep for display convenience
         assignedTo: formData.assignedTo,
@@ -1180,7 +1427,7 @@
       TaskNotificationManager.createPendingGradingNotification(
         taskId,
         formData.title,
-        formData.course, // This is courseId
+        actualCourseId, // Use the actual courseId
         formData.subject,
         user?.username || '', // Pass user.username, not user.id
         user?.displayName || '',
@@ -1191,7 +1438,7 @@
       TaskNotificationManager.createNewTaskNotifications(
         taskId,
         formData.title,
-        formData.course, // This is courseId
+        actualCourseId, // Use the actual courseId
         formData.subject,
         user?.id || '', // Pass user.id as teacherId
         user?.displayName || '',
@@ -1929,12 +2176,17 @@
 
 
     const handleEditTask = (task: Task) => {
+      // Find the combined ID for this task's course
+      const availableCourses = getAvailableCoursesWithNames();
+      const courseOption = availableCourses.find(c => c.courseId === task.course);
+      const combinedId = courseOption ? courseOption.id : task.course;
+
       setSelectedTask(task);
       setFormData({
         title: task.title,
         description: task.description,
         subject: task.subject, // Might become subjectId
-        course: task.course, // Expected to be courseId
+        course: combinedId, // Use combined ID for dropdown
         assignedTo: task.assignedTo,
         assignedStudentIds: task.assignedStudentIds || [], // Use assignedStudentIds
         dueDate: task.dueDate,
@@ -1999,12 +2251,15 @@
         return;
       }
 
+      // Extract the actual courseId from combined ID if necessary
+      const courseId = formData.course.includes('-') ? formData.course.split('-')[0] : formData.course;
+
       const updatedTask: Task = {
         ...selectedTask,
         title: formData.title,
         description: formData.description,
         subject: formData.subject, // Might become subjectId
-        course: formData.course, // Expected to be courseId
+        course: courseId, // Store the actual courseId
         assignedTo: formData.assignedTo,
         assignedStudentIds: formData.assignedTo === 'student' ? formData.assignedStudentIds : undefined, // Use assignedStudentIds
         dueDate: formData.dueDate,
@@ -3199,12 +3454,17 @@
               
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="subject" className="text-right">{translate('taskSubject')} <span className="text-red-500">*</span></Label>
-                <Select value={formData.subject} onValueChange={(value) => setFormData(prev => ({ ...prev, subject: value }))} required>
-                  <SelectTrigger className={`${formData.taskType === 'evaluacion' ? 'select-purple-hover-trigger' : 'select-orange-hover-trigger'} col-span-3`}>
-                    <SelectValue placeholder={translate('selectSubject')} />
+                <Select 
+                  value={formData.subject} 
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, subject: value }))} 
+                  required 
+                  disabled={!formData.course}
+                >
+                  <SelectTrigger className={`${formData.taskType === 'evaluacion' ? 'select-purple-hover-trigger' : 'select-orange-hover-trigger'} col-span-3 ${!formData.course ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <SelectValue placeholder={!formData.course ? translate('selectCourseFirst') : translate('selectSubject')} />
                   </SelectTrigger>
                   <SelectContent className={formData.taskType === 'evaluacion' ? 'select-purple-hover' : 'select-orange-hover'}>
-                    {getAvailableSubjects().map(subject => (
+                    {filteredSubjects.map(subject => (
                       <SelectItem key={subject} value={subject}>{subject}</SelectItem>
                     ))}
                   </SelectContent>
@@ -3229,12 +3489,19 @@
                   <Label className="text-right">{translate('assignToStudents')}</Label>
                   <div className="col-span-3">
                     <div className="border rounded-md p-3 max-h-60 overflow-y-auto">
-                      {getStudentsForCourse(formData.course).length > 0 ? (
-                        getStudentsForCourse(formData.course).map((student: { id: string, username: string, displayName: string }) => (
-                          <div key={student.id} className="flex items-center space-x-2 py-1">
-                            <Checkbox
-                              id={`create-student-${student.username}`}
-                              checked={formData.assignedStudentIds?.includes(student.id)}
+                      {(() => {
+                        // Extraer el courseId real del formData.course
+                        const availableCourses = getAvailableCoursesWithNames();
+                        const selectedCourse = availableCourses.find(course => course.id === formData.course);
+                        const actualCourseId = selectedCourse && selectedCourse.courseId ? selectedCourse.courseId : formData.course;
+                        const students = getStudentsForCourse(actualCourseId);
+                        
+                        return students.length > 0 ? (
+                          students.map((student: { id: string, username: string, displayName: string }) => (
+                            <div key={student.id} className="flex items-center space-x-2 py-1">
+                              <Checkbox
+                                id={`create-student-${student.username}`}
+                                checked={formData.assignedStudentIds?.includes(student.id)}
                               onCheckedChange={(checked) => {
                                 if (checked) {
                                   setFormData(prev => ({
@@ -3258,7 +3525,8 @@
                         <p className="text-muted-foreground py-2 text-center">
                           {translate('noEvaluationsSubtext') || "No hay estudiantes disponibles para este curso"}
                         </p>
-                      )}
+                      );
+                    })()}
                     </div>
                   </div>
                 </div>
@@ -4195,12 +4463,17 @@
               
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="subject" className="text-right">{translate('taskSubject')} <span className="text-red-500">*</span></Label>
-                <Select value={formData.subject} onValueChange={(value) => setFormData(prev => ({ ...prev, subject: value }))} required>
-                  <SelectTrigger className="select-orange-hover-trigger col-span-3">
-                    <SelectValue placeholder={translate('selectSubject')} />
+                <Select 
+                  value={formData.subject} 
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, subject: value }))} 
+                  required 
+                  disabled={!formData.course}
+                >
+                  <SelectTrigger className={`select-orange-hover-trigger col-span-3 ${!formData.course ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <SelectValue placeholder={!formData.course ? translate('selectCourseFirst') : translate('selectSubject')} />
                   </SelectTrigger>
                   <SelectContent className="select-orange-hover">
-                    {getAvailableSubjects().map(subject => (
+                    {filteredSubjects.map(subject => (
                       <SelectItem key={subject} value={subject}>{subject}</SelectItem>
                     ))}
                   </SelectContent>
@@ -4225,12 +4498,19 @@
                   <Label className="text-right">{translate('assignToStudents')}</Label>
                   <div className="col-span-3">
                     <div className="border rounded-md p-3 max-h-60 overflow-y-auto">
-                      {getStudentsForCourse(formData.course).length > 0 ? (
-                        getStudentsForCourse(formData.course).map((student: { id: string, username: string, displayName: string }) => (
-                          <div key={student.id} className="flex items-center space-x-2 py-1">
-                            <Checkbox
-                              id={`edit-student-${student.username}`}
-                              checked={formData.assignedStudentIds?.includes(student.id)}
+                      {(() => {
+                        // Extraer el courseId real del formData.course (para el formulario de edición)
+                        const availableCourses = getAvailableCoursesWithNames();
+                        const selectedCourse = availableCourses.find(course => course.id === formData.course);
+                        const actualCourseId = selectedCourse && selectedCourse.courseId ? selectedCourse.courseId : formData.course;
+                        const students = getStudentsForCourse(actualCourseId);
+                        
+                        return students.length > 0 ? (
+                          students.map((student: { id: string, username: string, displayName: string }) => (
+                            <div key={student.id} className="flex items-center space-x-2 py-1">
+                              <Checkbox
+                                id={`edit-student-${student.username}`}
+                                checked={formData.assignedStudentIds?.includes(student.id)}
                               onCheckedChange={(checked) => {
                                 if (checked) {
                                   setFormData(prev => ({
@@ -4254,7 +4534,8 @@
                         <p className="text-muted-foreground py-2 text-center">
                           {translate('noEvaluationsSubtext') || "No hay estudiantes disponibles para este curso"}
                         </p>
-                      )}
+                      );
+                    })()}
                     </div>
                   </div>
                 </div>

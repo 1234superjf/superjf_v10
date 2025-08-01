@@ -87,6 +87,7 @@ export default function ResumenPage() {
   const { progress, progressText, isLoading, startProgress, stopProgress } = useAIProgress();
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedBook, setSelectedBook] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [topic, setTopic] = useState('');
   const [includeKeyPoints, setIncludeKeyPoints] = useState(false);
   const [summaryResult, setSummaryResult] = useState<{ summary: string; keyPoints?: string[] } | null>(null);
@@ -94,10 +95,10 @@ export default function ResumenPage() {
   const [currentTopicForDisplay, setCurrentTopicForDisplay] = useState('');
 
   const handleGenerateSummary = async () => {
-    if (!selectedBook) {
+    if (!selectedSubject) {
       toast({ 
         title: translate('errorGenerating'), 
-        description: translate('noBookSelected'), 
+        description: translate('noSubjectSelected'), 
         variant: 'destructive'
       });
       return;
@@ -116,12 +117,12 @@ export default function ResumenPage() {
     const topicForSummary = topic.trim() || "General Summary";
     setCurrentTopicForDisplay(topicForSummary); 
 
-    // Start progress simulation
-    const progressInterval = startProgress('summary', 8000);
+    // Start progress simulation with a longer duration to better match API response time
+    const progressInterval = startProgress('summary', 15000);
 
     try {
       const requestBody = {
-        bookTitle: selectedBook,
+        bookTitle: selectedSubject,
         topic: topicForSummary,
         includeKeyPoints: includeKeyPoints,
         language: currentUiLanguage,
@@ -269,10 +270,14 @@ export default function ResumenPage() {
           <BookCourseSelector
             selectedCourse={selectedCourse}
             selectedBook={selectedBook}
+            selectedSubject={selectedSubject}
+            showSubjectSelector={true}
+            showBookSelector={false}
             onCourseChange={setSelectedCourse}
             onBookChange={(book) => {
               setSelectedBook(book);
             }}
+            onSubjectChange={setSelectedSubject}
           />
           <div className="space-y-2">
             <Label htmlFor="summary-topic-input" className="text-left block">{translate('summaryTopicPlaceholder')}</Label>
@@ -305,7 +310,9 @@ export default function ResumenPage() {
             )}
           >
             {isLoading ? (
-              <>{translate('loading')} {progress}%</>
+              progress >= 100 ? 
+                <>{translate('loading')} Finalizando...</> :
+                <>{translate('loading')} {progress}%</>
             ) : (
               <>{translate('summaryGenerateBtn')}</>
             )}

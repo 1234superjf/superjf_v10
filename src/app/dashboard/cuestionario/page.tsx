@@ -22,12 +22,13 @@ export default function CuestionarioPage() {
   const { progress, progressText, isLoading, startProgress, stopProgress } = useAIProgress();
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedBook, setSelectedBook] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [topic, setTopic] = useState('');
   const [quizResult, setQuizResult] = useState('');
   const [currentTopicForDisplay, setCurrentTopicForDisplay] = useState('');
 
   const handleGenerateQuiz = async () => {
-    if (!selectedBook) {
+    if (!selectedBook && !selectedSubject) {
       toast({ title: translate('errorGenerating'), description: translate('noBookSelected'), variant: 'destructive'});
       return;
     }
@@ -45,7 +46,7 @@ export default function CuestionarioPage() {
     
     try {
       const result = await generateQuiz({
-        bookTitle: selectedBook,
+        bookTitle: selectedBook || selectedSubject,
         topic: currentTopic,
         courseName: selectedCourse || "General", 
         language: currentUiLanguage,
@@ -131,8 +132,12 @@ export default function CuestionarioPage() {
            <BookCourseSelector
             selectedCourse={selectedCourse}
             selectedBook={selectedBook}
+            selectedSubject={selectedSubject}
+            showSubjectSelector={true}
+            showBookSelector={false}
             onCourseChange={setSelectedCourse}
             onBookChange={setSelectedBook}
+            onSubjectChange={setSelectedSubject}
           />
           <div className="space-y-2">
             <Label htmlFor="quiz-topic-input" className="text-left block">{translate('quizTopicPlaceholder')}</Label>

@@ -44,6 +44,7 @@ export interface EvaluationGenerationOutput {
 export async function generateEvaluationAction(input: EvaluationGenerationInput): Promise<EvaluationGenerationOutput> {
   try {
     console.log('📝 Server Action generateEvaluationAction called with:', input);
+    console.log('🌍 Server Action received language:', input.language);
     
     const result = await generateEvaluationFlow(input);
     

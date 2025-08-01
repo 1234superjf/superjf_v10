@@ -22,6 +22,7 @@ export default function MapaMentalPage() {
   const { toast } = useToast();
   const { progress, progressText, isLoading, startProgress, stopProgress } = useAIProgress();
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedBook, setSelectedBook] = useState('');
   const [centralTheme, setCentralTheme] = useState('');
   const [isHorizontal, setIsHorizontal] = useState(false);
@@ -30,7 +31,7 @@ export default function MapaMentalPage() {
 
 
   const handleGenerateMap = async () => {
-     if (!selectedBook) {
+     if (!selectedBook && !selectedSubject) {
       toast({ title: translate('errorGenerating'), description: translate('noBookSelected'), variant: 'destructive'});
       return;
     }
@@ -48,7 +49,7 @@ export default function MapaMentalPage() {
     try {
       const result = await createMindMapAction({
         centralTheme: centralTheme.trim(),
-        bookTitle: selectedBook,
+        bookTitle: selectedBook || selectedSubject,
         language: currentUiLanguage,
         isHorizontal: isHorizontal,
       });
@@ -128,8 +129,12 @@ export default function MapaMentalPage() {
           <BookCourseSelector
             selectedCourse={selectedCourse}
             selectedBook={selectedBook}
+            selectedSubject={selectedSubject}
             onCourseChange={setSelectedCourse}
             onBookChange={setSelectedBook}
+            onSubjectChange={setSelectedSubject}
+            showSubjectSelector={true}
+            showBookSelector={false}
           />
           <Textarea
             rows={2}
