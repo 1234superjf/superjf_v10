@@ -78,6 +78,9 @@ export default function PerfilClient() {
   const [editingName, setEditingName] = useState('');
   const [editingEmail, setEditingEmail] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  
+  // 🔄 Estado para forzar actualización cuando cambien los datos de gestión
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Función para renderizar el badge del rol (idéntico al UserRoleBadge)
   const renderRoleBadge = () => {
@@ -534,6 +537,38 @@ export default function PerfilClient() {
 
   }, [evaluationHistory, language, translate, mounted, user]);
 
+  // 🔄 LISTENER PARA CAMBIOS EN GESTIÓN DE USUARIOS - ACTUALIZACIÓN DINÁMICA
+  useEffect(() => {
+    if (!mounted || !user) return;
+
+    const handleStorageChange = (e: StorageEvent) => {
+      // Solo reaccionar a cambios en datos relevantes
+      if (e.key && [
+        'smart-student-users',
+        'smart-student-student-assignments', 
+        'smart-student-teacher-assignments',
+        'smart-student-courses',
+        'smart-student-sections'
+      ].includes(e.key)) {
+        console.log('🔄 Detectado cambio en gestión de usuarios:', e.key);
+        setRefreshTrigger(prev => prev + 1);
+      }
+    };
+
+    // También escuchar cambios manuales (mismo origen)
+    const handleCustomStorageChange = () => {
+      setRefreshTrigger(prev => prev + 1);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('localStorageUpdate', handleCustomStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('localStorageUpdate', handleCustomStorageChange);
+    };
+  }, [mounted, user]);
+
   // ✨ FUNCIÓN PARA OBTENER INFORMACIÓN COMPLETA DEL PROFESOR COMO EN GESTIÓN DE USUARIOS ✨
   const getTeacherAssignmentsInfo = (fullUserData: any) => {
     if (!fullUserData || fullUserData.role !== 'teacher') return null;
@@ -687,30 +722,24 @@ export default function PerfilClient() {
     try {
       console.log('🔍 Analizando datos del estudiante:', fullUserData.username);
 
-      // Buscar asignaciones de estudiantes en el sistema
-      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      // Obtener cursos y secciones del sistema
       const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
       const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
 
       console.log('📊 Datos del sistema:', { 
-        studentAssignments: studentAssignments.length, 
         courses: courses.length, 
         sections: sections.length,
-        studentId: fullUserData.id 
+        studentId: fullUserData.id,
+        courseId: fullUserData.courseId,
+        sectionId: fullUserData.sectionId
       });
 
-      // Buscar asignación del estudiante por ID
-      const studentAssignment = studentAssignments.find((assignment: any) => 
-        assignment.studentId === fullUserData.id
-      );
-
-      console.log('📋 Asignación del estudiante:', studentAssignment);
-
-      if (studentAssignment) {
-        const course = courses.find((c: any) => c.id === studentAssignment.courseId);
-        const section = sections.find((s: any) => s.id === studentAssignment.sectionId);
+      // PRIMERA PRIORIDAD: Buscar curso y sección directamente del usuario (datos de gestión)
+      if (fullUserData.courseId && fullUserData.sectionId) {
+        const course = courses.find((c: any) => c.id === fullUserData.courseId);
+        const section = sections.find((s: any) => s.id === fullUserData.sectionId);
         
-        console.log('🎯 Curso y sección encontrados:', { 
+        console.log('🎯 Curso y sección encontrados (gestión):', { 
           course: course?.name,
           section: section?.name
         });
@@ -724,40 +753,86 @@ export default function PerfilClient() {
         }
       }
 
-      // Fallback: usar activeCourses del usuario
-      console.log('⚠️ No se encontró asignación específica, usando activeCourses como fallback');
+      // SEGUNDA PRIORIDAD: Buscar en asignaciones de estudiantes (fallback)
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const studentAssignment = studentAssignments.find((assignment: any) => 
+        assignment.studentId === fullUserData.id
+      );
+
+      console.log('📋 Asignación del estudiante (fallback):', studentAssignment);
+
+      if (studentAssignment) {
+        const course = courses.find((c: any) => c.id === studentAssignment.courseId);
+        const section = sections.find((s: any) => s.id === studentAssignment.sectionId);
+        
+        console.log('🎯 Curso y sección encontrados (asignaciones):', { 
+          course: course?.name,
+          section: section?.name
+        });
+
+        if (course && section) {
+          return {
+            courseName: course.name,
+            sectionName: section.name,
+            hasAssignment: true
+          };
+        }
+      }
+
+      // Si no hay asignación específica, buscar en activeCourses del usuario
+      console.log('⚠️ No se encontró asignación específica, revisando activeCourses');
       
       if (fullUserData.activeCourses && Array.isArray(fullUserData.activeCourses) && fullUserData.activeCourses.length > 0) {
         const firstCourse = fullUserData.activeCourses[0];
-        const courseName = typeof firstCourse === 'string' ? firstCourse : (firstCourse?.name || '4to Básico');
+        let courseName = typeof firstCourse === 'string' ? firstCourse : (firstCourse?.name || null);
+        let sectionName = 'A'; // Sección por defecto
         
-        return {
-          courseName: courseName,
-          sectionName: 'A', // Sección por defecto
-          hasAssignment: false
-        };
+        // Parsear el formato "X Básico - Sección Y" correctamente
+        if (typeof courseName === 'string' && courseName.includes(' - Sección ')) {
+          const parts = courseName.split(' - Sección ');
+          if (parts.length >= 2) {
+            courseName = parts[0]; // Ej: "5to Básico"
+            sectionName = parts[1].split(' - ')[0]; // Primera sección mencionada
+          }
+        }
+        
+        if (courseName) {
+          return {
+            courseName: courseName,
+            sectionName: sectionName,
+            hasAssignment: false
+          };
+        }
       }
 
-      // Último fallback
-      return {
-        courseName: '4to Básico',
-        sectionName: 'A',
-        hasAssignment: false
-      };
+      // Si no hay datos específicos, usar el primer curso disponible del sistema
+      console.log('⚠️ No se encontraron datos en activeCourses, usando primer curso disponible');
+      
+      if (courses.length > 0) {
+        const defaultCourse = courses[0];
+        const defaultSection = sections.find((s: any) => s.courseId === defaultCourse.id);
+        
+        if (defaultCourse && defaultSection) {
+          console.log(`🎯 Usando curso por defecto: ${defaultCourse.name} - Sección ${defaultSection.name}`);
+          return {
+            courseName: defaultCourse.name,
+            sectionName: defaultSection.name,
+            hasAssignment: false
+          };
+        }
+      }
+
+      // Último fallback: indicar que no hay datos disponibles
+      console.log('❌ No se pudieron obtener datos académicos');
+      return null;
 
     } catch (error) {
       console.error('Error al obtener información del estudiante:', error);
-      return {
-        courseName: '4to Básico',
-        sectionName: 'A',
-        hasAssignment: false
-      };
+      return null;
     }
   };
 
   // ✨ ACTUALIZAR PERFIL CON CONVERSIÓN DE IDS A NOMBRES - VERSIÓN DEFINITIVA ✨
-  // Estado para forzar refresco del perfil
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
     if (!user || !mounted) return;
@@ -819,23 +894,40 @@ export default function PerfilClient() {
 
         console.log("[Perfil] Datos completos del usuario encontrados:", fullUserData);
 
-        // ✨ PASO CLAVE: Convertir IDs de cursos a Nombres de cursos ✨
-        const courseIds = fullUserData.activeCourses || [];
-        const activeCourseNames = courseIds.map((id: string) => getCourseNameById(id));
+        // ✨ PASO CLAVE: DIFERENTE MANEJO PARA PROFESORES Y ESTUDIANTES ✨
+        let activeCoursesWithCount;
         
-        console.log("[Perfil] IDs de curso encontrados:", courseIds);
-        console.log("[Perfil] Nombres de curso convertidos:", activeCourseNames);
+        if (user.role === 'teacher') {
+          // Para profesores: Usar activeCourses y teacherAssignments como antes
+          const courseIds = fullUserData.activeCourses || [];
+          const activeCourseNames = courseIds.map((id: string) => getCourseNameById(id));
+          
+          console.log("[Perfil] [PROFESOR] IDs de curso encontrados:", courseIds);
+          console.log("[Perfil] [PROFESOR] Nombres de curso convertidos:", activeCourseNames);
 
-        // Mapear los nombres de los cursos a la estructura con conteo
-        const activeCoursesWithCount = user.role === 'teacher' 
-          ? activeCourseNames.map((name: string, index: number) => ({
-              name: name,
-              originalId: courseIds[index], // Mantener el ID original para referencia
-              studentCount: getStudentCountForCourse(name)
-            }))
-          : activeCourseNames;
+          activeCoursesWithCount = activeCourseNames.map((name: string, index: number) => ({
+            name: name,
+            originalId: courseIds[index],
+            studentCount: getStudentCountForCourse(name)
+          }));
+        } else {
+          // Para estudiantes: Usar getStudentCourseInfo para datos académicos actualizados
+          console.log("[Perfil] [ESTUDIANTE] Obteniendo datos académicos actualizados...");
+          const studentCourseInfo = getStudentCourseInfo(fullUserData);
+          
+          if (studentCourseInfo && studentCourseInfo.hasAssignment) {
+            console.log("[Perfil] [ESTUDIANTE] Datos académicos encontrados:", studentCourseInfo);
+            activeCoursesWithCount = [`${studentCourseInfo.courseName} - ${studentCourseInfo.sectionName}`];
+          } else {
+            console.log("[Perfil] [ESTUDIANTE] No se encontraron datos académicos, usando fallback");
+            // Fallback: usar activeCourses si existe
+            const courseIds = fullUserData.activeCourses || [];
+            const activeCourseNames = courseIds.map((id: string) => getCourseNameById(id));
+            activeCoursesWithCount = activeCourseNames.length > 0 ? activeCourseNames : ['Por defecto'];
+          }
+        }
 
-        console.log("[Perfil] Cursos con conteo de estudiantes:", activeCoursesWithCount);
+        console.log("[Perfil] Cursos finales:", activeCoursesWithCount);
 
         // ✨ FUNCIÓN CRÍTICA: Determinar asignaturas específicas del usuario ✨
         const getUserSpecificSubjects = () => {
@@ -877,9 +969,23 @@ export default function PerfilClient() {
               userSubjects = getSubjectsForCourse(firstCourse);
             }
           } else {
-            // Para estudiantes: usar las asignaturas del curso asignado
-            const studentCourse = activeCourseNames.length > 0 ? activeCourseNames[0] : '';
-            console.log("[Perfil] Estudiante en curso:", studentCourse);
+            // Para estudiantes: usar las asignaturas del curso asignado desde getStudentCourseInfo
+            let studentCourse = '';
+            const studentCourseInfo = getStudentCourseInfo(fullUserData);
+            
+            if (studentCourseInfo && studentCourseInfo.hasAssignment) {
+              studentCourse = studentCourseInfo.courseName;
+              console.log("[Perfil] [ESTUDIANTE] Curso asignado desde gestión:", studentCourse);
+            } else {
+              // Fallback: usar primer curso de activeCourses
+              const fallbackCourses = Array.isArray(activeCoursesWithCount) && activeCoursesWithCount.length > 0 
+                ? activeCoursesWithCount 
+                : [];
+              studentCourse = fallbackCourses.length > 0 ? fallbackCourses[0] : '';
+              console.log("[Perfil] [ESTUDIANTE] Curso fallback:", studentCourse);
+            }
+            
+            console.log("[Perfil] [ESTUDIANTE] Curso final para asignaturas:", studentCourse);
             userSubjects = getSubjectsForCourse(studentCourse);
           }
 
@@ -955,11 +1061,18 @@ export default function PerfilClient() {
       setRefreshTrigger(prev => prev + 1);
     };
 
+    const handleStudentAssignmentsUpdate = () => {
+      console.log("[Perfil] Detectado cambio en asignaciones de estudiantes, refrescando perfil...");
+      setRefreshTrigger(prev => prev + 1);
+    };
+
     // Escuchar eventos personalizados de actualización de usuarios
     window.addEventListener('userDataUpdated', handleUserDataUpdate);
+    window.addEventListener('studentAssignmentsChanged', handleStudentAssignmentsUpdate);
     
     return () => {
       window.removeEventListener('userDataUpdated', handleUserDataUpdate);
+      window.removeEventListener('studentAssignmentsChanged', handleStudentAssignmentsUpdate);
     };
   }, []);
 
@@ -1543,13 +1656,37 @@ export default function PerfilClient() {
                           if (!fullUserData) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileNoStudentDataFound')}</div>;
                           
                           const studentInfo = getStudentCourseInfo(fullUserData);
-                          if (!studentInfo) return <div className="text-sm text-gray-600 dark:text-slate-300 italic">{translate('profileErrorLoadingStudentInfo')}</div>;
+                          
+                          if (!studentInfo) {
+                            return (
+                              <div className="space-y-2">
+                                <div className="text-sm text-orange-600 dark:text-orange-400 italic">
+                                  No hay datos académicos configurados
+                                </div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  Contacta al administrador para configurar tu curso y sección
+                                </div>
+                              </div>
+                            );
+                          }
                           
                           return (
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-xs font-semibold bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700">
-                                {studentInfo.courseName} - {translate('userManagementSection')} {studentInfo.sectionName}
-                              </Badge>
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs font-semibold bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700">
+                                  {studentInfo.courseName} - {translate('userManagementSection')} {studentInfo.sectionName}
+                                </Badge>
+                                {!studentInfo.hasAssignment && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    Por defecto
+                                  </Badge>
+                                )}
+                              </div>
+                              {!studentInfo.hasAssignment && (
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  ⚠️ Datos basados en configuración por defecto. Contacta al administrador para asignación específica.
+                                </div>
+                              )}
                             </div>
                           );
                         } catch (error) {

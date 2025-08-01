@@ -97,10 +97,12 @@ export default function UserManagement() {
     };
 
     window.addEventListener('teacherAssignmentsChanged', handleCustomStorageChange);
+    window.addEventListener('studentAssignmentsChanged', handleCustomStorageChange);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('teacherAssignmentsChanged', handleCustomStorageChange);
+      window.removeEventListener('studentAssignmentsChanged', handleCustomStorageChange);
     };
   }, []);
 
@@ -325,6 +327,9 @@ export default function UserManagement() {
       setStudents(updatedStudents);
       LocalStorageManager.setStudents(updatedStudents);
 
+      // Disparar evento para notificar cambios en estudiantes
+      window.dispatchEvent(new CustomEvent('studentAssignmentsChanged'));
+
       // Update section student count
       const updatedSections = sections.map(s => 
         s.id === userForm.sectionId 
@@ -423,6 +428,9 @@ export default function UserManagement() {
           const updatedSections = LocalStorageManager.getSections();
           setSections(updatedSections);
         }
+
+        // Disparar evento para notificar cambios en estudiantes
+        window.dispatchEvent(new CustomEvent('studentAssignmentsChanged'));
       } else {
         // If no section change, just update the student
         const updatedStudents = students.map(s => 
@@ -430,6 +438,9 @@ export default function UserManagement() {
         );
         setStudents(updatedStudents);
         LocalStorageManager.setStudents(updatedStudents);
+
+        // Disparar evento para notificar cambios en estudiantes
+        window.dispatchEvent(new CustomEvent('studentAssignmentsChanged'));
       }
     } else if (editingUser.role === 'teacher') {
       // Update teacher data
@@ -493,6 +504,9 @@ export default function UserManagement() {
         const updatedStudents = students.filter(s => s.id !== user.id);
         setStudents(updatedStudents);
         LocalStorageManager.setStudents(updatedStudents);
+
+        // Disparar evento para notificar cambios en estudiantes
+        window.dispatchEvent(new CustomEvent('studentAssignmentsChanged'));
       } else if (user.role === 'teacher') {
         const updatedTeachers = teachers.filter(t => t.id !== user.id);
         setTeachers(updatedTeachers);

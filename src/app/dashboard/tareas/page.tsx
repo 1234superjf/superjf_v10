@@ -22,6 +22,8 @@
   interface ExtendedUser extends UserType {
     password: string;
     assignedTeacherId?: string;
+    assignedTeacher?: string; // Username del profesor asignado
+    assignedTeachers?: { [subject: string]: string }; // Objeto con asignaturas y profesores
     teachingSubjects?: string[];
   }
 
@@ -998,15 +1000,346 @@
       }
     };
 
-    // Get students for selected course
+    // Get students for selected course (specific to current teacher's assignments)
     const getStudentsForCourse = (courseId: string): { id: string, username: string, displayName: string }[] => {
-      if (!courseId) return [];
+      if (!courseId || !user?.id) {
+        console.log(`⚠️ [getStudentsForCourse] Parámetros inválidos: courseId=${courseId}, user.id=${user?.id}`);
+        return [];
+      }
+      
       const usersText = localStorage.getItem('smart-student-users');
       const allUsers: ExtendedUser[] = usersText ? JSON.parse(usersText) : [];
+      
+      console.log(`🔍 [getStudentsForCourse] Buscando estudiantes para courseId: ${courseId}, teacherId: ${user.id}`);
+      console.log(`📊 [getStudentsForCourse] Total usuarios en localStorage: ${allUsers.length}`);
+      
+      // Extraer información del curso y sección del courseId
+      let actualCourseId = courseId;
+      let sectionId = null;
+      let courseName = '';
+      let sectionName = '';
+      
+      // Obtener información del curso seleccionado
+      const availableCourses = getAvailableCoursesWithNames();
+      const selectedCourseInfo = availableCourses.find(course => course.id === courseId);
+      
+      if (selectedCourseInfo) {
+        actualCourseId = selectedCourseInfo.courseId || courseId;
+        courseName = selectedCourseInfo.originalCourseName || '';
+        sectionName = selectedCourseInfo.sectionName || '';
+        
+        // Extraer sectionId del courseId combinado si existe
+        if (courseId.includes('-')) {
+          const parts = courseId.split('-');
+          if (parts.length >= 6) {
+            // Formato: courseId-sectionId (ambos son UUIDs)
+            sectionId = parts.slice(5).join('-'); // Las últimas 5 partes forman el sectionId
+          }
+        }
+      }
+      
+      console.log(`📚 [getStudentsForCourse] CourseId original: ${courseId}`);
+      console.log(`📚 [getStudentsForCourse] ActualCourseId: ${actualCourseId}`);
+      console.log(`📚 [getStudentsForCourse] CourseName: ${courseName}`);
+      console.log(`📚 [getStudentsForCourse] SectionName: ${sectionName}`);
+      console.log(`📚 [getStudentsForCourse] SectionId: ${sectionId}`);
+      
+      // Log adicional de todos los cursos disponibles para debug
+      console.log(`📊 [getStudentsForCourse] Cursos disponibles:`, availableCourses);
+      
+      // Log de algunos estudiantes para verificar estructura de datos
+      const someStudents = allUsers.filter(u => u.role === 'student').slice(0, 3);
+      console.log(`👥 [getStudentsForCourse] Muestra de estudiantes en el sistema:`, 
+        someStudents.map(s => ({
+          username: s.username,
+          sectionName: s.sectionName,
+          activeCourses: s.activeCourses
+        }))
+      );
+      
+      // Intentar obtener estudiantes usando múltiples métodos
+      let students: { id: string, username: string, displayName: string }[] = [];
+      
+      // MÉTODO PRIORITARIO: Filtrar por sección específica si tenemos sección especificada
+      if (sectionName && courseName) {
+        console.log(`🔄 [getStudentsForCourse] Método 1.5: filtrando por sección específica "${sectionName}" en curso "${courseName}"`);
+        
+        const filteredBySection = allUsers.filter(u => {
+          const isStudent = u.role === 'student';
+          
+          // Verificar múltiples formas de identificar la sección
+          let isInCorrectSection = false;
+          
+          // Método A: Por sectionName exacto
+          if (u.sectionName === sectionName) {
+            isInCorrectSection = true;
+            console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado por sectionName exacto`);
+          }
+          
+          // Método B: Por activeCourses que contenga el curso y la sección
+          if (!isInCorrectSection && u.activeCourses) {
+            // Buscar variaciones del nombre del curso con sección
+            const possibleCourseNames = [
+              `${courseName} - ${sectionName}`,
+              `${courseName} - Sección ${sectionName}`,
+              `${courseName} Sección ${sectionName}`,
+              `${courseName}-${sectionName}`,
+              courseName // También verificar solo el nombre base si el estudiante está en esa sección
+            ];
+            
+            for (const possibleName of possibleCourseNames) {
+              if (u.activeCourses.includes(possibleName)) {
+                // Si es solo el nombre base, verificar también que tenga la sección correcta
+                if (possibleName === courseName) {
+                  if (u.sectionName === sectionName) {
+                    isInCorrectSection = true;
+                    console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado por curso base + sectionName`);
+                    break;
+                  }
+                } else {
+                  isInCorrectSection = true;
+                  console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado por activeCourses "${possibleName}"`);
+                  break;
+                }
+              }
+            }
+          }
+          
+          console.log(`👤 [getStudentsForCourse] Método 1.5 - ${u.username}: estudiante=${isStudent}, secciónCorrecta=${isInCorrectSection}`);
+          console.log(`   • activeCourses: [${u.activeCourses?.join(', ')}]`);
+          console.log(`   • sectionName: "${u.sectionName}", buscando: "${sectionName}"`);
+          
+          return isStudent && isInCorrectSection;
+        }).map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+        
+        if (filteredBySection.length > 0) {
+          console.log(`🎯 [getStudentsForCourse] Método 1.5 encontró: ${filteredBySection.length} estudiantes de la sección`);
+          return filteredBySection;
+        } else {
+          console.log(`⚠️ [getStudentsForCourse] Método 1.5 no encontró estudiantes de la sección "${sectionName}"`);
+        }
+      }
+      
+      // Método 1: Usar asignaciones específicas del profesor
+      students = getStudentsFromCourseRelevantToTask(actualCourseId, user.id);
+      console.log(`🎯 [getStudentsForCourse] Método 1 (asignaciones específicas): ${students.length} estudiantes`);
+      
+      // Método 2: Si no se encuentran estudiantes, usar método alternativo más amplio
+      if (students.length === 0) {
+        console.log(`🔄 [getStudentsForCourse] Método 2: buscando por asignación directa de profesor`);
+        students = allUsers
+          .filter(u => {
+            const isStudent = u.role === 'student';
+            const isInCourse = u.activeCourses && u.activeCourses.includes(actualCourseId);
+            // Verificar si el estudiante está asignado al profesor actual
+            const isAssignedToTeacher = (user.username && u.assignedTeacher === user.username) ||
+              (user.username && u.assignedTeachers && Object.values(u.assignedTeachers).includes(user.username));
+            
+            console.log(`👤 [getStudentsForCourse] ${u.username}: estudiante=${isStudent}, curso=${isInCourse}, asignado=${isAssignedToTeacher}`);
+            return isStudent && isInCourse && isAssignedToTeacher;
+          })
+          .map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+      }
+      
+      // Método 2.5: Si aún no hay estudiantes, buscar por nombre del curso (fallback para compatibilidad)
+      if (students.length === 0) {
+        console.log(`🔄 [getStudentsForCourse] Método 2.5: buscando por nombre del curso`);
+        
+        // Obtener información del curso para encontrar el originalCourseName
+        let courseNameToSearch = actualCourseId;
+        const availableCourses = getAvailableCoursesWithNames();
+        const foundCourse = availableCourses.find(course => course.id === courseId || course.courseId === actualCourseId);
+        
+        if (foundCourse?.originalCourseName) {
+          courseNameToSearch = foundCourse.originalCourseName;
+        } else {
+          const coursesText = localStorage.getItem('smart-student-courses');
+          const courses = coursesText ? JSON.parse(coursesText) : [];
+          const course = courses.find((c: any) => c.id === actualCourseId);
+          courseNameToSearch = course ? course.name : actualCourseId;
+        }
+        
+        console.log(`📚 [getStudentsForCourse] Buscando estudiantes por nombre del curso: "${courseNameToSearch}"`);
+        
+        students = allUsers
+          .filter(u => {
+            const isStudent = u.role === 'student';
+            const isInCourseByName = u.activeCourses && u.activeCourses.includes(courseNameToSearch);
+            const isAssignedToTeacher = (user.username && u.assignedTeacher === user.username) ||
+              (user.username && u.assignedTeachers && Object.values(u.assignedTeachers).includes(user.username));
+            
+            console.log(`👤 [getStudentsForCourse] Método 2.5 - ${u.username}: estudiante=${isStudent}, cursoNombre=${isInCourseByName}, asignado=${isAssignedToTeacher}`);
+            console.log(`   • activeCourses: [${u.activeCourses?.join(', ')}]`);
+            console.log(`   • buscando: "${courseNameToSearch}"`);
+            
+            return isStudent && isInCourseByName && isAssignedToTeacher;
+          })
+          .map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+        
+        console.log(`🎯 [getStudentsForCourse] Método 2.5 encontró: ${students.length} estudiantes`);
+      }
 
-      return allUsers
-        .filter(u => u.role === 'student' && u.activeCourses && u.activeCourses.includes(courseId))
-        .map(u => ({ id: u.id, username: u.username, displayName: u.displayName }));
+      // Método 2.75: Si aún no hay estudiantes, buscar SOLO por nombre del curso (sin verificar asignación)
+      if (students.length === 0) {
+        console.log(`🔄 [getStudentsForCourse] Método 2.75: estudiantes solo por nombre del curso (sin verificar asignación)`);
+        
+        // Obtener información del curso para encontrar el originalCourseName
+        let courseNameToSearch = actualCourseId;
+        const availableCourses = getAvailableCoursesWithNames();
+        const foundCourse = availableCourses.find(course => course.id === courseId || course.courseId === actualCourseId);
+        
+        if (foundCourse?.originalCourseName) {
+          courseNameToSearch = foundCourse.originalCourseName;
+        } else {
+          const coursesText = localStorage.getItem('smart-student-courses');
+          const courses = coursesText ? JSON.parse(coursesText) : [];
+          const course = courses.find((c: any) => c.id === actualCourseId);
+          courseNameToSearch = course ? course.name : actualCourseId;
+        }
+        
+        console.log(`📚 [getStudentsForCourse] Método 2.75: Buscando estudiantes por nombre del curso: "${courseNameToSearch}" (SIN verificar asignación)`);
+        
+        students = allUsers
+          .filter(u => {
+            const isStudent = u.role === 'student';
+            const isInCourseByName = u.activeCourses && u.activeCourses.includes(courseNameToSearch);
+            
+            // Verificar sección específica si está disponible
+            let isInCorrectSection = true; // Por defecto true si no hay filtro de sección
+            if (sectionName && courseNameToSearch) {
+              // Verificar si el estudiante está en la sección correcta
+              isInCorrectSection = false;
+              
+              // Método 1: Verificar por sectionName exacto
+              if (u.sectionName === sectionName) {
+                isInCorrectSection = true;
+              } 
+              // Método 2: Verificar por nombre completo del curso con sección
+              else if (u.activeCourses) {
+                const fullCourseName = `${courseNameToSearch} - ${sectionName}`;
+                isInCorrectSection = u.activeCourses.some(course => course === fullCourseName);
+              }
+              
+              // Método 3: Verificar variaciones de nombre de sección (fallback más amplio)
+              if (!isInCorrectSection && u.activeCourses) {
+                // Buscar cualquier curso que contenga tanto el nombre del curso como la sección
+                isInCorrectSection = u.activeCourses.some(course => {
+                  const courseString = course.toLowerCase();
+                  const courseNameLower = courseNameToSearch.toLowerCase();
+                  const sectionNameLower = sectionName.toLowerCase();
+                  
+                  return courseString.includes(courseNameLower) && 
+                         (courseString.includes(sectionNameLower) || 
+                          courseString.includes(`sección ${sectionNameLower}`) ||
+                          courseString.includes(`seccion ${sectionNameLower}`));
+                });
+              }
+            }
+            
+            console.log(`👤 [getStudentsForCourse] Método 2.75 - ${u.username}: estudiante=${isStudent}, cursoNombre=${isInCourseByName}, secciónCorrecta=${isInCorrectSection}`);
+            console.log(`   • activeCourses: [${u.activeCourses?.join(', ')}]`);
+            console.log(`   • sectionName: ${u.sectionName}, buscando sección: "${sectionName}"`);
+            
+            return isStudent && isInCourseByName && isInCorrectSection;
+          })
+          .map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+        
+        console.log(`🎯 [getStudentsForCourse] Método 2.75 encontró: ${students.length} estudiantes`);
+      }
+
+      // Método 2.8: EMERGENCIA - Si no hay información de sección, mostrar todos los estudiantes del curso
+      if (students.length === 0) {
+        console.log(`🚨 [getStudentsForCourse] Método 2.8 EMERGENCIA: Los estudiantes no tienen información de sección. Mostrando todos los estudiantes del curso "${courseName}"`);
+        
+        students = allUsers
+          .filter(u => {
+            const isStudent = u.role === 'student';
+            const isInCourseByName = u.activeCourses && u.activeCourses.includes(courseName);
+            
+            console.log(`� [getStudentsForCourse] Método 2.8 EMERGENCIA - ${u.username}: estudiante=${isStudent}, cursoNombre=${isInCourseByName}`);
+            console.log(`   • activeCourses: [${u.activeCourses?.join(', ')}]`);
+            console.log(`   • sectionName: ${u.sectionName} (problema: undefined)`);
+            
+            return isStudent && isInCourseByName;
+          })
+          .map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+        
+        console.log(`🚨 [getStudentsForCourse] Método 2.8 EMERGENCIA encontró: ${students.length} estudiantes del curso (SIN filtro de sección porque los estudiantes no tienen sectionName)`);
+        
+        if (students.length > 0) {
+          console.log(`⚠️ [getStudentsForCourse] ADVERTENCIA: Se muestran todos los estudiantes del curso "${courseName}" porque no tienen información de sección asignada.`);
+          console.log(`🔧 [getStudentsForCourse] SOLUCIÓN: Asignar secciones a los estudiantes en Gestión de Usuarios para filtrado correcto.`);
+          return students;
+        }
+      }
+      
+      // Método 3: Si aún no hay estudiantes, buscar por username del profesor en vez de ID
+      if (students.length === 0 && user.username) {
+        console.log(`🔄 [getStudentsForCourse] Método 3: buscando por username del profesor`);
+        students = allUsers
+          .filter(u => {
+            const isStudent = u.role === 'student';
+            const isInCourse = u.activeCourses && u.activeCourses.includes(actualCourseId);
+            const isAssignedToTeacher = u.assignedTeacher === user.username ||
+              (u.assignedTeachers && Object.values(u.assignedTeachers).includes(user.username));
+            
+            if (isStudent && isInCourse) {
+              console.log(`👤 [getStudentsForCourse] Método 3 - ${u.username}: asignado=${isAssignedToTeacher}, assignedTeacher=${u.assignedTeacher}`);
+            }
+            return isStudent && isInCourse && isAssignedToTeacher;
+          })
+          .map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+      }
+      
+      // Método 4: ÚLTIMO RECURSO - Solo estudiantes asignados al profesor (ignorar curso)
+      if (students.length === 0 && user.username) {
+        console.log(`🔄 [getStudentsForCourse] Método 4 (ÚLTIMO RECURSO): solo estudiantes asignados al profesor`);
+        console.log(`🎯 [getStudentsForCourse] Buscando estudiantes asignados al profesor: ${user.username}`);
+        
+        students = allUsers
+          .filter(u => {
+            const isStudent = u.role === 'student';
+            const isAssignedToTeacher = u.assignedTeacher === user.username ||
+              (u.assignedTeachers && Object.values(u.assignedTeachers).includes(user.username));
+            
+            if (isStudent) {
+              console.log(`👤 [getStudentsForCourse] Método 4 - ${u.username}: asignado=${isAssignedToTeacher}`);
+              console.log(`   • assignedTeacher: ${u.assignedTeacher}`);
+              console.log(`   • assignedTeachers: ${JSON.stringify(u.assignedTeachers)}`);
+            }
+            return isStudent && isAssignedToTeacher;
+          })
+          .map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+          
+        if (students.length > 0) {
+          console.log(`⚠️ [getStudentsForCourse] MÉTODO 4 EXITOSO: Encontrados ${students.length} estudiantes asignados (ignorando curso)`);
+        }
+      }
+      
+      console.log(`👥 [getStudentsForCourse] Estudiantes encontrados: ${students.length}`, students);
+      
+      // Log detallado si no se encuentran estudiantes
+      if (students.length === 0) {
+        console.log(`❌ [getStudentsForCourse] No se encontraron estudiantes. Análisis detallado:`);
+        const allStudents = allUsers.filter(u => u.role === 'student');
+        console.log(`📊 Total estudiantes en el sistema: ${allStudents.length}`);
+        
+        const studentsInCourse = allStudents.filter(u => u.activeCourses && u.activeCourses.includes(actualCourseId));
+        console.log(`📚 Estudiantes en el curso ${actualCourseId}: ${studentsInCourse.length}`);
+        
+        const assignedToMe = allStudents.filter(u => 
+          u.assignedTeacher === user.username ||
+          (u.assignedTeachers && Object.values(u.assignedTeachers).includes(user.username))
+        );
+        console.log(`🎓 Estudiantes asignados al profesor ${user.username}: ${assignedToMe.length}`);
+        
+        // Mostrar los primeros estudiantes para debug
+        allStudents.slice(0, 3).forEach(s => {
+          console.log(`   • ${s.displayName}: cursos=[${s.activeCourses?.join(', ')}], profesor=${s.assignedTeacher}`);
+        });
+      }
+      
+      return students;
     };
 
     // Get students from a specific course, ensuring they are assigned to the current teacher for that task
@@ -1022,15 +1355,29 @@
       const allUsers: ExtendedUser[] = usersText ? JSON.parse(usersText) : [];
       console.log(`👥 Total usuarios: ${allUsers.length}`);
 
+      // Obtener el username del profesor actual para las verificaciones
+      const currentTeacherUsername = user?.username;
+      console.log(`🎓 Current teacher username: ${currentTeacherUsername}`);
+
       const studentUsers = allUsers.filter(u => {
         const isStudent = u.role === 'student';
         const isInCourse = u.activeCourses?.includes(courseId);
         
-        // 🔧 PARCHE: Ser más flexible con la asignación de profesor
-        // Si no existe assignedTeacherId, incluir todos los estudiantes del curso
-        const isAssignedToTeacher = !teacherId || !u.assignedTeacherId || u.assignedTeacherId === teacherId;
+        // Verificar asignación al profesor actual usando múltiples métodos
+        const isAssignedToTeacher = 
+          // Método 1: assignedTeacher (string con username)
+          (currentTeacherUsername && u.assignedTeacher === currentTeacherUsername) ||
+          // Método 2: assignedTeachers (objeto con asignaturas)
+          (currentTeacherUsername && u.assignedTeachers && Object.values(u.assignedTeachers).includes(currentTeacherUsername)) ||
+          // Método 3: assignedTeacherId (si existe, comparar con teacher ID)
+          (teacherId && u.assignedTeacherId === teacherId) ||
+          // Método 4: Si no hay asignaciones específicas, incluir todos los estudiantes del curso
+          (!u.assignedTeacher && !u.assignedTeachers && !u.assignedTeacherId);
         
-        console.log(`👤 Usuario ${u.username}: estudiante=${isStudent}, en curso=${isInCourse}, asignado a profesor=${isAssignedToTeacher} (teacherId=${u.assignedTeacherId})`);
+        console.log(`👤 Usuario ${u.username}: estudiante=${isStudent}, en curso=${isInCourse}, asignado a profesor=${isAssignedToTeacher}`);
+        console.log(`   • assignedTeacher: ${u.assignedTeacher}`);
+        console.log(`   • assignedTeachers: ${JSON.stringify(u.assignedTeachers)}`);
+        console.log(`   • assignedTeacherId: ${u.assignedTeacherId}`);
         
         return isStudent && isInCourse && isAssignedToTeacher;
       }).map(u => ({
@@ -3493,8 +3840,24 @@
                         // Extraer el courseId real del formData.course
                         const availableCourses = getAvailableCoursesWithNames();
                         const selectedCourse = availableCourses.find(course => course.id === formData.course);
-                        const actualCourseId = selectedCourse && selectedCourse.courseId ? selectedCourse.courseId : formData.course;
-                        const students = getStudentsForCourse(actualCourseId);
+                        
+                        // Obtener el courseId real - usar courseId si existe, si no, extraer del ID combinado
+                        let actualCourseId = formData.course;
+                        if (selectedCourse && selectedCourse.courseId) {
+                          actualCourseId = selectedCourse.courseId;
+                        } else if (formData.course && formData.course.includes('-')) {
+                          // Para formato curso-seccion-id, extraer solo la primera parte
+                          const coursesText = localStorage.getItem('smart-student-courses');
+                          const courses = coursesText ? JSON.parse(coursesText) : [];
+                          const courseFromId = courses.find((c: any) => formData.course.startsWith(c.id));
+                          actualCourseId = courseFromId ? courseFromId.id : formData.course.split('-')[0];
+                        }
+                        
+                        console.log(`🔍 [Create Task] formData.course: ${formData.course}`);
+                        console.log(`🔍 [Create Task] actualCourseId: ${actualCourseId}`);
+                        console.log(`🔍 [Create Task] selectedCourse:`, selectedCourse);
+                        
+                        const students = getStudentsForCourse(formData.course);
                         
                         return students.length > 0 ? (
                           students.map((student: { id: string, username: string, displayName: string }) => (
@@ -3523,7 +3886,8 @@
                         ))
                       ) : (
                         <p className="text-muted-foreground py-2 text-center">
-                          {translate('noEvaluationsSubtext') || "No hay estudiantes disponibles para este curso"}
+                          No hay estudiantes asignados a este curso.<br />
+                          <span className="text-xs">Verifica las asignaciones en Gestión de Usuarios.</span>
                         </p>
                       );
                     })()}
@@ -4502,8 +4866,24 @@
                         // Extraer el courseId real del formData.course (para el formulario de edición)
                         const availableCourses = getAvailableCoursesWithNames();
                         const selectedCourse = availableCourses.find(course => course.id === formData.course);
-                        const actualCourseId = selectedCourse && selectedCourse.courseId ? selectedCourse.courseId : formData.course;
-                        const students = getStudentsForCourse(actualCourseId);
+                        
+                        // Obtener el courseId real - usar courseId si existe, si no, extraer del ID combinado
+                        let actualCourseId = formData.course;
+                        if (selectedCourse && selectedCourse.courseId) {
+                          actualCourseId = selectedCourse.courseId;
+                        } else if (formData.course && formData.course.includes('-')) {
+                          // Para formato curso-seccion-id, extraer solo la primera parte
+                          const coursesText = localStorage.getItem('smart-student-courses');
+                          const courses = coursesText ? JSON.parse(coursesText) : [];
+                          const courseFromId = courses.find((c: any) => formData.course.startsWith(c.id));
+                          actualCourseId = courseFromId ? courseFromId.id : formData.course.split('-')[0];
+                        }
+                        
+                        console.log(`🔍 [Edit Task] formData.course: ${formData.course}`);
+                        console.log(`🔍 [Edit Task] actualCourseId: ${actualCourseId}`);
+                        console.log(`🔍 [Edit Task] selectedCourse:`, selectedCourse);
+                        
+                        const students = getStudentsForCourse(formData.course);
                         
                         return students.length > 0 ? (
                           students.map((student: { id: string, username: string, displayName: string }) => (
