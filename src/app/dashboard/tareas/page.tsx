@@ -25,6 +25,7 @@
     assignedTeacher?: string; // Username del profesor asignado
     assignedTeachers?: { [subject: string]: string }; // Objeto con asignaturas y profesores
     teachingSubjects?: string[];
+    sectionName?: string; // Sección asignada al estudiante (ej: "A", "B")
   }
 
   interface Task {
@@ -1002,6 +1003,9 @@
 
     // Get students for selected course (specific to current teacher's assignments)
     const getStudentsForCourse = (courseId: string): { id: string, username: string, displayName: string }[] => {
+      console.log(`🚀 [getStudentsForCourse] ===== INICIO DE FUNCIÓN =====`);
+      console.log(`🚀 [getStudentsForCourse] CourseId recibido: "${courseId}"`);
+      
       if (!courseId || !user?.id) {
         console.log(`⚠️ [getStudentsForCourse] Parámetros inválidos: courseId=${courseId}, user.id=${user?.id}`);
         return [];
@@ -1029,12 +1033,33 @@
         sectionName = selectedCourseInfo.sectionName || '';
         
         // Extraer sectionId del courseId combinado si existe
-        if (courseId.includes('-')) {
+        if (courseId.includes('-') && selectedCourseInfo.courseId && selectedCourseInfo.courseId !== courseId) {
+          // Formato: courseId-sectionId 
           const parts = courseId.split('-');
-          if (parts.length >= 6) {
-            // Formato: courseId-sectionId (ambos son UUIDs)
-            sectionId = parts.slice(5).join('-'); // Las últimas 5 partes forman el sectionId
+          if (parts.length === 2) {
+            // Formato simple: courseId-sectionId
+            actualCourseId = parts[0];
+            sectionId = parts[1];
+            console.log(`🔍 [getStudentsForCourse] Formato simple detectado - CourseId: ${actualCourseId}, SectionId: ${sectionId}`);
+          } else if (parts.length > 2) {
+            // Formato UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+            // Buscar dónde termina el primer UUID y empieza el segundo
+            const firstUuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(.+)$/i;
+            const match = courseId.match(firstUuidPattern);
+            if (match) {
+              actualCourseId = match[1];
+              sectionId = match[2];
+              console.log(`🔍 [getStudentsForCourse] Formato UUID detectado - CourseId: ${actualCourseId}, SectionId: ${sectionId}`);
+            }
           }
+        }
+      } else if (courseId.includes('-')) {
+        // Si no encontramos el curso en availableCourses, intentar extraer manualmente
+        const parts = courseId.split('-');
+        if (parts.length === 2) {
+          actualCourseId = parts[0];
+          sectionId = parts[1];
+          console.log(`🔍 [getStudentsForCourse] Extracción manual - CourseId: ${actualCourseId}, SectionId: ${sectionId}`);
         }
       }
       
@@ -1048,8 +1073,8 @@
       console.log(`📊 [getStudentsForCourse] Cursos disponibles:`, availableCourses);
       
       // Log de algunos estudiantes para verificar estructura de datos
-      const someStudents = allUsers.filter(u => u.role === 'student').slice(0, 3);
-      console.log(`👥 [getStudentsForCourse] Muestra de estudiantes en el sistema:`, 
+      const someStudents = allUsers.filter(u => u.role === 'student').slice(0, 6); // Mostrar todos los estudiantes
+      console.log(`👥 [getStudentsForCourse] TODOS los estudiantes en el sistema:`, 
         someStudents.map(s => ({
           username: s.username,
           sectionName: s.sectionName,
@@ -1057,67 +1082,245 @@
         }))
       );
       
+      // Log específico para debug de gestión de usuarios
+      console.log(`🔍 [getStudentsForCourse] ANÁLISIS DETALLADO DE ESTUDIANTES:`);
+      console.log(`🎯 [getStudentsForCourse] BÚSQUEDA: "${courseName}" + Sección "${sectionName}"`);
+      console.log(`📋 [getStudentsForCourse] FORMATO ESPERADO: "${courseName} - Sección ${sectionName}"`);
+      
+      someStudents.forEach(s => {
+        console.log(`   • ${s.username}:`);
+        console.log(`     - sectionName: "${s.sectionName}"`);
+        console.log(`     - activeCourses: [${s.activeCourses?.join(', ')}]`);
+        console.log(`     - cursos que contienen "${courseName}": [${s.activeCourses?.filter(c => c.includes(courseName)).join(', ')}]`);
+        
+        // Verificar si tiene el formato esperado de gestión de usuarios
+        const expectedFormat = `${courseName} - Sección ${sectionName}`;
+        const hasExpectedFormat = s.activeCourses?.some(course => course === expectedFormat);
+        console.log(`     - ¿Tiene "${expectedFormat}"?: ${hasExpectedFormat ? '✅ SÍ' : '❌ NO'}`);
+        
+        // Verificar qué formatos de sección tiene
+        const sectionCourses = s.activeCourses?.filter(course => 
+          course.includes(courseName) && (course.includes('Sección') || course.includes(' - '))
+        );
+        console.log(`     - Cursos con sección: [${sectionCourses?.join(', ') || 'NINGUNO'}]`);
+      });
+      
       // Intentar obtener estudiantes usando múltiples métodos
       let students: { id: string, username: string, displayName: string }[] = [];
       
+      // MÉTODO PRIORITARIO: Usar teacher-assignments para filtrar estudiantes por sección
+      if (sectionId) {
+        console.log(`🔄 [getStudentsForCourse] Método 1.0 PRIORITARIO: Usando teacher-assignments para sección ${sectionId}`);
+        
+        try {
+          const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+          console.log(`📚 [getStudentsForCourse] Total teacher-assignments: ${teacherAssignments.length}`);
+          
+          // Buscar asignaciones específicas para esta sección y profesor
+          const relevantAssignments = teacherAssignments.filter((assignment: any) => 
+            assignment.sectionId === sectionId && assignment.teacherId === user.id
+          );
+          
+          console.log(`🎯 [getStudentsForCourse] Asignaciones relevantes para profesor ${user.id} en sección ${sectionId}:`, relevantAssignments);
+          
+          if (relevantAssignments.length > 0) {
+            // Método 1A: Si hay studentId en las asignaciones, usarlo directamente
+            const studentsFromAssignments = relevantAssignments
+              .map((assignment: any) => assignment.studentId)
+              .filter((studentId: string) => studentId && studentId !== 'undefined'); // Filtrar IDs válidos
+            
+            console.log(`👥 [getStudentsForCourse] StudentIds en asignaciones:`, studentsFromAssignments);
+            
+            if (studentsFromAssignments.length > 0) {
+              const filteredStudents = allUsers
+                .filter(u => u.role === 'student' && studentsFromAssignments.includes(u.id))
+                .map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+              
+              if (filteredStudents.length > 0) {
+                console.log(`✅ [getStudentsForCourse] Método 1.0A EXITOSO: ${filteredStudents.length} estudiantes encontrados por studentId`);
+                console.log(`📝 [getStudentsForCourse] Estudiantes:`, filteredStudents.map(s => s.username));
+                return filteredStudents;
+              }
+            }
+            
+            // Método 1B: Si no hay studentId válidos, filtrar estudiantes del curso que estén en la sección correcta
+            console.log(`🔄 [getStudentsForCourse] Método 1.0B: Filtrando estudiantes del curso por sección asignada al profesor`);
+            
+            // Obtener todos los estudiantes que tienen este curso específico
+            const studentsInCourse = allUsers.filter(u => 
+              u.role === 'student' && 
+              u.activeCourses && 
+              u.activeCourses.includes(courseName)
+            );
+            
+            console.log(`📚 [getStudentsForCourse] Estudiantes en curso "${courseName}": ${studentsInCourse.length}`);
+            
+            // Filtrado mejorado: CURSO + SECCIÓN
+            // Solo mostrar estudiantes que estén en el curso específico Y que pertenezcan a la sección seleccionada
+            console.log(`🎯 [getStudentsForCourse] Aplicando filtro CURSO + SECCIÓN: "${courseName}" + Sección "${sectionName}"`);
+            
+            const filteredStudents = studentsInCourse.filter(u => {
+              // Verificar que el estudiante esté en el curso correcto (ya verificado arriba)
+              const isInCourse = u.activeCourses && u.activeCourses.includes(courseName);
+              
+              // Verificar que pertenezca a la sección específica
+              let isInCorrectSection = false;
+              
+              // Método A: Por sectionName directo
+              if (u.sectionName === sectionName) {
+                isInCorrectSection = true;
+                console.log(`✅ [getStudentsForCourse] ${u.username}: Coincide sectionName "${u.sectionName}" con "${sectionName}"`);
+              }
+              
+              // Método B: Buscar en activeCourses el curso con la sección específica
+              if (!isInCorrectSection && u.activeCourses) {
+                const fullCoursePattern = `${courseName} - ${sectionName}`; // Ej: "4to Básico - A"
+                const shortCoursePattern = `${courseName} Sección ${sectionName}`; // Ej: "4to Básico Sección A"
+                
+                if (u.activeCourses.some(course => 
+                  course.includes(fullCoursePattern) || 
+                  course.includes(shortCoursePattern) ||
+                  course.includes(`- ${sectionName}`) && course.includes(courseName)
+                )) {
+                  isInCorrectSection = true;
+                  console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado curso+sección en activeCourses`);
+                }
+              }
+              
+              // Método C: Usar datos reales de gestión de usuarios (DINÁMICO) con formato correcto
+              if (!isInCorrectSection) {
+                // Verificar directamente en activeCourses del estudiante el curso completo con sección
+                if (u.activeCourses) {
+                  // Buscar patrones que coincidan con el formato real de gestión de usuarios
+                  const possiblePatterns = [
+                    `${courseName} - Sección ${sectionName}`, // "4to Básico - Sección A"
+                    `${courseName} - ${sectionName}`,         // "4to Básico - A"  
+                    `${courseName} Sección ${sectionName}`,   // "4to Básico Sección A"
+                    `${courseName}-${sectionName}`,           // "4to Básico-A"
+                  ];
+                  
+                  console.log(`🔍 [getStudentsForCourse] ${u.username}: Buscando patrones:`, possiblePatterns);
+                  console.log(`🔍 [getStudentsForCourse] ${u.username}: En activeCourses:`, u.activeCourses);
+                  
+                  const foundCourse = u.activeCourses.find(course => {
+                    return possiblePatterns.some(pattern => {
+                      const courseNormalized = course.toLowerCase().trim();
+                      const patternNormalized = pattern.toLowerCase().trim();
+                      const matches = courseNormalized === patternNormalized || 
+                                    courseNormalized.includes(patternNormalized.toLowerCase());
+                      
+                      if (matches) {
+                        console.log(`✅ [getStudentsForCourse] ${u.username}: COINCIDENCIA encontrada: "${course}" coincide con patrón "${pattern}"`);
+                      }
+                      return matches;
+                    });
+                  });
+                  
+                  if (foundCourse) {
+                    isInCorrectSection = true;
+                    console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado curso completo "${foundCourse}" para sección "${sectionName}"`);
+                  } else {
+                    console.log(`❌ [getStudentsForCourse] ${u.username}: NO encontrado curso para sección "${sectionName}" en activeCourses: [${u.activeCourses.join(', ')}]`);
+                    
+                    // DIAGNÓSTICO ADICIONAL: Si el estudiante tiene solo el curso base, verificar si debe estar en gestión de usuarios
+                    if (u.activeCourses.some(course => course.includes(courseName))) {
+                      console.log(`⚠️ [getStudentsForCourse] ${u.username}: PROBLEMA DETECTADO - Tiene "${courseName}" pero sin información de sección específica`);
+                      console.log(`🔧 [getStudentsForCourse] ${u.username}: Debería tener "${courseName} - Sección ${sectionName}" según gestión de usuarios`);
+                    }
+                  }
+                }
+              }
+              
+              console.log(`🔍 [getStudentsForCourse] ${u.username}: curso=${isInCourse}, sección=${isInCorrectSection}, RESULTADO=${isInCourse && isInCorrectSection}`);
+              
+              return isInCourse && isInCorrectSection;
+            }).map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
+            
+            if (filteredStudents.length > 0) {
+              console.log(`✅ [getStudentsForCourse] Método 1.0B EXITOSO: ${filteredStudents.length} estudiantes filtrados para "${courseName}" Sección "${sectionName}"`);
+              console.log(`📝 [getStudentsForCourse] Estudiantes encontrados:`, filteredStudents.map(s => s.username));
+              console.log(`🚀 [getStudentsForCourse] RETORNANDO RESULTADO DEL MÉTODO 1.0B - NO EJECUTAR MÁS MÉTODOS`);
+              return filteredStudents;
+            }
+            
+            console.log(`⚠️ [getStudentsForCourse] Método 1.0B: No se encontraron estudiantes para "${courseName}" Sección "${sectionName}"`);
+            console.log(`📊 [getStudentsForCourse] Estudiantes totales en curso: ${studentsInCourse.length}`);
+            studentsInCourse.forEach(s => console.log(`   • ${s.username}: sectionName="${s.sectionName}", activeCourses=[${s.activeCourses?.join(', ')}]`));
+          }
+          
+          console.log(`⚠️ [getStudentsForCourse] Método 1.0: No se encontraron asignaciones válidas para profesor ${user.id} en sección ${sectionId}`);
+        } catch (error) {
+          console.error(`❌ [getStudentsForCourse] Error en Método 1.0:`, error);
+        }
+      }
+
       // MÉTODO PRIORITARIO: Filtrar por sección específica si tenemos sección especificada
       if (sectionName && courseName) {
         console.log(`🔄 [getStudentsForCourse] Método 1.5: filtrando por sección específica "${sectionName}" en curso "${courseName}"`);
+        console.log(`🔍 [getStudentsForCourse] Condiciones: sectionName="${sectionName}", courseName="${courseName}"`);
         
         const filteredBySection = allUsers.filter(u => {
           const isStudent = u.role === 'student';
           
+          // Log detallado de cada estudiante
+          console.log(`🔍 [getStudentsForCourse] Analizando estudiante: ${u.username}`);
+          console.log(`   • role: ${u.role}`);
+          console.log(`   • sectionName: "${u.sectionName}"`);
+          console.log(`   • activeCourses: [${u.activeCourses?.join(', ')}]`);
+          
+          if (!isStudent) {
+            console.log(`❌ [getStudentsForCourse] ${u.username}: No es estudiante`);
+            return false;
+          }
+          
           // Verificar múltiples formas de identificar la sección
           let isInCorrectSection = false;
           
-          // Método A: Por sectionName exacto
-          if (u.sectionName === sectionName) {
-            isInCorrectSection = true;
-            console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado por sectionName exacto`);
-          }
-          
-          // Método B: Por activeCourses que contenga el curso y la sección
-          if (!isInCorrectSection && u.activeCourses) {
+          // Método A: Por activeCourses que contenga el curso Y la sección específica
+          if (u.activeCourses) {
             // Buscar variaciones del nombre del curso con sección
             const possibleCourseNames = [
               `${courseName} - ${sectionName}`,
               `${courseName} - Sección ${sectionName}`,
               `${courseName} Sección ${sectionName}`,
-              `${courseName}-${sectionName}`,
-              courseName // También verificar solo el nombre base si el estudiante está en esa sección
+              `${courseName}-${sectionName}`
             ];
+            
+            console.log(`🔍 [getStudentsForCourse] ${u.username}: Buscando en activeCourses:`, possibleCourseNames);
             
             for (const possibleName of possibleCourseNames) {
               if (u.activeCourses.includes(possibleName)) {
-                // Si es solo el nombre base, verificar también que tenga la sección correcta
-                if (possibleName === courseName) {
-                  if (u.sectionName === sectionName) {
-                    isInCorrectSection = true;
-                    console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado por curso base + sectionName`);
-                    break;
-                  }
-                } else {
-                  isInCorrectSection = true;
-                  console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado por activeCourses "${possibleName}"`);
-                  break;
-                }
+                isInCorrectSection = true;
+                console.log(`✅ [getStudentsForCourse] ${u.username}: Encontrado por activeCourses "${possibleName}"`);
+                break;
               }
             }
+            
+            if (!isInCorrectSection) {
+              console.log(`❌ [getStudentsForCourse] ${u.username}: No encontrado en ninguna variación del curso`);
+              console.log(`📋 [getStudentsForCourse] ${u.username}: Sus cursos actuales: [${u.activeCourses.join(', ')}]`);
+            }
+          } else {
+            console.log(`⚠️ [getStudentsForCourse] ${u.username}: No tiene activeCourses definido`);
           }
           
-          console.log(`👤 [getStudentsForCourse] Método 1.5 - ${u.username}: estudiante=${isStudent}, secciónCorrecta=${isInCorrectSection}`);
-          console.log(`   • activeCourses: [${u.activeCourses?.join(', ')}]`);
-          console.log(`   • sectionName: "${u.sectionName}", buscando: "${sectionName}"`);
+          console.log(`📊 [getStudentsForCourse] Método 1.5 - ${u.username}: RESULTADO = estudiante=${isStudent}, secciónCorrecta=${isInCorrectSection}`);
           
           return isStudent && isInCorrectSection;
         }).map(u => ({ id: u.id, username: u.username, displayName: u.displayName || u.username }));
         
+        console.log(`📈 [getStudentsForCourse] Método 1.5 RESULTADO: ${filteredBySection.length} estudiantes encontrados para sección "${sectionName}"`);
+        
         if (filteredBySection.length > 0) {
-          console.log(`🎯 [getStudentsForCourse] Método 1.5 encontró: ${filteredBySection.length} estudiantes de la sección`);
+          console.log(`🎯 [getStudentsForCourse] Método 1.5 EXITOSO: Devolviendo ${filteredBySection.length} estudiantes de la sección`);
+          console.log(`📝 [getStudentsForCourse] Estudiantes encontrados:`, filteredBySection.map(s => s.username));
           return filteredBySection;
         } else {
-          console.log(`⚠️ [getStudentsForCourse] Método 1.5 no encontró estudiantes de la sección "${sectionName}"`);
+          console.log(`⚠️ [getStudentsForCourse] Método 1.5 FALLÓ: No se encontraron estudiantes de la sección "${sectionName}"`);
+          console.log(`🔍 [getStudentsForCourse] Continuando con otros métodos...`);
         }
+      } else {
+        console.log(`⚠️ [getStudentsForCourse] Método 1.5 OMITIDO: sectionName="${sectionName}", courseName="${courseName}"`);
       }
       
       // Método 1: Usar asignaciones específicas del profesor
