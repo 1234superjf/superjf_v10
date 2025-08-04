@@ -375,6 +375,26 @@ export default function UserManagement() {
     const updatedAllUsers = [...allUsers, newUserForMain];
     localStorage.setItem('smart-student-users', JSON.stringify(updatedAllUsers));
 
+    // 🔄 Disparar evento de sincronización para estudiantes específicos
+    window.dispatchEvent(new CustomEvent('usersUpdated', {
+      detail: { 
+        action: 'create', 
+        userType: userForm.role,
+        timestamp: new Date().toISOString() 
+      }
+    }));
+
+    // Si es un estudiante, disparar evento específico
+    if (userForm.role === 'student') {
+      window.dispatchEvent(new CustomEvent('studentAssignmentsUpdated', {
+        detail: { 
+          action: 'create', 
+          source: 'user-management',
+          timestamp: new Date().toISOString() 
+        }
+      }));
+    }
+
     resetForm();
     setShowUserDialog(false);
 
@@ -475,6 +495,26 @@ export default function UserManagement() {
     );
     localStorage.setItem('smart-student-users', JSON.stringify(updatedAllUsers));
 
+    // 🔄 Disparar evento de sincronización para estudiantes específicos
+    window.dispatchEvent(new CustomEvent('usersUpdated', {
+      detail: { 
+        action: 'update', 
+        userType: editingUser.role,
+        timestamp: new Date().toISOString() 
+      }
+    }));
+
+    // Si es un estudiante, disparar evento específico
+    if (editingUser.role === 'student') {
+      window.dispatchEvent(new CustomEvent('studentAssignmentsUpdated', {
+        detail: { 
+          action: 'update', 
+          source: 'user-management',
+          timestamp: new Date().toISOString() 
+        }
+      }));
+    }
+
     resetForm();
     setShowUserDialog(false);
 
@@ -520,6 +560,26 @@ export default function UserManagement() {
       const allUsers = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
       const updatedAllUsers = allUsers.filter((u: any) => u.username !== user.username);
       localStorage.setItem('smart-student-users', JSON.stringify(updatedAllUsers));
+
+      // 🔄 Disparar evento de sincronización para estudiantes específicos
+      window.dispatchEvent(new CustomEvent('usersUpdated', {
+        detail: { 
+          action: 'delete', 
+          userType: user.role,
+          timestamp: new Date().toISOString() 
+        }
+      }));
+
+      // Si es un estudiante, disparar evento específico
+      if (user.role === 'student') {
+        window.dispatchEvent(new CustomEvent('studentAssignmentsUpdated', {
+          detail: { 
+            action: 'delete', 
+            source: 'user-management',
+            timestamp: new Date().toISOString() 
+          }
+        }));
+      }
 
       toast({
         title: translate('userManagementSuccess') || 'Success',
