@@ -78,7 +78,7 @@
     uploadedAt: string;
   }
 
-  export default function TareasPage() {
+  function TareasPage() {
     const { user } = useAuth();
     const { translate, language } = useLanguage();
     const router = useRouter();
@@ -203,58 +203,6 @@
         setFilteredSubjects(subjects);
       }
     }, [user]);
-
-  // 🔄 LISTENER DE SINCRONIZACIÓN AUTOMÁTICA CON GESTIÓN DE USUARIOS
-  // Este useEffect escucha cambios en las asignaciones del admin para actualizar en tiempo real
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      // Solo escuchar cambios en las asignaciones del admin
-      if (e.key === 'smart-student-student-assignments' || 
-          e.key === 'smart-student-teacher-assignments' ||
-          e.key === 'smart-student-users') {
-        console.log('🔄 [SYNC] Detectado cambio en asignaciones del admin, actualizando...');
-        
-        // Forzar re-render para actualizar la lista de estudiantes
-        setSelectedTask(prev => ({ ...prev }));
-        
-        // Mostrar notificación de sincronización
-        toast({
-          title: "Sincronización Automática",
-          description: "Las asignaciones de estudiantes se han actualizado desde Gestión de Usuarios.",
-          duration: 3000,
-        });
-      }
-    };
-
-    // Agregar listener para cambios en localStorage
-    window.addEventListener('storage', handleStorageChange);
-    
-    // También escuchar cambios dentro de la misma ventana
-    const originalSetItem = localStorage.setItem;
-    localStorage.setItem = function(key, value) {
-      const oldValue = localStorage.getItem(key);
-      originalSetItem.apply(this, arguments);
-      
-      // Simular evento storage para cambios en la misma ventana
-      if (key === 'smart-student-student-assignments' || 
-          key === 'smart-student-teacher-assignments' ||
-          key === 'smart-student-users') {
-        window.dispatchEvent(new StorageEvent('storage', {
-          key,
-          oldValue,
-          newValue: value,
-          storageArea: localStorage
-        }));
-      }
-    };
-
-    console.log('🔄 [SYNC] Listener de sincronización automática activado');
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      localStorage.setItem = originalSetItem;
-    };
-  }, []);
 
     // Estados para evaluación mejorada
     const [showEvaluationDialog, setShowEvaluationDialog] = useState(false);
@@ -382,11 +330,17 @@
       }
     };
 
-    // Load tasks and comments
+    // Load tasks and comments (usando versión condicional para evitar error de inicialización)
     useEffect(() => {
-      loadTasks();
-      loadComments();
-      loadEvaluationResults();
+      // Solo ejecutar después de que las funciones estén disponibles
+      const initializeData = () => {
+        if (typeof loadTasks === 'function') loadTasks();
+        if (typeof loadComments === 'function') loadComments();
+        if (typeof loadEvaluationResults === 'function') loadEvaluationResults();
+      };
+      
+      // Ejecutar con un pequeño delay para asegurar que las funciones estén definidas
+      const timer = setTimeout(initializeData, 10);
       
       // 🧹 LIMPIEZA AUTOMÁTICA SÚPER AGRESIVA: Eliminar TODAS las notificaciones "task_completed"
       // Ejecuta en cada carga de página y se repite para mantener el panel limpio
@@ -439,7 +393,7 @@
       const cleanupInterval = setInterval(cleanupTaskCompletedNotifications, 2000);
       
       // Forzar refresco de tareas para asegurar que el panel de estudiantes se actualice con las entregas
-      loadTasks && loadTasks();
+      if (typeof loadTasks === 'function') loadTasks();
       // Si hay un selectedTask, forzar su recarga desde localStorage para obtener la versión más reciente
       if (selectedTask) {
         const storedTasks = localStorage.getItem('smart-student-tasks');
@@ -450,8 +404,9 @@
         }
       }
       
-      // Limpiar interval cuando el componente se desmonte
+      // Limpiar timer e interval cuando el componente se desmonte
       return () => {
+        clearTimeout(timer);
         clearInterval(cleanupInterval);
       };
     }, []);
@@ -799,6 +754,86 @@
       }
     };
 
+    // 🔄 useEffect para sincronización automática de estudiantes específicos
+    useEffect(() => {
+      const handleStudentAssignmentsUpdate = (event: CustomEvent) => {
+        console.log('🔄 [SYNC] Detectado cambio en asignaciones de estudiantes:', event.detail);
+        
+        // Forzar re-render del componente para actualizar listas de estudiantes
+        if (loadTasks) {
+          loadTasks();
+        }
+        
+        // Disparar evento para notificar al componente que debe actualizar sus datos
+        window.dispatchEvent(new CustomEvent('refreshStudentData'));
+      };
+
+      const handleTeacherAssignmentsChange = () => {
+        console.log('🔄 [SYNC] Detectado cambio en asignaciones de profesores');
+        
+        // Recargar datos del localStorage
+        if (loadTasks) {
+          loadTasks();
+        }
+        
+        // Forzar actualización de datos de estudiantes
+        window.dispatchEvent(new CustomEvent('refreshStudentData'));
+      };
+
+      const handleUsersUpdate = () => {
+        console.log('🔄 [SYNC] Detectado cambio en usuarios');
+        
+        // Recargar datos del localStorage
+        if (loadTasks) {
+          loadTasks();
+        }
+      };
+
+      // Agregar event listeners
+      window.addEventListener('studentAssignmentsUpdated', handleStudentAssignmentsUpdate as EventListener);
+      window.addEventListener('teacherAssignmentsChanged', handleTeacherAssignmentsChange);
+      window.addEventListener('usersUpdated', handleUsersUpdate);
+
+      // Observer para cambios en localStorage (backup)
+      let lastStudentAssignments = localStorage.getItem('smart-student-student-assignments');
+      let lastTeacherAssignments = localStorage.getItem('smart-student-teacher-assignments');
+      let lastUsers = localStorage.getItem('smart-student-users');
+
+      const storageObserver = setInterval(() => {
+        const currentStudentAssignments = localStorage.getItem('smart-student-student-assignments');
+        const currentTeacherAssignments = localStorage.getItem('smart-student-teacher-assignments');
+        const currentUsers = localStorage.getItem('smart-student-users');
+
+        if (currentStudentAssignments !== lastStudentAssignments) {
+          console.log('🔄 [SYNC] Detectado cambio en student-assignments via localStorage');
+          lastStudentAssignments = currentStudentAssignments;
+          window.dispatchEvent(new CustomEvent('studentAssignmentsUpdated', {
+            detail: { source: 'localStorage', timestamp: new Date().toISOString() }
+          }));
+        }
+
+        if (currentTeacherAssignments !== lastTeacherAssignments) {
+          console.log('🔄 [SYNC] Detectado cambio en teacher-assignments via localStorage');
+          lastTeacherAssignments = currentTeacherAssignments;
+          window.dispatchEvent(new CustomEvent('teacherAssignmentsChanged'));
+        }
+
+        if (currentUsers !== lastUsers) {
+          console.log('🔄 [SYNC] Detectado cambio en users via localStorage');
+          lastUsers = currentUsers;
+          window.dispatchEvent(new CustomEvent('usersUpdated'));
+        }
+      }, 2000); // Verificar cada 2 segundos
+
+      // Cleanup
+      return () => {
+        window.removeEventListener('studentAssignmentsUpdated', handleStudentAssignmentsUpdate as EventListener);
+        window.removeEventListener('teacherAssignmentsChanged', handleTeacherAssignmentsChange);
+        window.removeEventListener('usersUpdated', handleUsersUpdate);
+        clearInterval(storageObserver);
+      };
+    }, []); // Removido loadTasks de las dependencias para evitar error de inicialización
+
     const saveTasks = (newTasks: Task[]) => {
       localStorage.setItem('smart-student-tasks', JSON.stringify(newTasks));
       setTasks(newTasks);
@@ -867,7 +902,6 @@
                     courseSectionsMap.set(key, {
                       id: key, // Usar la clave combinada como ID único
                       courseId: course.id, // Mantener el ID original del curso para lógica de filtrado
-                      sectionId: section.id, // ✅ AGREGAR sectionId que estaba faltando
                       name: `${course.name} ${translate('userManagementSection')} ${section.name}`,
                       originalCourseName: course.name,
                       sectionName: section.name
@@ -886,8 +920,6 @@
           const courseIds = user.activeCourses || [];
           return courseIds.map(courseId => ({
             id: courseId,
-            courseId: courseId,
-            sectionId: null, // No hay sección específica en el fallback
             name: getCourseNameById(courseId),
             originalCourseName: getCourseNameById(courseId)
           }));
@@ -897,8 +929,6 @@
           const courseIds = user.activeCourses || [];
           return courseIds.map(courseId => ({
             id: courseId,
-            courseId: courseId,
-            sectionId: null, // No hay sección específica en el fallback
             name: getCourseNameById(courseId),
             originalCourseName: getCourseNameById(courseId)
           }));
@@ -1059,166 +1089,113 @@
     };
 
     // Get students for selected course (specific to current teacher's assignments)
-    // 🎯 FUNCIÓN CORREGIDA: Filtra estudiantes asignados al profesor Y al curso específico
-        // ✅ FUNCIÓN CORREGIDA: Sincronización DINÁMICA con Gestión de Usuarios del Admin
-    // Esta función implementa exactamente lo que describes: lee las asignaciones del admin en tiempo real
+    // 🎯 FUNCIÓN SIMPLIFICADA: Obtener estudiantes asignados al profesor actual
     const getStudentsForCourse = (courseId: string): { id: string, username: string, displayName: string }[] => {
-      console.log(`🎯 [SINCRONIZACIÓN DINÁMICA] Buscando estudiantes para courseId: "${courseId}"`);
+      console.log(`� [ESTUDIANTES ESPECÍFICOS] Iniciando búsqueda para courseId: "${courseId}"`);
       
-      if (!courseId || !user?.id) {
-        console.warn('[getStudentsForCourse] Parámetros inválidos - courseId o user.id faltante');
+      // ✅ VERIFICACIÓN CRÍTICA: Usuario actual
+      if (!user) {
+        console.log('❌ [ESTUDIANTES ESPECÍFICOS] Error: No hay usuario autenticado');
         return [];
       }
-
-      try {
-        // 🔄 PASO 1: Cargar datos FRESCOS del localStorage (sincronización en tiempo real)
-        const allUsers: ExtendedUser[] = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
-        const studentAssignments: any[] = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
-        const teacherAssignments: any[] = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+      
+      if (!user.username) {
+        console.log('❌ [ESTUDIANTES ESPECÍFICOS] Error: Usuario sin username');
+        console.log('   • user object:', { id: user.id, role: user.role, displayName: user.displayName });
+        return [];
+      }
+      
+      console.log(`🎓 [ESTUDIANTES ESPECÍFICOS] Profesor actual: "${user.username}" (rol: ${user.role})`);
+      
+      if (!courseId) {
+        console.log('⚠️ [ESTUDIANTES ESPECÍFICOS] Sin courseId proporcionado');
+        return [];
+      }
+      
+      // 🔄 CARGAR datos frescos del localStorage para sincronización automática
+      const allUsers: ExtendedUser[] = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      console.log(`📊 [ESTUDIANTES ESPECÍFICOS] Total usuarios en localStorage: ${allUsers.length}`);
+      
+      // Filtrar solo estudiantes
+      const allStudents = allUsers.filter((u: ExtendedUser) => u.role === 'student');
+      console.log(`🎓 [ESTUDIANTES ESPECÍFICOS] Total estudiantes: ${allStudents.length}`);
+      
+      // 🚨 DEBUG: Mostrar estructura de los primeros 3 estudiantes
+      console.log('🔍 [DEBUG] Estructura de los primeros estudiantes:');
+      allStudents.slice(0, 3).forEach((student: ExtendedUser, index: number) => {
+        console.log(`   ${index + 1}. ${student.username}:`);
+        console.log(`      • assignedTeacher: ${student.assignedTeacher}`);
+        console.log(`      • assignedTeachers: ${JSON.stringify(student.assignedTeachers)}`);
+        console.log(`      • assignedTeacherId: ${student.assignedTeacherId}`);
+        console.log(`      • activeCourses: ${JSON.stringify(student.activeCourses)}`);
+      });
+      
+      // Obtener estudiantes asignados al profesor actual
+      const assignedStudents = allStudents.filter((student: ExtendedUser) => {
+        // Verificar asignación directa
+        const directAssignment = student.assignedTeacher === user.username;
         
-        console.log(`📊 [SINCRONIZACIÓN] Datos cargados desde localStorage:`);
-        console.log(`   • Usuarios totales: ${allUsers.length}`);
-        console.log(`   • Asignaciones de estudiantes: ${studentAssignments.length}`);
-        console.log(`   • Asignaciones de profesores: ${teacherAssignments.length}`);
+        // Verificar asignación por materias
+        const subjectAssignment = student.assignedTeachers && 
+          Object.values(student.assignedTeachers).includes(user.username);
         
-        // 🔍 DEBUG DETALLADO: Mostrar estructura completa para "5to A"
-        if (courseId.includes('5to') || courseId.includes('A')) {
-          console.log('🔍 [DEBUG "5to A"] Datos completos de localStorage:');
-          console.log('   📚 Usuarios:', allUsers.map(u => ({id: u.id, username: u.username, role: u.role, displayName: u.displayName})));
-          console.log('   🎓 Asignaciones estudiantes:', studentAssignments);
-          console.log('   👨‍🏫 Asignaciones profesores:', teacherAssignments);
+        // Verificar asignación por ID del profesor
+        const idAssignment = student.assignedTeacherId === user.id;
+        
+        const isAssigned = directAssignment || subjectAssignment || idAssignment;
+        
+        // 🚨 DEBUG: Log para cada estudiante
+        console.log(`   📝 Verificando ${student.username}:`);
+        console.log(`      • Asignación directa (${student.assignedTeacher} === ${user.username}): ${directAssignment}`);
+        console.log(`      • Asignación por materias: ${subjectAssignment}`);
+        console.log(`      • Asignación por ID (${student.assignedTeacherId} === ${user.id}): ${idAssignment}`);
+        console.log(`      • RESULTADO: ${isAssigned ? '✅ ASIGNADO' : '❌ NO ASIGNADO'}`);
+        
+        return isAssigned;
+      });
+      
+      console.log(`✅ [ESTUDIANTES ESPECÍFICOS] Estudiantes asignados al profesor "${user.username}": ${assignedStudents.length}`);
+      
+      // Log detallado de cada estudiante
+      assignedStudents.forEach((student: ExtendedUser, index: number) => {
+        console.log(`   ${index + 1}. ${student.displayName || student.name || student.username}`);
+        console.log(`      • Username: ${student.username}`);
+        console.log(`      • Cursos activos: ${JSON.stringify(student.activeCourses || [])}`);
+        console.log(`      • Asignación directa: ${student.assignedTeacher === user.username ? 'SÍ' : 'NO'}`);
+        
+        if (student.assignedTeachers) {
+          const subjects = Object.keys(student.assignedTeachers).filter(
+            subject => student.assignedTeachers[subject] === user.username
+          );
+          if (subjects.length > 0) {
+            console.log(`      • Materias asignadas: ${subjects.join(', ')}`);
+          }
         }
+      });
+      
+      if (assignedStudents.length === 0) {
+        console.log('❌ [ESTUDIANTES ESPECÍFICOS] NO HAY ESTUDIANTES ASIGNADOS');
+        console.log('💡 [SOLUCIÓN] Ve a Admin > Gestión de Usuarios > Asignaciones');
+        console.log('💡 [SOLUCIÓN] Asigna estudiantes al profesor actual');
+        console.log(`💡 [DATOS] Profesor buscado: "${user.username}" (ID: ${user.id})`);
         
-        // Verificar si faltan datos críticos
-        if (studentAssignments.length === 0) {
-          console.warn('⚠️ [CONFIGURACIÓN REQUERIDA] No hay asignaciones de estudiantes en localStorage');
-          console.log('💡 [SOLUCIÓN] Para que aparezcan estudiantes:');
-          console.log('   1. Ve a Admin → Gestión de Usuarios → Asignaciones');
-          console.log('   2. Asigna estudiantes a las secciones correspondientes');
-          console.log('   3. Asigna profesores a las secciones');
-          console.log('   4. Regresa aquí y los estudiantes aparecerán automáticamente');
-          return [];
-        }
-        
-        if (teacherAssignments.length === 0) {
-          console.warn('⚠️ [CONFIGURACIÓN REQUERIDA] No hay asignaciones de profesores en localStorage');
-          console.log('💡 [SOLUCIÓN] Asigna profesores a secciones en Admin → Gestión de Usuarios');
-          return [];
-        }
-        
-        if (allUsers.length === 0) {
-          console.warn('[getStudentsForCourse] No hay usuarios en el sistema.');
-          return [];
-        }
-
-        // 🔍 PASO 2: Extraer información del curso seleccionado
-        const availableCourses = getAvailableCoursesWithNames();
-        const selectedCourseData = availableCourses.find(c => c.id === courseId);
-
-        // 🔍 DEBUG DETALLADO: Para "5to A" mostrar todos los cursos disponibles
-        if (courseId.includes('5to') || courseId.includes('A')) {
-          console.log('🔍 [DEBUG "5to A"] Información de cursos:');
-          console.log('   📋 courseId buscado:', courseId);
-          console.log('   📚 Cursos disponibles:', availableCourses);
-          console.log('   🎯 Curso encontrado:', selectedCourseData);
-        }
-
-        if (!selectedCourseData) {
-          console.error(`[getStudentsForCourse] No se encontró información para courseId: "${courseId}"`);
-          console.log('[DEBUG] Cursos disponibles:', availableCourses.map(c => ({id: c.id, name: c.name})));
-          return [];
-        }
-        
-        const { sectionId, courseId: actualCourseId } = selectedCourseData;
-        console.log(`🏫 [SINCRONIZACIÓN] Curso: "${actualCourseId}", Sección: "${sectionId}"`);
-
-        // 🔍 PASO 3: Verificar que el profesor actual esté asignado a esta sección (según Gestión de Usuarios)
-        const profesorAsignado = teacherAssignments.some(assignment => 
-          assignment.teacherId === user.id && assignment.sectionId === sectionId
-        );
-        
-        console.log(`👨‍🏫 [VERIFICACIÓN] Profesor ${user.displayName || user.username} (ID: ${user.id})`);
-        console.log(`🔍 [VERIFICACIÓN] ¿Está asignado a sección "${sectionId}"?: ${profesorAsignado ? '✅' : '❌'}`);
-        
-        // 🔍 DEBUG DETALLADO: Para "5to A" mostrar todas las asignaciones del profesor
-        if (courseId.includes('5to') || courseId.includes('A')) {
-          console.log('🔍 [DEBUG "5to A"] Verificación de profesor:');
-          console.log('   👤 Profesor actual:', {id: user.id, username: user.username, displayName: user.displayName});
-          console.log('   🏫 Sección buscada:', sectionId);
-          console.log('   📋 Todas las asignaciones del profesor:', teacherAssignments.filter(a => a.teacherId === user.id));
-          console.log('   🎯 ¿Profesor asignado a esta sección?:', profesorAsignado);
-        }
-        
-        if (!profesorAsignado) {
-          console.warn(`[getStudentsForCourse] El profesor actual (ID: ${user.id}) NO está asignado a la sección "${sectionId}"`);
-          console.log('💡 SOLUCIÓN: El administrador debe asignar este profesor a la sección en Gestión de Usuarios');
-          
-          // Debug: mostrar asignaciones del profesor actual
-          const misAsignaciones = teacherAssignments.filter(a => a.teacherId === user.id);
-          console.log(`[DEBUG] Asignaciones actuales del profesor:`, misAsignaciones);
-          
-          return [];
-        }
-
-        // 🎓 PASO 4: Obtener estudiantes asignados a esta sección Y curso específicos
-        const estudiantesEnSeccion = studentAssignments
-          .filter(assignment => 
-            assignment.sectionId === sectionId &&
-            assignment.courseId === actualCourseId
-          )
-          .map(assignment => assignment.studentId);
-
-        console.log(`🎓 [SINCRONIZACIÓN] Estudiantes asignados al curso "${actualCourseId}" y sección "${sectionId}": ${estudiantesEnSeccion.length}`);
-        
-        // 🔍 DEBUG DETALLADO: Mostrar filtrado por curso Y sección
-        console.log('🔍 [DEBUG FILTRADO] Información detallada:');
-        console.log('   🏫 Curso buscado (actualCourseId):', actualCourseId);
-        console.log('   🏫 Sección buscada:', sectionId);
-        console.log('   📋 Total asignaciones de estudiantes:', studentAssignments.length);
-        console.log('   🎯 Asignaciones filtradas por curso Y sección:', studentAssignments.filter(a => 
-          a.sectionId === sectionId && a.courseId === actualCourseId
-        ));
-        console.log('   📊 IDs de estudiantes finales:', estudiantesEnSeccion);
-        
-        if (estudiantesEnSeccion.length === 0) {
-          console.warn(`[getStudentsForCourse] No hay estudiantes asignados a la sección "${sectionId}"`);
-          console.log('💡 SOLUCIÓN: El administrador debe asignar estudiantes a esta sección en Gestión de Usuarios');
-          
-          // Debug: mostrar todas las asignaciones de estudiantes
-          console.log('[DEBUG] Todas las asignaciones de estudiantes:', studentAssignments);
-          return [];
-        }
-
-        // 🔍 PASO 5: Obtener datos completos de los estudiantes desde users
-        const estudiantesCompletos = allUsers.filter(usuario => 
-          (usuario.role === 'student' || usuario.role === 'estudiante') && estudiantesEnSeccion.includes(usuario.id)
-        );
-
-        console.log(`✅ [SINCRONIZACIÓN] Estudiantes encontrados y verificados: ${estudiantesCompletos.length}`);
-        
-        // Log detallado para verificación
-        estudiantesCompletos.forEach((estudiante, index) => {
-          console.log(`   ${index + 1}. ${estudiante.displayName || estudiante.username} (ID: ${estudiante.id})`);
+        // 🚨 MOSTRAR todos los estudiantes para debug
+        console.log('🔍 [DEBUG] Todos los estudiantes en el sistema:');
+        allStudents.forEach((student: ExtendedUser, index: number) => {
+          console.log(`   ${index + 1}. ${student.username} - assignedTeacher: ${student.assignedTeacher || 'NO ASIGNADO'}`);
         });
-
-        // 🎯 PASO 6: Retornar en el formato esperado por la interfaz
-        const resultado = estudiantesCompletos.map(estudiante => ({
-          id: estudiante.id,
-          username: estudiante.username,
-          displayName: estudiante.displayName || estudiante.username
-        }));
-
-        console.log(`🎯 [RESULTADO FINAL] ${resultado.length} estudiantes listos para asignación de tareas`);
-        return resultado;
-
-      } catch (error) {
-        console.error('[getStudentsForCourse] Error en sincronización con Gestión de Usuarios:', error);
-        console.log('💡 [SOLUCIÓN] Verifica que el administrador haya configurado las asignaciones en Gestión de Usuarios');
-        return [];
       }
+      
+      // Retornar en el formato esperado
+      return assignedStudents.map((s: ExtendedUser) => ({
+        id: s.id,
+        username: s.username,
+        displayName: s.displayName || s.name || s.username
+      }));
     };
 
     // Get students from a specific course, ensuring they are assigned to the current teacher for that task
+
     const getStudentsFromCourseRelevantToTask = (courseId: string, teacherId: string | undefined) => {
       if (!courseId) {
         console.log(`⚠️ getStudentsFromCourseRelevantToTask: courseId es null`);
@@ -2601,30 +2578,14 @@
     
     // Formato de fecha en una sola línea para tablas compactas
     const formatDateOneLine = (dateString: string) => {
-      if (!dateString) {
-        return 'Fecha no disponible';
-      }
-      
       const date = new Date(dateString);
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = new Intl.DateTimeFormat('es-ES', { month: 'short' }).format(date);
+      const year = date.getFullYear();
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
       
-      // Validar si la fecha es válida
-      if (isNaN(date.getTime())) {
-        console.warn('Fecha inválida detectada:', dateString);
-        return 'Fecha inválida';
-      }
-      
-      try {
-        const day = date.getDate().toString().padStart(2, '0');
-        const month = new Intl.DateTimeFormat('es-ES', { month: 'short' }).format(date);
-        const year = date.getFullYear();
-        const hours = date.getHours().toString().padStart(2, '0');
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        
-        return `${day} ${month} ${year}, ${hours}:${minutes}`;
-      } catch (error) {
-        console.error('Error formateando fecha:', dateString, error);
-        return 'Error en fecha';
-      }
+      return `${day} ${month} ${year}, ${hours}:${minutes}`;
     };
 
     // File handling functions
@@ -5987,4 +5948,6 @@
         {/* Fin del contenido principal */}
       </div>
     );
-  }
+}
+
+export default TareasPage;

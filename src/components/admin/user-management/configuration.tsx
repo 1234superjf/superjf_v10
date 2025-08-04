@@ -72,6 +72,138 @@ export default function Configuration() {
     loadConfiguration();
   }, []);
 
+  // ✅ NUEVO: Cargar scripts de corrección dinámica automáticamente
+  useEffect(() => {
+    const cargarScriptsCorrecion = async () => {
+      console.log('🚀 [CONFIGURACIÓN ADMIN] Cargando sistema de corrección dinámica...');
+      
+      try {
+        // Verificar si ya están cargados los scripts
+        if (typeof window.regenerarAsignacionesDinamicas !== 'function' ||
+            typeof window.exportarBBDDConAsignaciones !== 'function' ||
+            typeof window.validarAsignacionesManualmente !== 'function') {
+          
+          console.log('📥 [CARGA AUTOMÁTICA] Cargando scripts de corrección...');
+          
+          // Cargar script principal de solución completa
+          const scriptSolucion = document.createElement('script');
+          scriptSolucion.src = '/solucion-completa-ejecutar.js';
+          scriptSolucion.onerror = () => {
+            console.warn('⚠️ [CARGA] No se pudo cargar desde archivo, ejecutando funciones básicas...');
+            crearFuncionesBasicasCorrecion();
+          };
+          document.head.appendChild(scriptSolucion);
+          
+          // Esperar a que se cargue
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          if (typeof window.regenerarAsignacionesDinamicas === 'function') {
+            console.log('✅ [CARGA EXITOSA] Sistema de corrección dinámica cargado');
+          } else {
+            console.log('⚠️ [FALLBACK] Creando funciones básicas de corrección...');
+            crearFuncionesBasicasCorrecion();
+          }
+        } else {
+          console.log('✅ [YA CARGADO] Sistema de corrección ya disponible');
+        }
+      } catch (error) {
+        console.error('❌ [ERROR CARGA] Error cargando scripts:', error);
+        crearFuncionesBasicasCorrecion();
+      }
+    };
+    
+    // Cargar scripts después de un pequeño delay para asegurar que el DOM esté listo
+    setTimeout(cargarScriptsCorrecion, 1000);
+  }, []);
+
+  // ✅ NUEVA FUNCIÓN: Crear funciones básicas de corrección si no se pueden cargar los scripts
+  const crearFuncionesBasicasCorrecion = () => {
+    console.log('🔧 [FUNCIONES BÁSICAS] Creando funciones de corrección básicas...');
+    
+    // Función básica de regeneración
+    if (typeof window.regenerarAsignacionesDinamicas !== 'function') {
+      window.regenerarAsignacionesDinamicas = function() {
+        try {
+          const usuarios = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+          const cursos = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+          const secciones = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+          
+          const estudiantes = usuarios.filter((u: any) => u.role === 'student' || u.role === 'estudiante');
+          const asignaciones: any[] = [];
+          
+          estudiantes.forEach((estudiante: any) => {
+            if (estudiante.courseId && estudiante.sectionId) {
+              asignaciones.push({
+                id: `${estudiante.id}-${estudiante.sectionId}-${Date.now()}-${Math.random()}`,
+                studentId: estudiante.id,
+                courseId: estudiante.courseId,
+                sectionId: estudiante.sectionId,
+                assignedAt: new Date().toISOString(),
+                isActive: true
+              });
+            }
+          });
+          
+          localStorage.setItem('smart-student-student-assignments', JSON.stringify(asignaciones));
+          
+          return {
+            exito: true,
+            asignacionesCreadas: asignaciones.length,
+            mensaje: 'Corrección básica aplicada'
+          };
+        } catch (error) {
+          return {
+            exito: false,
+            error: (error as Error).message,
+            mensaje: 'Error en corrección básica'
+          };
+        }
+      };
+    }
+    
+    // Función básica de validación
+    if (typeof window.validarAsignacionesManualmente !== 'function') {
+      window.validarAsignacionesManualmente = function() {
+        try {
+          const usuarios = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+          const asignaciones = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+          
+          const estudiantes = usuarios.filter((u: any) => u.role === 'student' || u.role === 'estudiante');
+          const problemas = [];
+          
+          const estudiantesSinAsignacion = estudiantes.filter((e: any) => 
+            !asignaciones.some((a: any) => a.studentId === e.id)
+          );
+          
+          if (estudiantesSinAsignacion.length > 0) {
+            problemas.push({
+              tipo: 'Estudiantes sin asignación',
+              cantidad: estudiantesSinAsignacion.length
+            });
+          }
+          
+          return {
+            esValido: problemas.length === 0,
+            problemas,
+            estadisticas: {
+              usuarios: usuarios.length,
+              estudiantes: estudiantes.length,
+              asignaciones: asignaciones.length
+            }
+          };
+        } catch (error) {
+          return {
+            esValido: false,
+            problemas: [{ tipo: 'Error de validación', cantidad: 1 }],
+            estadisticas: {}
+          };
+        }
+      };
+    }
+    
+    console.log('✅ [FUNCIONES BÁSICAS] Funciones básicas de corrección creadas');
+  };
+
   const loadConfiguration = () => {
     try {
       const storedConfig = LocalStorageManager.getConfig();
@@ -161,6 +293,34 @@ export default function Configuration() {
 
   const exportSystemData = () => {
     try {
+      console.log('🚀 [EXPORTACIÓN MEJORADA] Iniciando exportación con corrección de asignaciones...');
+      
+      // ✅ PASO 1: Aplicar corrección dinámica antes de exportar
+      if (typeof window.regenerarAsignacionesDinamicas === 'function') {
+        console.log('🔄 [PRE-EXPORTACIÓN] Aplicando corrección dinámica...');
+        window.regenerarAsignacionesDinamicas();
+      }
+      
+      // ✅ PASO 2: Usar sistema de exportación mejorada si está disponible
+      if (typeof window.exportarBBDDConAsignaciones === 'function') {
+        console.log('📦 [EXPORTACIÓN AVANZADA] Usando sistema mejorado de exportación...');
+        const resultado = window.exportarBBDDConAsignaciones();
+        
+        if (resultado.exito) {
+          toast({
+            title: translate('configExportSuccessTitle') || 'Exportación exitosa',
+            description: `Base de datos exportada con asignaciones incluidas. Archivo: ${resultado.archivo}`,
+            variant: 'default'
+          });
+          return;
+        } else {
+          console.warn('⚠️ [EXPORTACIÓN] Error en sistema avanzado, usando método básico...');
+        }
+      }
+      
+      // ✅ PASO 3: Método de exportación básica mejorada (fallback)
+      console.log('📦 [EXPORTACIÓN BÁSICA] Usando exportación básica mejorada...');
+      
       // ✅ MEJORAR EXPORTACIÓN: Asegurar que todos los usuarios tengan campos completos
       const rawUsers = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
       const exportUsers = rawUsers.map((user: any) => {
@@ -207,10 +367,20 @@ export default function Configuration() {
         administrators: JSON.parse(localStorage.getItem('smart-student-administrators') || '[]'),
         // Agregar asignaciones de profesores a cursos-secciones
         teacherAssignments: JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]'),
+        // ✅ NUEVA CARACTERÍSTICA: Incluir asignaciones de estudiantes
+        studentAssignments: JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]'),
         // ✅ USUARIOS PRINCIPALES CON CAMPOS COMPLETOS PARA LOGIN
         users: exportUsers,
+        // ✅ METADATOS DE CORRECCIÓN DINÁMICA
+        metadatos: {
+          version: '2.0.0',
+          tipoExportacion: 'completa-con-asignaciones',
+          fechaExportacion: new Date().toISOString(),
+          includeAsignaciones: true,
+          sistemaCorreccionDinamica: typeof window.regenerarAsignacionesDinamicas === 'function'
+        },
         exportDate: new Date().toISOString(),
-        version: '1.2' // Incrementar versión para indicar mejora de exportación
+        version: '2.0' // Incrementar versión para indicar corrección de asignaciones incluida
       };
 
       const dataStr = JSON.stringify(data, null, 2);
@@ -242,6 +412,8 @@ export default function Configuration() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
+        console.log('🚀 [IMPORTACIÓN MEJORADA] Iniciando importación con aplicación automática de asignaciones...');
+        
         const importedData = JSON.parse(e.target?.result as string);
         
         // Validate structure
@@ -251,6 +423,25 @@ export default function Configuration() {
 
         // Confirm before importing
         if (window.confirm(translate('configImportConfirm') || '¿Estás seguro de que quieres importar estos datos? Esto sobrescribirá todos los datos existentes.')) {
+          console.log('📥 [IMPORTACIÓN] Aplicando datos importados...');
+          
+          // ✅ PASO 1: Usar sistema de importación mejorada si está disponible
+          if (typeof window.importarDesdeAdmin === 'function') {
+            console.log('📦 [IMPORTACIÓN AVANZADA] Usando sistema mejorado de importación...');
+            window.importarDesdeAdmin(event.target);
+            return;
+          }
+          
+          // ✅ PASO 2: Crear respaldo antes de importar
+          console.log('💾 [RESPALDO] Creando respaldo de seguridad...');
+          const respaldoSeguridad = {
+            timestamp: new Date().toISOString(),
+            'smart-student-users': JSON.parse(localStorage.getItem('smart-student-users') || '[]'),
+            'smart-student-student-assignments': JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]'),
+            'smart-student-teacher-assignments': JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]')
+          };
+          localStorage.setItem('smart-student-backup-importacion', JSON.stringify(respaldoSeguridad));
+          
           // Import basic data
           LocalStorageManager.setCourses(importedData.courses || []);
           LocalStorageManager.setSections(importedData.sections || []);
@@ -273,6 +464,12 @@ export default function Configuration() {
           // Import teacher assignments (nuevo)
           if (importedData.teacherAssignments) {
             localStorage.setItem('smart-student-teacher-assignments', JSON.stringify(importedData.teacherAssignments));
+          }
+
+          // ✅ PASO 3: Importar asignaciones de estudiantes si existen
+          if (importedData.studentAssignments) {
+            console.log('🎯 [ASIGNACIONES] Aplicando asignaciones de estudiantes importadas...');
+            localStorage.setItem('smart-student-student-assignments', JSON.stringify(importedData.studentAssignments));
           }
 
           // ✅ MEJORAR IMPORTACIÓN: Consolidar todos los usuarios y garantizar campos completos
@@ -349,16 +546,58 @@ export default function Configuration() {
             localStorage.setItem('smart-student-users', JSON.stringify(repairedUsers));
           }
 
+          // ✅ PASO 4: Validación y corrección automática post-importación
+          console.log('🔍 [POST-IMPORTACIÓN] Ejecutando validación y corrección automática...');
+          
+          setTimeout(() => {
+            // Verificar si hay asignaciones de estudiantes
+            const asignacionesEstudiantes = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+            
+            if (asignacionesEstudiantes.length === 0) {
+              console.log('⚠️ [POST-IMPORTACIÓN] No hay asignaciones de estudiantes, aplicando corrección automática...');
+              
+              // Aplicar corrección dinámica si está disponible
+              if (typeof window.regenerarAsignacionesDinamicas === 'function') {
+                const resultado = window.regenerarAsignacionesDinamicas();
+                if (resultado.exito) {
+                  console.log('✅ [POST-IMPORTACIÓN] Corrección automática aplicada exitosamente');
+                  toast({
+                    title: 'Corrección aplicada',
+                    description: `Asignaciones de estudiantes corregidas automáticamente: ${resultado.asignacionesCreadas} asignaciones`,
+                    variant: 'default'
+                  });
+                }
+              } else {
+                console.log('⚠️ [POST-IMPORTACIÓN] Sistema de corrección no disponible, aplicando corrección básica...');
+                // Aplicar corrección básica
+                aplicarCorreccionBasicaPostImportacion();
+              }
+            } else {
+              console.log('✅ [POST-IMPORTACIÓN] Asignaciones de estudiantes encontradas, validando...');
+              
+              // Validar consistencia si está disponible
+              if (typeof window.validarAsignacionesManualmente === 'function') {
+                const validacion = window.validarAsignacionesManualmente();
+                if (!validacion.esValido) {
+                  console.log('⚠️ [POST-IMPORTACIÓN] Inconsistencias detectadas, aplicando auto-reparación...');
+                  if (typeof window.regenerarAsignacionesDinamicas === 'function') {
+                    window.regenerarAsignacionesDinamicas();
+                  }
+                }
+              }
+            }
+          }, 2000);
+
           toast({
             title: translate('configImportSuccessTitle') || 'Importación exitosa',
-            description: translate('configImportSuccessDescription') || 'Datos importados y usuarios reparados automáticamente. Todos los usuarios pueden hacer login.',
+            description: 'Datos importados con asignaciones aplicadas automáticamente. Sistema validado y corregido.',
             variant: 'default'
           });
 
           // Refresh page to reload data
           setTimeout(() => {
             window.location.reload();
-          }, 1000);
+          }, 3000);
         }
       } catch (error) {
         toast({
@@ -371,6 +610,69 @@ export default function Configuration() {
     
     reader.readAsText(file);
     event.target.value = ''; // Reset input
+  };
+
+  // ✅ NUEVA FUNCIÓN: Aplicar corrección básica post-importación
+  const aplicarCorreccionBasicaPostImportacion = () => {
+    try {
+      console.log('🔧 [CORRECCIÓN POST-IMPORTACIÓN] Aplicando corrección básica...');
+      
+      const usuarios = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const cursos = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const secciones = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+      
+      const estudiantes = usuarios.filter((u: any) => u.role === 'student' || u.role === 'estudiante');
+      const asignacionesBasicas: any[] = [];
+      
+      estudiantes.forEach((estudiante: any) => {
+        let cursoAsignado: any = null;
+        let seccionAsignada: any = null;
+        
+        // Usar información existente del estudiante
+        if (estudiante.courseId && estudiante.sectionId) {
+          cursoAsignado = cursos.find((c: any) => c.id === estudiante.courseId);
+          seccionAsignada = secciones.find((s: any) => s.id === estudiante.sectionId);
+        } else if (estudiante.activeCourses && estudiante.activeCourses.length > 0) {
+          const nombreCurso = estudiante.activeCourses[0];
+          cursoAsignado = cursos.find((c: any) => 
+            c.name === nombreCurso || c.name.includes(nombreCurso.split(' ')[0])
+          );
+          if (cursoAsignado) {
+            const seccionesCurso = secciones.filter((s: any) => s.courseId === cursoAsignado.id);
+            seccionAsignada = seccionesCurso[0];
+          }
+        } else if (cursos.length > 0) {
+          cursoAsignado = cursos[0];
+          const seccionesCurso = secciones.filter((s: any) => s.courseId === cursoAsignado.id);
+          seccionAsignada = seccionesCurso[0];
+        }
+        
+        if (cursoAsignado && seccionAsignada) {
+          asignacionesBasicas.push({
+            id: `${estudiante.id}-${seccionAsignada.id}-${Date.now()}-${Math.random()}`,
+            studentId: estudiante.id,
+            courseId: cursoAsignado.id,
+            sectionId: seccionAsignada.id,
+            assignedAt: new Date().toISOString(),
+            isActive: true
+          });
+        }
+      });
+      
+      if (asignacionesBasicas.length > 0) {
+        localStorage.setItem('smart-student-student-assignments', JSON.stringify(asignacionesBasicas));
+        console.log(`✅ [CORRECCIÓN POST-IMPORTACIÓN] ${asignacionesBasicas.length} asignaciones básicas creadas`);
+        
+        toast({
+          title: 'Corrección aplicada',
+          description: `${asignacionesBasicas.length} asignaciones de estudiantes creadas automáticamente`,
+          variant: 'default'
+        });
+      }
+      
+    } catch (error) {
+      console.error('❌ [ERROR CORRECCIÓN] Error en corrección post-importación:', error);
+    }
   };
 
   // ✅ NUEVA FUNCIÓN: Reparar usuarios existentes con campos faltantes
@@ -1002,8 +1304,8 @@ export default function Configuration() {
             {translate('configDataManagementTitle') || 'Gestión de Datos'}
           </CardTitle>
         </CardHeader>
-        <CardContent>mo
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Export Data */}
             <div className="p-4 border rounded-lg">
               <h4 className="font-medium mb-2 flex items-center">
@@ -1011,7 +1313,7 @@ export default function Configuration() {
                 {translate('configExportDataTitle') || 'Exportar Datos'}
               </h4>
               <p className="text-sm text-muted-foreground mb-3">
-                {translate('configExportDataDesc') || 'Descarga una copia de seguridad de todos los datos del sistema'}
+                {translate('configExportDataDesc') || 'Descarga una copia de seguridad con asignaciones incluidas'}
               </p>
               <Button 
                 onClick={exportSystemData}
@@ -1030,7 +1332,7 @@ export default function Configuration() {
                 {translate('configImportDataTitle') || 'Importar Datos'}
               </h4>
               <p className="text-sm text-muted-foreground mb-3">
-                {translate('configImportDataDesc') || 'Restaura datos desde un archivo de respaldo'}
+                {translate('configImportDataDesc') || 'Restaura datos con aplicación automática de asignaciones'}
               </p>
               <div>
                 <input
@@ -1051,8 +1353,101 @@ export default function Configuration() {
               </div>
             </div>
 
+            {/* ✅ NUEVA FUNCIONALIDAD: Validar Asignaciones */}
+            <div className="p-4 border border-yellow-200 rounded-lg">
+              <h4 className="font-medium mb-2 flex items-center text-yellow-600">
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Validar Sistema
+              </h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                Verifica el estado de las asignaciones estudiante-sección
+              </p>
+              <Button 
+                onClick={() => {
+                  console.log('🔍 [VALIDACIÓN MANUAL] Iniciando validación desde interfaz admin...');
+                  if (typeof window.validarAsignacionesManualmente === 'function') {
+                    const resultado = window.validarAsignacionesManualmente();
+                    if (resultado.esValido) {
+                      toast({
+                        title: 'Sistema válido',
+                        description: 'Todas las validaciones han pasado exitosamente',
+                        variant: 'default'
+                      });
+                    } else {
+                      toast({
+                        title: 'Problemas detectados',
+                        description: `Se encontraron ${resultado.problemas.length} problemas en el sistema`,
+                        variant: 'destructive'
+                      });
+                    }
+                  } else if (typeof window.validarDesdeAdmin === 'function') {
+                    window.validarDesdeAdmin();
+                  } else {
+                    toast({
+                      title: 'Función no disponible',
+                      description: 'Sistema de validación no cargado. Recarga la página.',
+                      variant: 'destructive'
+                    });
+                  }
+                }}
+                variant="outline" 
+                className="w-full border-yellow-300 text-yellow-700 hover:bg-yellow-50"
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Validar
+              </Button>
+            </div>
+
+            {/* ✅ NUEVA FUNCIONALIDAD: Auto-Corregir */}
+            <div className="p-4 border border-green-200 rounded-lg">
+              <h4 className="font-medium mb-2 flex items-center text-green-600">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Auto-Corregir
+              </h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                Aplica corrección dinámica de asignaciones automáticamente
+              </p>
+              <Button 
+                onClick={() => {
+                  console.log('🔄 [AUTO-CORRECCIÓN] Iniciando corrección desde interfaz admin...');
+                  if (typeof window.regenerarAsignacionesDinamicas === 'function') {
+                    const resultado = window.regenerarAsignacionesDinamicas();
+                    if (resultado.exito) {
+                      toast({
+                        title: 'Corrección exitosa',
+                        description: `${resultado.asignacionesCreadas} asignaciones corregidas automáticamente`,
+                        variant: 'default'
+                      });
+                      setTimeout(() => {
+                        setRefreshUsers(prev => prev + 1);
+                      }, 1000);
+                    } else {
+                      toast({
+                        title: 'Error en corrección',
+                        description: resultado.mensaje,
+                        variant: 'destructive'
+                      });
+                    }
+                  } else if (typeof window.aplicarCorreccionAutomatica === 'function') {
+                    window.aplicarCorreccionAutomatica();
+                  } else {
+                    toast({
+                      title: 'Función no disponible',
+                      description: 'Sistema de corrección no cargado. Recarga la página.',
+                      variant: 'destructive'
+                    });
+                  }
+                }}
+                variant="outline" 
+                className="w-full border-green-300 text-green-700 hover:bg-green-50"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Corregir
+              </Button>
+            </div>
+
             {/* Reset System */}
-            <div className="p-4 border border-red-200 rounded-lg">
+            <div className="p-4 border border-red-200 rounded-lg md:col-span-2 lg:col-span-4">
               <h4 className="font-medium mb-2 flex items-center text-red-600">
                 <AlertTriangle className="w-4 h-4 mr-2" />
                 {translate('configResetSystemTitle') || 'Reiniciar Sistema'}

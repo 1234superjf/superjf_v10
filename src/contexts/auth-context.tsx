@@ -4,7 +4,7 @@ import type React from 'react';
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-export type UserRole = 'admin' | 'student' | 'teacher';
+export type UserRole = 'admin' | 'student' | 'teacher' | 'estudiante';
 
 // Interface for teacher-subject assignment
 export interface TeacherSubjectAssignment {

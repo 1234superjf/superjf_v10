@@ -31,10 +31,22 @@ export function UserRoleBadge() {
       labelKey: 'studentRole',
       variant: 'outline' as const,
       className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-200 dark:border-green-700 transition-colors duration-200 hover:bg-green-100 hover:text-green-800 dark:hover:bg-green-900/30 dark:hover:text-green-200'
+    },
+    // ✅ Agregar soporte para rol 'estudiante' en español
+    estudiante: {
+      labelKey: 'studentRole',
+      variant: 'outline' as const,
+      className: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-200 dark:border-green-700 transition-colors duration-200 hover:bg-green-100 hover:text-green-800 dark:hover:bg-green-900/30 dark:hover:text-green-200'
     }
   };
 
-  const config = roleConfig[user.role];
+  const config = roleConfig[user.role as keyof typeof roleConfig];
+  
+  // ✅ Validación: Si no hay configuración para el rol, no mostrar el badge
+  if (!config) {
+    console.warn(`[UserRoleBadge] Rol no soportado: ${user.role}`);
+    return null;
+  }
   
   // Para estudiantes, siempre usar el estilo verde fijo sin variaciones
   // Para administradores, usar el estilo rojo consistente SIEMPRE (sin cambios por pestaña)
@@ -42,7 +54,7 @@ export function UserRoleBadge() {
   let badgeClassName = config.className;
   let badgeVariant = config.variant;
   
-  if (user.role === 'student') {
+  if (user.role === 'student' || user.role === 'estudiante') {
     // Forzar siempre el estilo verde para estudiantes, ignorando cualquier estado
     badgeClassName = 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-200 dark:border-green-700';
     badgeVariant = 'outline' as const;
@@ -67,7 +79,7 @@ export function UserRoleBadge() {
       {user.role === 'teacher' && (
         <Shield className="w-3 h-3 text-blue-700 dark:text-blue-400 flex-shrink-0" />
       )}
-      {user.role === 'student' && (
+      {(user.role === 'student' || user.role === 'estudiante') && (
         <GraduationCap className="w-3 h-3 text-green-700 dark:text-green-400 flex-shrink-0" />
       )}
       {translate(config.labelKey)}
