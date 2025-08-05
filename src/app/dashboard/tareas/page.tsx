@@ -15,7 +15,7 @@
   import { Badge } from '@/components/ui/badge';
   import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
   import { Separator } from '@/components/ui/separator';
-  import { ClipboardList, Plus, Calendar, User, Users, MessageSquare, Eye, Send, Edit, Trash2, Paperclip, Download, X, Upload, Star, Lock, ClipboardCheck, Timer, ChevronRight, Award } from 'lucide-react';
+  import { ClipboardList, Plus, Calendar, User, Users, MessageSquare, Eye, Send, Edit, Trash2, Paperclip, Download, X, Upload, Star, Lock, ClipboardCheck, Timer, ChevronRight, Award, Shield, GraduationCap } from 'lucide-react';
   import { useToast } from '@/hooks/use-toast';
 
   // Extended User interface with teacher assignment
@@ -1995,14 +1995,12 @@
       const comment: TaskComment = {
         id: `comment_${Date.now()}`,
         taskId: selectedTask.id,
-        studentId: user?.role === 'student' ? user.id : (selectedTask.assignedStudents?.[0] ? 
-          users.find(u => u.username === selectedTask.assignedStudents?.[0])?.id || user.id : user.id), // Corregir studentId
+        studentId: user?.role === 'student' ? user.id : 
+          (isSubmission ? 'teacher-comment' : user?.id || 'unknown'), // Para comentarios de profesor, usar su ID
         studentUsername: user?.role === 'student' ? user.username : 
-          (selectedTask.assignedStudents?.[0] || 'unknown'), // 🔥 CORRECCIÓN: Si es profesor, usar estudiante asignado
+          (isSubmission ? 'teacher' : user?.username || 'unknown'), // Para comentarios de profesor, usar su username
         studentName: user?.role === 'student' ? (user.displayName || user.username) :
-          (selectedTask.assignedStudents?.[0] ? 
-            users.find(u => u.username === selectedTask.assignedStudents?.[0])?.displayName || selectedTask.assignedStudents?.[0] :
-            'Unknown Student'), // 🔥 CORRECCIÓN: Si es profesor, usar nombre del estudiante asignado
+          (isSubmission ? 'Profesor/a' : user?.displayName || user?.username || 'Profesor/a'), // Para comentarios de profesor, usar su displayName
         comment: newComment,
         timestamp: new Date().toISOString(),
         isSubmission: isSubmission,
@@ -4942,7 +4940,35 @@
                           ) : (
                             // Comentario normal
                             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                              <span className="font-semibold text-base text-gray-900 dark:text-gray-100">{comment.studentName}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-base text-gray-900 dark:text-gray-100">
+                                  {/* Solo mostrar el nombre sin redundancias */}
+                                  {comment.authorRole === 'teacher' 
+                                    ? (comment.authorUsername === user?.username 
+                                        ? user?.displayName || user?.username
+                                        : comment.studentName)
+                                    : comment.studentName
+                                  }
+                                </span>
+                                {/* Badge específico según el rol del autor */}
+                                {comment.authorRole === 'teacher' ? (
+                                  <Badge 
+                                    variant="outline" 
+                                    className="bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100 hover:text-blue-800 text-xs font-medium px-2 py-1 inline-flex items-center gap-1.5"
+                                  >
+                                    <Shield className="w-3 h-3 text-blue-700 flex-shrink-0" />
+                                    {translate('teacherRole')}
+                                  </Badge>
+                                ) : (
+                                  <Badge 
+                                    variant="outline" 
+                                    className="bg-green-100 text-green-800 border-green-200 text-xs font-medium px-2 py-1 inline-flex items-center gap-1.5"
+                                  >
+                                    <GraduationCap className="w-3 h-3 text-green-700 flex-shrink-0" />
+                                    {translate('studentRole')}
+                                  </Badge>
+                                )}
+                              </div>
                               <span className="text-xs text-muted-foreground md:ml-3">{formatDateOneLine(comment.timestamp)}</span>
                             </div>
                           )}
