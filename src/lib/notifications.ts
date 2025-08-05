@@ -687,6 +687,15 @@ export class TaskNotificationManager {
 
       if (!basicFilters) return false;
 
+      // 🎯 NUEVO FILTRO DE PRIVACIDAD: Verificar asignación de estudiante a tarea específica
+      if (userRole === 'student' && notification.taskId) {
+        const isAssignedToTask = this.checkStudentAssignmentToTask(notification.taskId, userId || '', username);
+        if (!isAssignedToTask) {
+          console.log(`🚫 [TaskNotificationManager] Estudiante ${username} NO asignado a tarea ${notification.taskTitle} - Filtrando notificación`);
+          return false;
+        }
+      }
+
       // 🔧 SOLUCIÓN: Filtrado específico por estudiante para evitar filtrado cruzado
       if (userRole === 'student' && notification.type === 'new_task') {
         // Para tareas de asignación: solo filtrar si EL MISMO estudiante ya entregó y fue calificado
@@ -1789,6 +1798,116 @@ export class TaskNotificationManager {
       
     } catch (error) {
       console.error(`❌ [REMOVE_COMPLETED] Error eliminando notificaciones 'task_completed':`, error);
+    }
+  }
+
+  // 🎯 Función para verificar si un estudiante está asignado a una tarea específica
+  static checkStudentAssignmentToTask(taskId: string, studentId: string, studentUsername: string): boolean {
+    try {
+      console.log(`🔍 [checkStudentAssignmentToTask] Verificando acceso para estudiante ${studentUsername} (ID: ${studentId}) a tarea ${taskId}`);
+      
+      // Obtener la tarea
+      const storedTasks = localStorage.getItem('smart-student-tasks');
+      if (!storedTasks) {
+        console.log(`❌ [checkStudentAssignmentToTask] No hay tareas en localStorage`);
+        return false;
+      }
+      
+      const tasks = JSON.parse(storedTasks);
+      const task = tasks.find((t: any) => t.id === taskId);
+      
+      if (!task) {
+        console.log(`❌ [checkStudentAssignmentToTask] Tarea no encontrada: ${taskId}`);
+        return false;
+      }
+      
+      console.log(`📋 [checkStudentAssignmentToTask] Tarea "${task.title}" asignada a: ${task.assignedTo}, curso: ${task.course || task.courseSectionId}`);
+      
+      // Si la tarea está asignada a estudiantes específicos
+      if (task.assignedTo === 'student' && task.assignedStudentIds) {
+        const isDirectlyAssigned = task.assignedStudentIds.includes(studentId);
+        console.log(`🎯 [checkStudentAssignmentToTask] Estudiante ${studentUsername} directamente asignado: ${isDirectlyAssigned ? '✅' : '❌'}`);
+        return isDirectlyAssigned;
+      }
+      
+      // Si la tarea está asignada a todo el curso
+      if (task.assignedTo === 'course') {
+        const taskCourseId = task.courseSectionId || task.course;
+        
+        if (!taskCourseId) {
+          console.log(`⚠️ [checkStudentAssignmentToTask] Tarea sin courseId definido`);
+          return false;
+        }
+        
+        // Obtener información del estudiante
+        const usersText = localStorage.getItem('smart-student-users');
+        const allUsers = usersText ? JSON.parse(usersText) : [];
+        const studentData = allUsers.find((u: any) => u.id === studentId || u.username === studentUsername);
+        
+        if (!studentData) {
+          console.log(`❌ [checkStudentAssignmentToTask] Datos del estudiante no encontrados: ${studentUsername}`);
+          return false;
+        }
+        
+        // Verificar usando el sistema de asignaciones dinámicas
+        const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+        
+        // Obtener cursos y secciones disponibles
+        const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+        const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+        
+        // Buscar los datos del curso de la tarea
+        const availableCourses: any[] = [];
+        courses.forEach((course: any) => {
+          const courseSections = sections.filter((s: any) => s.courseId === course.id);
+          courseSections.forEach((section: any) => {
+            availableCourses.push({
+              id: `${course.id}-${section.id}`,
+              courseId: course.id,
+              sectionId: section.id,
+              name: `${course.name} Sección ${section.name}`
+            });
+          });
+        });
+        
+        const taskCourseData = availableCourses.find((c: any) => c.id === taskCourseId);
+        
+        if (taskCourseData) {
+          const { sectionId, courseId: actualCourseId } = taskCourseData;
+          
+          // Verificar si el estudiante está asignado al mismo curso Y sección
+          const isAssignedToTaskSection = studentAssignments.some((assignment: any) => 
+            assignment.studentId === studentId && 
+            assignment.sectionId === sectionId && 
+            assignment.courseId === actualCourseId
+          );
+          
+          console.log(`🏫 [checkStudentAssignmentToTask] Verificando curso ${actualCourseId} sección ${sectionId}: ${isAssignedToTaskSection ? '✅' : '❌'}`);
+          
+          if (isAssignedToTaskSection) {
+            return true;
+          }
+        }
+        
+        // Fallback: verificar por activeCourses (sistema legacy)
+        const isInActiveCourses = studentData.activeCourses?.includes(taskCourseId) || false;
+        console.log(`🔄 [checkStudentAssignmentToTask] Fallback activeCourses para ${studentUsername}: ${isInActiveCourses ? '✅' : '❌'}`);
+        
+        return isInActiveCourses;
+      }
+      
+      // Compatibilidad con versiones anteriores
+      if (task.assignedStudents && task.assignedStudents.includes(studentUsername)) {
+        console.log(`🔄 [checkStudentAssignmentToTask] Fallback assignedStudents para ${studentUsername}: ✅`);
+        return true;
+      }
+      
+      console.log(`❌ [checkStudentAssignmentToTask] Estudiante ${studentUsername} no tiene acceso a la tarea "${task.title}"`);
+      return false;
+      
+    } catch (error) {
+      console.error(`❌ [checkStudentAssignmentToTask] Error verificando asignación:`, error);
+      return false;
     }
   }
 }

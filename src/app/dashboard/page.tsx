@@ -155,13 +155,42 @@ export default function DashboardHomePage() {
         const comments: TaskComment[] = JSON.parse(storedComments);
         
         if (user.role === 'student') {
+          // 🎯 FILTRADO CRÍTICO: Aplicar la misma lógica que en notifications-panel.tsx
+          const storedTasks = localStorage.getItem('smart-student-tasks');
+          const tasks = storedTasks ? JSON.parse(storedTasks) : [];
+          
           // Filtrar comentarios que no han sido leídos por el usuario actual
           // EXCLUIR comentarios de entrega (isSubmission) ya que son parte del trabajo entregado, no comentarios de discusión
-          let unread = comments.filter((comment: TaskComment) => 
-            comment.studentUsername !== user.username && // No contar los propios comentarios
-            (!comment.readBy?.includes(user.username)) &&
-            !comment.isSubmission // NUEVO: Excluir comentarios de entrega
-          );
+          let unread = comments.filter((comment: TaskComment) => {
+            // Filtros básicos
+            if (comment.studentUsername === user.username || // No contar comentarios propios
+                comment.readBy?.includes(user.username) || // Ya leídos
+                comment.isSubmission) { // Entregas de otros estudiantes
+              return false;
+            }
+            
+            // 🎯 FILTRO CRÍTICO: Verificar asignación específica para estudiantes
+            const task = tasks.find((t: any) => t.id === comment.taskId);
+            if (!task) {
+              console.log(`🚫 [Dashboard-Student] Tarea no encontrada para comentario: ${comment.taskId}`);
+              return false;
+            }
+            
+            // Si es una tarea asignada a estudiantes específicos
+            if (task.assignedTo === 'student' && task.assignedStudentIds) {
+              const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+              const currentUser = users.find((u: any) => u.username === user.username);
+              
+              if (!currentUser || !task.assignedStudentIds.includes(currentUser.id)) {
+                console.log(`🚫 [Dashboard-Student] Estudiante ${user.username} NO asignado a tarea específica "${task.title}" - Filtrando comentario del conteo`);
+                return false;
+              }
+              
+              console.log(`✅ [Dashboard-Student] Estudiante ${user.username} SÍ asignado a tarea específica "${task.title}" - Incluyendo comentario en conteo`);
+            }
+            
+            return true;
+          });
 
           // Eliminar duplicados de comentarios del profesor (por taskId, comment, timestamp, studentUsername)
           unread = unread.filter((comment, idx, arr) =>
@@ -172,12 +201,36 @@ export default function DashboardHomePage() {
               c.studentUsername === comment.studentUsername
             ) === idx
           );
+          
+          console.log(`📊 [Dashboard-Student] Comentarios no leídos para ${user.username}: ${unread.length} (después de filtrado por asignaciones específicas)`);
           setUnreadCommentsCount(unread.length);
         } else if (user.role === 'teacher') {
-          // 🔥 CORRECCIÓN PARA PROFESORES: Solo mostrar comentarios de sus estudiantes
+          // 🎯 CORRECCIÓN CRÍTICA PARA PROFESORES: Solo mostrar comentarios de TAREAS CREADAS POR ESTE PROFESOR
+          const storedTasks = localStorage.getItem('smart-student-tasks');
+          const tasks = storedTasks ? JSON.parse(storedTasks) : [];
+          
+          // Filtrar tareas asignadas por este profesor ÚNICAMENTE
+          const teacherTasks = tasks.filter((task: any) => task.assignedBy === user.username);
+          const teacherTaskIds = teacherTasks.map((task: any) => task.id);
+          
+          console.log(`[Dashboard-Teacher] Profesor ${user.username} tiene ${teacherTasks.length} tareas asignadas`);
+          console.log(`[Dashboard-Teacher] IDs de tareas del profesor: [${teacherTaskIds.join(', ')}]`);
+          
+          // Si no tiene tareas asignadas, no mostrar comentarios
+          if (teacherTaskIds.length === 0) {
+            console.log(`[Dashboard-Teacher] Profesor ${user.username} no tiene tareas asignadas - No mostrar comentarios`);
+            setUnreadCommentsCount(0);
+            return;
+          }
+          
           const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
           
           let unread = comments.filter((comment: TaskComment) => {
+            // 🎯 FILTRO PRINCIPAL: Solo comentarios de tareas de este profesor
+            if (!teacherTaskIds.includes(comment.taskId)) {
+              return false;
+            }
+            
             // 🔥 NUEVA LÓGICA: Usar authorUsername si existe, sino studentUsername (retrocompatibilidad)
             const actualAuthor = comment.authorUsername || comment.studentUsername;
             const actualAuthorRole = comment.authorRole;
@@ -191,6 +244,18 @@ export default function DashboardHomePage() {
             // Excluir si ya fue leído por este profesor
             if (comment.readBy?.includes(user.username)) return false;
             
+            // 🎯 FILTRO ADICIONAL: Para tareas específicas, verificar que el estudiante esté asignado
+            const task = tasks.find((t: any) => t.id === comment.taskId);
+            if (task && task.assignedTo === 'student' && task.assignedStudentIds) {
+              // Es una tarea específica - verificar que el estudiante esté asignado
+              const studentData = users.find((u: any) => u.username === actualAuthor);
+              if (!studentData || !task.assignedStudentIds.includes(studentData.id)) {
+                console.log(`[Dashboard-Teacher] Filtrando comentario de ${actualAuthor} - NO asignado a tarea específica "${task.title}"`);
+                return false;
+              }
+              console.log(`[Dashboard-Teacher] Permitiendo comentario de ${actualAuthor} - SÍ asignado a tarea específica "${task.title}"`);
+            }
+            
             // 🚨 FILTRO PRINCIPAL: Determinar el rol del autor
             let authorRole = actualAuthorRole;
             if (!authorRole) {
@@ -200,19 +265,12 @@ export default function DashboardHomePage() {
             
             // Solo incluir comentarios de estudiantes, NUNCA de otros profesores
             if (authorRole === 'teacher') {
-              console.log(`[Dashboard] Excluyendo comentario de profesor ${actualAuthor} para profesor ${user.username}`);
+              console.log(`[Dashboard-Teacher] Excluyendo comentario de profesor ${actualAuthor} para profesor ${user.username}`);
               return false;
             }
             
             if (authorRole !== 'student') {
-              console.log(`[Dashboard] Excluyendo comentario de role desconocido ${actualAuthor} (${authorRole}) para profesor ${user.username}`);
-              return false;
-            }
-            
-            // Verificar que el estudiante esté asignado a este profesor
-            const studentUser = users.find((u: any) => u.username === actualAuthor);
-            if (studentUser && studentUser.assignedTeacherId !== user.id) {
-              console.log(`[Dashboard] Excluyendo comentario: estudiante ${actualAuthor} no asignado al profesor ${user.username}`);
+              console.log(`[Dashboard-Teacher] Excluyendo comentario de role desconocido ${actualAuthor} (${authorRole}) para profesor ${user.username}`);
               return false;
             }
             
@@ -229,7 +287,7 @@ export default function DashboardHomePage() {
             ) === idx
           );
           
-          console.log(`[Dashboard] Profesor ${user.username}: ${unread.length} comentarios no leídos de estudiantes asignados`);
+          console.log(`[Dashboard-Teacher] Profesor ${user.username}: ${unread.length} comentarios no leídos de sus tareas asignadas`);
           setUnreadCommentsCount(unread.length);
           
           // Para profesores, también cargar entregas pendientes

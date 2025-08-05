@@ -52,8 +52,11 @@ interface Task {
   subject: string;
   course: string;
   assignedBy: string;
+  assignedById?: string; // ID del profesor que asignó la tarea
   assignedByName: string;
   taskType: 'assignment' | 'evaluation'; // Tipo de tarea: normal o evaluación
+  assignedTo?: 'course' | 'student'; // Tipo de asignación
+  assignedStudentIds?: string[]; // IDs de estudiantes específicos cuando assignedTo es 'student'
 }
 
 interface PasswordRequest {
@@ -656,6 +659,140 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
     };
   }, [user, open]); // Reload data when the panel is opened or user changes
 
+  // 🎯 Función para verificar si un estudiante está asignado a una tarea específica
+  const checkStudentAssignmentToTask = (task: any, studentId: string, studentUsername: string): boolean => {
+    console.log(`🔍 [checkStudentAssignmentToTask] Verificando acceso para estudiante ${studentUsername} (ID: ${studentId}) a tarea "${task.title}"`);
+    console.log(`📋 [checkStudentAssignmentToTask] Tarea asignada a: ${task.assignedTo}, curso: ${task.course || task.courseSectionId}`);
+    
+    // Si la tarea está asignada a estudiantes específicos
+    if (task.assignedTo === 'student' && task.assignedStudentIds) {
+      const isDirectlyAssigned = task.assignedStudentIds.includes(studentId);
+      console.log(`🎯 [checkStudentAssignmentToTask] Estudiante ${studentUsername} directamente asignado: ${isDirectlyAssigned ? '✅' : '❌'}`);
+      return isDirectlyAssigned;
+    }
+    
+    // Si la tarea está asignada a todo el curso
+    if (task.assignedTo === 'course') {
+      // Verificar que el estudiante pertenezca al mismo curso y sección de la tarea
+      const taskCourseId = task.courseSectionId || task.course;
+      
+      if (!taskCourseId) {
+        console.log(`⚠️ [checkStudentAssignmentToTask] Tarea sin courseId definido`);
+        return false;
+      }
+      
+      // Obtener información del estudiante actual
+      const usersText = localStorage.getItem('smart-student-users');
+      const allUsers = usersText ? JSON.parse(usersText) : [];
+      const studentData = allUsers.find((u: any) => u.id === studentId || u.username === studentUsername);
+      
+      if (!studentData) {
+        console.log(`❌ [checkStudentAssignmentToTask] Datos del estudiante no encontrados: ${studentUsername}`);
+        return false;
+      }
+      
+      // Verificar usando el sistema de asignaciones dinámicas
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      
+      // Extraer courseId y sectionId de la tarea usando función helper simplificada
+      const availableCourses = getAvailableCoursesForNotifications();
+      const taskCourseData = availableCourses.find((c: any) => c.id === taskCourseId);
+      
+      if (taskCourseData) {
+        const { sectionId, courseId: actualCourseId } = taskCourseData;
+        
+        // Verificar si el estudiante está asignado al mismo curso Y sección
+        const isAssignedToTaskSection = studentAssignments.some((assignment: any) => 
+          assignment.studentId === studentId && 
+          assignment.sectionId === sectionId && 
+          assignment.courseId === actualCourseId
+        );
+        
+        console.log(`🏫 [checkStudentAssignmentToTask] Verificando curso ${actualCourseId} sección ${sectionId}`);
+        console.log(`📊 [checkStudentAssignmentToTask] Estudiante ${studentUsername} asignado a esta sección: ${isAssignedToTaskSection ? '✅' : '❌'}`);
+        
+        if (isAssignedToTaskSection) {
+          return true;
+        }
+      }
+      
+      // Fallback: verificar por activeCourses (sistema legacy)
+      const isInActiveCourses = studentData.activeCourses?.includes(taskCourseId) || false;
+      console.log(`🔄 [checkStudentAssignmentToTask] Fallback activeCourses para ${studentUsername}: ${isInActiveCourses ? '✅' : '❌'}`);
+      
+      return isInActiveCourses;
+    }
+    
+    // Compatibilidad con versiones anteriores
+    if (task.assignedStudents && task.assignedStudents.includes(studentUsername)) {
+      console.log(`🔄 [checkStudentAssignmentToTask] Fallback assignedStudents para ${studentUsername}: ✅`);
+      return true;
+    }
+    
+    console.log(`❌ [checkStudentAssignmentToTask] Estudiante ${studentUsername} no tiene acceso a la tarea "${task.title}"`);
+    return false;
+  };
+
+  // 🎯 Función helper para obtener cursos disponibles en el contexto de notificaciones
+  const getAvailableCoursesForNotifications = () => {
+    try {
+      // Intentar obtener asignaciones específicas del sistema de asignaciones
+      const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+      
+      // Buscar asignaciones del profesor actual
+      if (user?.role === 'teacher') {
+        const userAssignments = teacherAssignments.filter((assignment: any) => 
+          assignment.teacherId === user.id
+        );
+
+        if (userAssignments.length > 0) {
+          // Crear lista de cursos y secciones únicos del profesor
+          const courseSectionsMap = new Map();
+          
+          userAssignments.forEach((assignment: any) => {
+            const section = sections.find((s: any) => s.id === assignment.sectionId);
+            if (section) {
+              const course = courses.find((c: any) => c.id === section.courseId);
+              if (course) {
+                const key = `${course.id}-${section.id}`;
+                if (!courseSectionsMap.has(key)) {
+                  courseSectionsMap.set(key, {
+                    id: key,
+                    courseId: course.id,
+                    sectionId: section.id,
+                    name: `${course.name} Sección ${section.name}`,
+                    originalCourseName: course.name,
+                    sectionName: section.name
+                  });
+                }
+              }
+            }
+          });
+
+          if (courseSectionsMap.size > 0) {
+            return Array.from(courseSectionsMap.values());
+          }
+        }
+      }
+      
+      // Fallback para estudiantes o cuando no hay asignaciones específicas
+      const courseIds = user?.activeCourses || [];
+      return courseIds.map((courseId: string) => ({
+        id: courseId,
+        courseId: courseId,
+        sectionId: null,
+        name: courseId,
+        originalCourseName: courseId,
+        sectionName: ''
+      }));
+    } catch (error) {
+      console.error('Error getting available courses for notifications:', error);
+      return [];
+    }
+  };
+
   const loadUnreadComments = () => {
     try {
       // Load comments
@@ -668,22 +805,61 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         
         console.log(`[loadUnreadComments] Processing ${comments.length} comments for student ${user?.username}`);
         
-        // Filter comments that are unread by the current user and not their own
-        // Exclude submissions from other students (students should not see other students' submissions)
-        const unread = comments.filter(comment => 
-          comment.studentUsername !== user?.username && // Not own comments/submissions
-          (!comment.readBy?.includes(user?.username || '')) && // Not read by current user
-          !comment.isSubmission // Exclude submissions (deliveries) from other students
-        ).map(comment => {
+        // 🔧 FILTRADO DIRECTO PARA ESTUDIANTES: Solo mostrar comentarios de tareas asignadas
+        const unread = comments.filter(comment => {
+          // No mostrar comentarios propios
+          if (comment.studentUsername === user?.username) {
+            return false;
+          }
+          
+          // No mostrar entregas de otros estudiantes
+          if (comment.isSubmission) {
+            return false;
+          }
+          
+          // Verificar si ya fue leído
+          if (comment.readBy?.includes(user?.username || '')) {
+            return false;
+          }
+          
+          // 🎯 FILTRO CRÍTICO: Verificar asignación específica para estudiantes
+          const task = tasks.find(t => t.id === comment.taskId);
+          if (!task) {
+            console.log(`🚫 [loadUnreadComments] Tarea no encontrada para comentario: ${comment.taskId}`);
+            return false;
+          }
+          
+          // Si es una tarea asignada a estudiantes específicos
+          if (task.assignedTo === 'student' && task.assignedStudentIds) {
+            const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+            const currentUser = users.find((u: any) => u.username === user?.username);
+            
+            if (!currentUser || !task.assignedStudentIds.includes(currentUser.id)) {
+              console.log(`🚫 [loadUnreadComments] Estudiante ${user?.username} NO asignado a tarea específica "${task.title}" - Filtrando comentario`);
+              return false;
+            }
+            
+            console.log(`✅ [loadUnreadComments] Estudiante ${user?.username} SÍ asignado a tarea específica "${task.title}" - Mostrando comentario`);
+            return true;
+          }
+          
+          // Para tareas de curso completo, usar el filtro existente
+          const isAssignedToTask = checkStudentAssignmentToTask(task, user?.id || '', user?.username || '');
+          
+          if (!isAssignedToTask) {
+            console.log(`🚫 [loadUnreadComments] Estudiante ${user?.username} NO asignado a tarea de curso "${task.title}" - Ocultando comentario`);
+            return false;
+          }
+          
+          console.log(`✅ [loadUnreadComments] Estudiante ${user?.username} SÍ asignado a tarea de curso "${task.title}" - Mostrando comentario`);
+          return true;
+        }).map(comment => {
           // Find associated task for each comment for display
           const task = tasks.find(t => t.id === comment.taskId);
           return { ...comment, task };
         });
         
-        console.log(`[loadUnreadComments] Found ${unread.length} unread comments for student ${user?.username}`);
-        setUnreadComments(unread);
-        
-        // Update unread comments state
+        console.log(`[loadUnreadComments] Found ${unread.length} unread comments for student ${user?.username} (after privacy filter)`);
         setUnreadComments(unread);
       }
     } catch (error) {
@@ -712,10 +888,27 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         // Filter tasks assigned to the student with due dates approaching
         const now = new Date();
         const studentTasks = tasks.filter(task => {
-          // Check if task is assigned to this student
-          const isAssigned = (
-            task.course && user?.activeCourses?.includes(task.course)
-          );
+          // 🎯 FILTRO CRÍTICO: Verificar asignación específica para estudiantes PRIMERO
+          let isAssigned = false;
+          
+          if (task.assignedTo === 'student' && task.assignedStudentIds) {
+            // Es una tarea asignada a estudiantes específicos
+            const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+            const currentUser = users.find((u: any) => u.username === user?.username);
+            
+            if (!currentUser || !task.assignedStudentIds.includes(currentUser.id)) {
+              console.log(`🚫 [loadPendingTasks] Filtrando tarea específica "${task.title}" para ${user?.username} - No asignado`);
+              return false; // El estudiante NO está asignado a esta tarea específica
+            }
+            
+            console.log(`✅ [loadPendingTasks] Tarea específica "${task.title}" válida para ${user?.username} - Sí asignado`);
+            isAssigned = true;
+          } else {
+            // Para tareas de curso completo, verificar curso
+            isAssigned = (
+              task.course && user?.activeCourses?.includes(task.course)
+            );
+          }
           
           const dueDate = new Date(task.dueDate);
           const isApproaching = dueDate > now; // Only include not overdue tasks
@@ -833,28 +1026,37 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         console.log(`[loadStudentSubmissions] All tasks in system:`, tasks.map(t => ({ id: t.id, title: t.title, assignedBy: t.assignedBy })));
         console.log(`[loadStudentSubmissions] Felipe comments:`, comments.filter(c => c.studentUsername === 'felipe').map(c => ({ id: c.id, taskId: c.taskId, isSubmission: c.isSubmission, comment: c.comment?.substring(0, 50) })));
         
-        // Filtrar tareas asignadas por este profesor
-        const teacherTasks = tasks.filter(task => task.assignedBy === user.username);
+        // Filtrar tareas asignadas por este profesor ÚNICAMENTE - usar múltiples criterios como en dashboard
+        const teacherTasks = tasks.filter(task => 
+          task.assignedBy === user.username || 
+          task.assignedById === user.id ||
+          task.assignedBy === user.id ||
+          task.assignedById === user.username
+        );
         setClassTasks(teacherTasks);
         
         console.log(`[loadStudentSubmissions] Teacher ${user.username} has ${teacherTasks.length} assigned tasks`);
         console.log(`[loadStudentSubmissions] Teacher tasks:`, teacherTasks.map(t => ({ id: t.id, title: t.title, assignedBy: t.assignedBy })));
         
-        // Obtener IDs de tareas de este profesor
+        // 🎯 CORRECCIÓN CRÍTICA: Solo usar tareas de este profesor, NO todas las tareas del sistema
         const teacherTaskIds = teacherTasks.map(task => task.id);
         console.log(`[loadStudentSubmissions] Teacher task IDs:`, teacherTaskIds);
         
-        // 🔧 SOLUCIÓN TEMPORAL: También incluir tareas donde el profesor podría tener permisos
-        // Si no hay tareas asignadas por este profesor, incluir todas las tareas del sistema
-        const allTaskIds = teacherTaskIds.length > 0 ? teacherTaskIds : tasks.map(task => task.id);
-        console.log(`[loadStudentSubmissions] Using task IDs (${teacherTaskIds.length > 0 ? 'teacher-specific' : 'all-tasks'}):`, allTaskIds);
+        // � REMOVIDO: El fallback peligroso que incluía todas las tareas del sistema
+        // Si no hay tareas del profesor, simplemente no mostrar nada
+        if (teacherTaskIds.length === 0) {
+          console.log(`[loadStudentSubmissions] Profesor ${user.username} no tiene tareas asignadas - No mostrar comentarios`);
+          setStudentSubmissions([]);
+          setUnreadStudentComments([]);
+          return;
+        }
         
-        // Filtrar entregas de los estudiantes para las tareas de este profesor
+        // Filtrar entregas de los estudiantes para las tareas de este profesor ÚNICAMENTE
         // que no hayan sido revisadas (no tienen calificación) y que no sean propias
         const submissions = comments
           .filter(comment => 
             comment.isSubmission && 
-            allTaskIds.includes(comment.taskId) &&
+            teacherTaskIds.includes(comment.taskId) &&
             comment.studentUsername !== user.username && // Excluir entregas propias del profesor
             !comment.grade // Solo entregas sin calificar
           )
@@ -872,8 +1074,8 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         // 🔄 CORRECCIÓN: Mejora para detectar comentarios de estudiantes aunque estén mal marcados
         const studentComments = comments
           .filter(comment => {
-            // Verificar si es un comentario para este profesor
-            const esParaProfesor = allTaskIds.includes(comment.taskId);
+            // 🎯 FILTRO PRINCIPAL: Verificar si es un comentario para tareas de ESTE profesor únicamente
+            const esParaProfesor = teacherTaskIds.includes(comment.taskId);
             
             // Verificar si es del propio profesor
             const esDelProfesor = comment.studentUsername === user.username;
@@ -892,6 +1094,52 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
               Math.abs(new Date(notif.timestamp).getTime() - new Date(comment.timestamp).getTime()) < 60000
             );
             
+            // 🎯 FILTRO CRÍTICO ADICIONAL: Para tareas específicas, verificar que este profesor sea el creador
+            let profesorAutorizadoParaTareaEspecifica = true; // Por defecto permitir
+            if (esParaProfesor && !esDelProfesor) {
+              const task = tasks.find(t => t.id === comment.taskId);
+              if (task && task.assignedTo === 'student' && task.assignedStudentIds) {
+                // Es una tarea específica para estudiantes - verificar que este profesor sea el creador usando múltiples criterios
+                const esCreadorDeTarea = task.assignedBy === user.username || 
+                                       task.assignedById === user.id ||
+                                       task.assignedBy === user.id ||
+                                       task.assignedById === user.username;
+                
+                if (!esCreadorDeTarea) {
+                  profesorAutorizadoParaTareaEspecifica = false;
+                  console.log(`🚫 [loadStudentSubmissions] Profesor ${user.username} NO autorizado para tarea específica "${task.title}" - Creada por ${task.assignedBy}/${task.assignedById}`);
+                } else {
+                  console.log(`✅ [loadStudentSubmissions] Profesor ${user.username} SÍ autorizado para tarea específica "${task.title}" - Es el creador`);
+                }
+              }
+            }
+            
+            // 🔧 NUEVO FILTRO DE PRIVACIDAD: Verificar si el estudiante está asignado a la tarea
+            let estudianteAsignadoATarea = false;
+            if (esParaProfesor && !esDelProfesor && profesorAutorizadoParaTareaEspecifica) {
+              const task = tasks.find(t => t.id === comment.taskId);
+              if (task) {
+                // Obtener información del estudiante que hizo el comentario
+                const usersText = localStorage.getItem('smart-student-users');
+                const allUsers = usersText ? JSON.parse(usersText) : [];
+                const studentData = allUsers.find((u: any) => u.username === comment.studentUsername);
+                
+                if (studentData) {
+                  estudianteAsignadoATarea = checkStudentAssignmentToTask(task, studentData.id, comment.studentUsername);
+                  
+                  if (!estudianteAsignadoATarea) {
+                    console.log(`🚫 [loadStudentSubmissions] Comentario de ${comment.studentUsername} filtrado - NO asignado a tarea "${task.title}"`);
+                  } else {
+                    console.log(`✅ [loadStudentSubmissions] Comentario de ${comment.studentUsername} permitido - SÍ asignado a tarea "${task.title}"`);
+                  }
+                } else {
+                  console.log(`⚠️ [loadStudentSubmissions] Datos de estudiante ${comment.studentUsername} no encontrados`);
+                }
+              }
+            } else {
+              estudianteAsignadoATarea = true; // Si no es para verificar, permitir por defecto
+            }
+            
             console.log(`[loadStudentSubmissions] Analyzing comment from ${comment.studentUsername}:`, {
               taskId: comment.taskId,
               isSubmission: comment.isSubmission,
@@ -899,6 +1147,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
               isFromTeacher: esDelProfesor,
               wasRead: fueLeido,
               alreadyInNotifications: yaEstaEnNotificaciones,
+              studentAssignedToTask: estudianteAsignadoATarea,
               hasAttachments: comment.attachments && comment.attachments.length > 0,
               commentLength: comment.comment?.length || 0,
               text: comment.comment?.substring(0, 50) + '...'
@@ -908,16 +1157,16 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
             // Las entregas deben aparecer solo en la sección de entregas pendientes
             const esComentario = !comment.isSubmission;
             
-            // ✅ NUEVA CONDICIÓN: No incluir si ya está en notificaciones para evitar duplicados
-            const shouldInclude = esComentario && esParaProfesor && !esDelProfesor && !fueLeido && !yaEstaEnNotificaciones;
+            // ✅ NUEVA CONDICIÓN: Incluir TODOS los filtros de seguridad
+            const shouldInclude = esComentario && esParaProfesor && !esDelProfesor && !fueLeido && !yaEstaEnNotificaciones && estudianteAsignadoATarea && profesorAutorizadoParaTareaEspecifica;
             
             if (shouldInclude) {
               console.log(`✅ [loadStudentSubmissions] Including comment from ${comment.studentUsername} in notifications`);
             } else {
-              console.log(`❌ [loadStudentSubmissions] Excluding comment from ${comment.studentUsername}: esComentario=${esComentario}, esParaProfesor=${esParaProfesor}, esDelProfesor=${esDelProfesor}, fueLeido=${fueLeido}, yaEstaEnNotificaciones=${yaEstaEnNotificaciones}`);
+              console.log(`❌ [loadStudentSubmissions] Excluding comment from ${comment.studentUsername}: esComentario=${esComentario}, esParaProfesor=${esParaProfesor}, esDelProfesor=${esDelProfesor}, fueLeido=${fueLeido}, yaEstaEnNotificaciones=${yaEstaEnNotificaciones}, estudianteAsignado=${estudianteAsignadoATarea}, profesorAutorizado=${profesorAutorizadoParaTareaEspecifica}`);
             }
             
-            // Incluir comentarios que no son del profesor, no han sido leídos, son para tareas de este profesor, y no están duplicados en notificaciones
+            // Incluir comentarios que no son del profesor, no han sido leídos, son para tareas de este profesor, no están duplicados en notificaciones, Y el estudiante está asignado a la tarea
             return shouldInclude;
           })
           .map(comment => {
@@ -1082,10 +1331,29 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
       
       // ✅ MEJORADO: Lógica unificada de filtrado para notificaciones
       if (user.role === 'student') {
-        // Para estudiantes, filtrar CUALQUIER tarea que ya esté calificada
+        // Para estudiantes, filtrar CUALQUIER tarea que ya esté calificada Y verificar asignaciones específicas
         const filteredNotifications = notifications.filter(n => {
           // ✅ MEJORA: Unificar la lógica de filtrado para CUALQUIER tarea nueva
           if (n.type === 'new_task') {
+            // 🎯 FILTRO CRÍTICO: Verificar asignación específica de tareas para estudiantes
+            if (n.taskId) {
+              const tasks = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
+              const task = tasks.find((t: any) => t.id === n.taskId);
+              
+              if (task && task.assignedTo === 'student' && task.assignedStudentIds) {
+                // Es una tarea asignada a estudiantes específicos
+                const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+                const currentUser = users.find((u: any) => u.username === user.username);
+                
+                if (currentUser && !task.assignedStudentIds.includes(currentUser.id)) {
+                  console.log(`🚫 [loadTaskNotifications] Filtrando notificación de tarea específica "${n.taskTitle}" para ${user.username} - No asignado`);
+                  return false; // El estudiante NO está asignado a esta tarea específica
+                }
+                
+                console.log(`✅ [loadTaskNotifications] Notificación de tarea específica "${n.taskTitle}" válida para ${user.username} - Sí asignado`);
+              }
+            }
+            
             const isGraded = isTaskAlreadyGraded(n.taskId, user.username);
             
             if (isGraded) {

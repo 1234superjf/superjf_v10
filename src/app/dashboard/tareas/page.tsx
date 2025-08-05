@@ -1546,6 +1546,88 @@
       return undefined;
     };
 
+    // 🔧 FUNCIÓN MEJORADA: Verificar si un estudiante está asignado a una tarea específica
+    // Incluye verificaciones de curso, sección y estudiante
+    const isStudentAssignedToTask = (taskId: string, studentId: string, studentUsername: string): boolean => {
+      const task = tasks.find(t => t.id === taskId);
+      
+      if (!task) {
+        console.log(`❌ [isStudentAssignedToTask] Tarea no encontrada: ${taskId}`);
+        return false;
+      }
+      
+      console.log(`🔍 [isStudentAssignedToTask] Verificando acceso para estudiante ${studentUsername} (ID: ${studentId}) a tarea "${task.title}"`);
+      console.log(`📋 [isStudentAssignedToTask] Tarea asignada a: ${task.assignedTo}, curso: ${task.course || task.courseSectionId}`);
+      
+      // Si la tarea está asignada a estudiantes específicos
+      if (task.assignedTo === 'student' && task.assignedStudentIds) {
+        const isDirectlyAssigned = task.assignedStudentIds.includes(studentId);
+        console.log(`🎯 [isStudentAssignedToTask] Estudiante ${studentUsername} directamente asignado: ${isDirectlyAssigned ? '✅' : '❌'}`);
+        return isDirectlyAssigned;
+      }
+      
+      // Si la tarea está asignada a todo el curso
+      if (task.assignedTo === 'course') {
+        // Verificar que el estudiante pertenezca al mismo curso y sección de la tarea
+        const taskCourseId = task.courseSectionId || task.course;
+        
+        if (!taskCourseId) {
+          console.log(`⚠️ [isStudentAssignedToTask] Tarea sin courseId definido`);
+          return false;
+        }
+        
+        // Obtener información del estudiante actual
+        const usersText = localStorage.getItem('smart-student-users');
+        const allUsers: ExtendedUser[] = usersText ? JSON.parse(usersText) : [];
+        const studentData = allUsers.find(u => u.id === studentId || u.username === studentUsername);
+        
+        if (!studentData) {
+          console.log(`❌ [isStudentAssignedToTask] Datos del estudiante no encontrados: ${studentUsername}`);
+          return false;
+        }
+        
+        // Verificar usando el sistema de asignaciones dinámicas
+        const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+        
+        // Extraer courseId y sectionId de la tarea
+        const availableCourses = getAvailableCoursesWithNames();
+        const taskCourseData = availableCourses.find(c => c.id === taskCourseId);
+        
+        if (taskCourseData) {
+          const { sectionId, courseId: actualCourseId } = taskCourseData;
+          
+          // Verificar si el estudiante está asignado al mismo curso Y sección
+          const isAssignedToTaskSection = studentAssignments.some(assignment => 
+            assignment.studentId === studentId && 
+            assignment.sectionId === sectionId && 
+            assignment.courseId === actualCourseId
+          );
+          
+          console.log(`🏫 [isStudentAssignedToTask] Verificando curso ${actualCourseId} sección ${sectionId}`);
+          console.log(`📊 [isStudentAssignedToTask] Estudiante ${studentUsername} asignado a esta sección: ${isAssignedToTaskSection ? '✅' : '❌'}`);
+          
+          if (isAssignedToTaskSection) {
+            return true;
+          }
+        }
+        
+        // Fallback: verificar por activeCourses (sistema legacy)
+        const isInActiveCourses = studentData.activeCourses?.includes(taskCourseId) || false;
+        console.log(`🔄 [isStudentAssignedToTask] Fallback activeCourses para ${studentUsername}: ${isInActiveCourses ? '✅' : '❌'}`);
+        
+        return isInActiveCourses;
+      }
+      
+      // Compatibilidad con versiones anteriores
+      if (task.assignedStudents && task.assignedStudents.includes(studentUsername)) {
+        console.log(`🔄 [isStudentAssignedToTask] Fallback assignedStudents para ${studentUsername}: ✅`);
+        return true;
+      }
+      
+      console.log(`❌ [isStudentAssignedToTask] Estudiante ${studentUsername} no tiene acceso a la tarea "${task.title}"`);
+      return false;
+    };
+
     // Función para obtener el resultado de una evaluación de un estudiante
     const getStudentEvaluationResult = (taskId: string, studentId: string) => { // Changed studentUsername to studentId
       // En un entorno real, esta información vendría de una tabla específica en la base de datos
@@ -4885,13 +4967,21 @@
                       .filter(comment => {
                         // PROFESOR: solo comentarios (no entregas)
                         if (user?.role === 'teacher') return !comment.isSubmission;
-                        // ESTUDIANTE: solo su entrega y todos los comentarios
+                        
+                        // ESTUDIANTE: aplicar filtros de privacidad
                         if (user?.role === 'student') {
+                          // Para entregas: solo mostrar la propia
                           if (comment.isSubmission) {
                             return comment.studentId === user.id;
                           }
-                          return true;
+                          
+                          // Para comentarios: verificar si el estudiante está asignado a la tarea
+                          const isAssigned = isStudentAssignedToTask(comment.taskId, user.id, user.username);
+                          
+                          // Solo mostrar comentarios si el estudiante está asignado a la tarea
+                          return isAssigned;
                         }
+                        
                         // Otros roles: solo comentarios
                         return !comment.isSubmission;
                       })
