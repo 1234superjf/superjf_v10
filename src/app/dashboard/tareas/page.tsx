@@ -1644,20 +1644,28 @@
       if (user?.role === 'teacher') {
         // Los profesores ven solo las tareas que crearon
         let filtered = tasks.filter(task => task.assignedById === user.id);
+        
         if (selectedCourseFilter !== 'all') {
           filtered = filtered.filter(task => {
-            // Obtener los cursos disponibles para comparar correctamente
-            const availableCourses = getAvailableCoursesWithNames();
-            const selectedCourse = availableCourses.find(course => course.id === selectedCourseFilter);
+            console.log(`🔍 [FILTRADO DEBUG] Verificando tarea "${task.title}"`);
+            console.log(`📋 task.course: "${task.course}", task.courseSectionId: "${task.courseSectionId}"`);
+            console.log(`🎯 selectedCourseFilter: "${selectedCourseFilter}"`);
             
-            if (selectedCourse && selectedCourse.courseId) {
-              // Si el filtro es un ID combinado (courseId-sectionId), comparar con el courseId original
-              return task.course === selectedCourse.courseId;
+            // LÓGICA CORREGIDA: Si el filtro seleccionado contiene un guión, es un ID combinado curso-sección
+            if (selectedCourseFilter.includes('-')) {
+              // Es un ID combinado (courseId-sectionId), comparar exactamente con courseSectionId
+              const match = task.courseSectionId === selectedCourseFilter;
+              console.log(`✅ Comparación ID combinado: ${match ? 'COINCIDE' : 'NO COINCIDE'}`);
+              return match;
             } else {
-              // Si es un courseId simple, comparar directamente
-              return task.course === selectedCourseFilter;
+              // Es un courseId simple (fallback), comparar con course
+              const match = task.course === selectedCourseFilter;
+              console.log(`✅ Comparación courseId simple: ${match ? 'COINCIDE' : 'NO COINCIDE'}`);
+              return match;
             }
           });
+          
+          console.log(`🎯 [RESULTADO FILTRADO] De ${tasks.filter(task => task.assignedById === user.id).length} tareas del profesor, ${filtered.length} coinciden con el filtro "${selectedCourseFilter}"`);
         }
 
         // Verificar estado de evaluaciones pendientes para actualizar automáticamente
@@ -1686,29 +1694,96 @@
       return [];
     };
 
-    // Group tasks by course for teacher view
-    const getTasksByCourse = () => {
+    // Group tasks by course and section for teacher view
+    const getTasksByCourseAndSection = () => {
       const filtered = getFilteredTasks();
-      const grouped: { [course: string]: Task[] } = {};
+      const grouped: { [courseSection: string]: Task[] } = {};
       
       filtered.forEach(task => {
-        if (!grouped[task.course]) {
-          grouped[task.course] = [];
+        // Usar courseSectionId si existe, sino usar course como fallback
+        const courseKey = task.courseSectionId || task.course;
+        if (!grouped[courseKey]) {
+          grouped[courseKey] = [];
         }
-        grouped[task.course].push(task);
+        grouped[courseKey].push(task);
       });
+      
+      // Si hay un filtro activo que no sea 'all', solo mostrar esa sección específica
+      if (selectedCourseFilter !== 'all') {
+        const filteredGrouped: { [courseSection: string]: Task[] } = {};
+        Object.keys(grouped).forEach(courseSection => {
+          // Verificar si esta sección coincide con el filtro
+          if (courseSection === selectedCourseFilter || 
+              grouped[courseSection].some(task => 
+                task.courseSectionId === selectedCourseFilter || 
+                task.course === selectedCourseFilter
+              )) {
+            filteredGrouped[courseSection] = grouped[courseSection];
+          }
+        });
+        
+        return filteredGrouped;
+      }
       
       return grouped;
     };
 
-    // Get course statistics for teacher
+    // Order courses from 1ro Básico to 4to Medio
+    const sortCoursesByAcademicLevel = (courseKeys: string[]) => {
+      const courseOrder = [
+        // Básica
+        '1ro Básico', '1er Básico', 'Primero Básico',
+        '2do Básico', '2°Básico', 'Segundo Básico', 
+        '3ro Básico', '3er Básico', 'Tercero Básico',
+        '4to Básico', '4° Básico', 'Cuarto Básico',
+        '5to Básico', '5° Básico', 'Quinto Básico',
+        '6to Básico', '6° Básico', 'Sexto Básico',
+        '7mo Básico', '7° Básico', 'Séptimo Básico',
+        '8vo Básico', '8° Básico', 'Octavo Básico',
+        // Media
+        '1ro Medio', '1er Medio', 'Primero Medio', 'I Medio',
+        '2do Medio', '2° Medio', 'Segundo Medio', 'II Medio',
+        '3ro Medio', '3er Medio', 'Tercero Medio', 'III Medio',
+        '4to Medio', '4° Medio', 'Cuarto Medio', 'IV Medio'
+      ];
+
+      return courseKeys.sort((a, b) => {
+        // Obtener el nombre del curso (sin sección) para comparar
+        const courseNameA = getCourseAndSectionName(a).split(/\s+(?:Sección|Section)\s+/i)[0].trim();
+        const courseNameB = getCourseAndSectionName(b).split(/\s+(?:Sección|Section)\s+/i)[0].trim();
+        
+        let indexA = courseOrder.findIndex(course => 
+          courseNameA.toLowerCase().includes(course.toLowerCase()) || 
+          course.toLowerCase().includes(courseNameA.toLowerCase())
+        );
+        let indexB = courseOrder.findIndex(course => 
+          courseNameB.toLowerCase().includes(course.toLowerCase()) || 
+          course.toLowerCase().includes(courseNameB.toLowerCase())
+        );
+        
+        // Si no se encuentra el curso en el orden, ponerlo al final
+        if (indexA === -1) indexA = courseOrder.length;
+        if (indexB === -1) indexB = courseOrder.length;
+        
+        // Si los cursos son del mismo nivel, ordenar por sección (A, B, C, etc.)
+        if (indexA === indexB) {
+          const sectionA = getCourseAndSectionName(a).split(/\s+(?:Sección|Section)\s+/i)[1]?.trim() || '';
+          const sectionB = getCourseAndSectionName(b).split(/\s+(?:Sección|Section)\s+/i)[1]?.trim() || '';
+          return sectionA.localeCompare(sectionB);
+        }
+        
+        return indexA - indexB;
+      });
+    };
+
+    // Get course statistics for teacher (updated for course + section)
     const getCourseStats = () => {
-      const tasksByCourse = getTasksByCourse();
-      const stats: { [course: string]: { total: number; pending: number; submitted: number; reviewed: number } } = {};
+      const tasksByCourseAndSection = getTasksByCourseAndSection();
+      const stats: { [courseSection: string]: { total: number; pending: number; submitted: number; reviewed: number } } = {};
       
-      Object.keys(tasksByCourse).forEach(course => {
-        const courseTasks = tasksByCourse[course];
-        stats[course] = {
+      Object.keys(tasksByCourseAndSection).forEach(courseSection => {
+        const courseTasks = tasksByCourseAndSection[courseSection];
+        stats[courseSection] = {
           total: courseTasks.length,
           pending: 0,
           submitted: 0,
@@ -1733,15 +1808,15 @@
           
           if (allSubmitted) {
             if (task.status === 'reviewed') {
-              stats[course].reviewed++;
+              stats[courseSection].reviewed++;
             } else {
-              stats[course].submitted++;
+              stats[courseSection].submitted++;
             }
           } else if (someSubmitted) {
             // Si hay entregas parciales, sigue siendo pendiente
-            stats[course].pending++;
+            stats[courseSection].pending++;
           } else {
-            stats[course].pending++;
+            stats[courseSection].pending++;
           }
         });
       });
@@ -3538,17 +3613,49 @@
                 </div>
 
                 {/* Course Filter */}
-                <Select value={selectedCourseFilter} onValueChange={setSelectedCourseFilter}>
-                  <SelectTrigger className="w-48 select-orange-hover-trigger">
-                    <SelectValue placeholder={translate('filterByCourse')} />
-                  </SelectTrigger>
-                  <SelectContent className="select-orange-hover">
-                    <SelectItem value="all" className="hover:bg-orange-100 hover:text-orange-700 individual-option select-item-spaced">{translate('allCourses')}</SelectItem>
-                    {getAvailableCoursesWithNames().map(course => (
-                      <SelectItem key={`main-header-course-filter-${course.id}`} value={course.id} className="hover:bg-orange-100 hover:text-orange-700 individual-option select-item-spaced">{course.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <Select value={selectedCourseFilter} onValueChange={setSelectedCourseFilter}>
+                    <SelectTrigger className={`w-48 select-orange-hover-trigger ${
+                      selectedCourseFilter !== 'all' ? 'border-orange-500 bg-orange-50 text-orange-700' : ''
+                    }`}>
+                      <SelectValue placeholder={translate('filterByCourse')} />
+                    </SelectTrigger>
+                    <SelectContent className="select-orange-hover">
+                      <SelectItem value="all" className="hover:bg-orange-100 hover:text-orange-700 individual-option select-item-spaced">
+                        {translate('allCourses')}
+                      </SelectItem>
+                      {getAvailableCoursesWithNames().map(course => (
+                        <SelectItem 
+                          key={`main-header-course-filter-${course.id}`} 
+                          value={course.id} 
+                          className="hover:bg-orange-100 hover:text-orange-700 individual-option select-item-spaced"
+                        >
+                          {course.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  
+                  {/* Indicador de filtro activo */}
+                  {selectedCourseFilter !== 'all' && (
+                    <div className="absolute -top-2 -right-2">
+                      <div className="w-3 h-3 bg-orange-500 rounded-full border border-white"></div>
+                    </div>
+                  )}
+                  
+                  {/* Botón para limpiar filtro */}
+                  {selectedCourseFilter !== 'all' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedCourseFilter('all')}
+                      className="absolute -right-8 top-0 h-10 w-6 p-0 hover:bg-orange-100 text-orange-600"
+                      title="Limpiar filtro"
+                    >
+                      ×
+                    </Button>
+                  )}
+                </div>
 
                 <Button 
                   onClick={() => {
@@ -3593,36 +3700,66 @@
         <div className="space-y-6">
           {user?.role === 'teacher' && viewMode === 'course' ? (
             /* Course View for Teachers */
-            Object.keys(getTasksByCourse()).length === 0 ? (
-              <Card>
-                <CardContent className="pt-6 text-center">
-                  <ClipboardList className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">
-                    {translate('tasksEmptyTeacher')}
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              Object.entries(getTasksByCourse()).map(([course, courseTasks]) => {
-                const stats = getCourseStats()[course];
-                return (
-                  <Card key={course} className="card-orange-shadow border-l-4 border-l-indigo-500">
-                    <CardHeader>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <CardTitle className="text-xl flex items-center">
-                            <Users className="w-5 h-5 mr-2" />
-                            {getCourseNameById(course)}
-                          </CardTitle>
-                          <div className="flex items-center space-x-4 mt-2">
-                            <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800">
-                              {translate('totalTasks')}: {stats.total}
-                            </Badge>
-                            <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800">
-                              {translate('statusSubmitted')}: {stats.submitted}
-                            </Badge>
-                            <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800">
-                              {translate('statusPending')}: {stats.pending}
+            <>
+              {/* Mensaje informativo cuando hay filtro activo */}
+              {selectedCourseFilter !== 'all' && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex items-center space-x-3">
+                  <div className="flex-shrink-0">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-orange-800">
+                      <strong>Filtro activo:</strong> Mostrando solo tareas de {
+                        getAvailableCoursesWithNames().find(c => c.id === selectedCourseFilter)?.name || selectedCourseFilter
+                      }
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedCourseFilter('all')}
+                    className="text-orange-600 hover:text-orange-700 hover:bg-orange-100"
+                  >
+                    Mostrar todo
+                  </Button>
+                </div>
+              )}
+              
+              {Object.keys(getTasksByCourseAndSection()).length === 0 ? (
+                <Card>
+                  <CardContent className="pt-6 text-center">
+                    <ClipboardList className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">
+                      {selectedCourseFilter !== 'all' 
+                        ? `No hay tareas para ${getAvailableCoursesWithNames().find(c => c.id === selectedCourseFilter)?.name || 'el filtro seleccionado'}`
+                        : translate('tasksEmptyTeacher')
+                      }
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                // Aplicar ordenamiento académico a las entradas
+                sortCoursesByAcademicLevel(Object.keys(getTasksByCourseAndSection())).map((courseSection) => {
+                  const courseTasks = getTasksByCourseAndSection()[courseSection];
+                  const stats = getCourseStats()[courseSection];
+                  return (
+                    <Card key={courseSection} className="card-orange-shadow border-l-4 border-l-indigo-500">
+                      <CardHeader>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <CardTitle className="text-xl flex items-center">
+                              <Users className="w-5 h-5 mr-2" />
+                              {getCourseAndSectionName(courseSection)}
+                            </CardTitle>
+                            <div className="flex items-center space-x-4 mt-2">
+                              <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800">
+                                {translate('totalTasks')}: {stats.total}
+                              </Badge>
+                              <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800">
+                                {translate('statusSubmitted')}: {stats.submitted}
+                              </Badge>
+                              <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800">
+                                {translate('statusPending')}: {stats.pending}
                             </Badge>
                           </div>
                         </div>
@@ -3705,19 +3842,46 @@
                   </Card>
                 );
               })
-            )
+              )}
+            </>
           ) : (
             /* List View (for both teachers and students) */
-            <div className="grid gap-4">
-              {filteredTasks.length === 0 ? (
+            <>
+              {/* Mensaje informativo cuando hay filtro activo - Solo para profesores */}
+              {user?.role === 'teacher' && selectedCourseFilter !== 'all' && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex items-center space-x-3">
+                  <div className="flex-shrink-0">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-orange-800">
+                      <strong>Filtro activo:</strong> Mostrando solo tareas de {
+                        getAvailableCoursesWithNames().find(c => c.id === selectedCourseFilter)?.name || selectedCourseFilter
+                      }
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedCourseFilter('all')}
+                    className="text-orange-600 hover:text-orange-700 hover:bg-orange-100"
+                  >
+                    Mostrar todo
+                  </Button>
+                </div>
+              )}
+              
+              <div className="grid gap-4">
+                {filteredTasks.length === 0 ? (
                 <Card>
                   <CardContent className="pt-6 text-center">
                     <ClipboardList className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                     <p className="text-muted-foreground">
-                      {user?.role === 'teacher' 
-                        ? translate('tasksEmptyTeacher')
-                        : translate('tasksEmptyStudent')
-                      }
+                      {user?.role === 'teacher' ? (
+                        selectedCourseFilter !== 'all' 
+                          ? `No hay tareas para ${getAvailableCoursesWithNames().find(c => c.id === selectedCourseFilter)?.name || 'el filtro seleccionado'}`
+                          : translate('tasksEmptyTeacher')
+                      ) : translate('tasksEmptyStudent')}
                     </p>
                   </CardContent>
                 </Card>
@@ -3736,6 +3900,9 @@
                           <CardTitle className="text-lg">{task.title}</CardTitle>
                           <div className="flex items-center space-x-2 mt-2">
                             <Badge variant="outline">{task.subject}</Badge>
+                            <Badge variant="outline" className="bg-indigo-100 text-indigo-800 border-indigo-200">
+                              {getCourseAndSectionName(task.courseSectionId || task.course)}
+                            </Badge>
                             <Badge variant="outline" className={getTaskTypeColor(task.taskType || 'tarea')}>
                               {task.taskType === 'evaluacion' ? translate('evaluation') : translate('task')}
                             </Badge>
@@ -3896,7 +4063,8 @@
                   );
                 })
               )}
-            </div>
+              </div>
+            </>
           )}
         </div>
 
