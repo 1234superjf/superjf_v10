@@ -49,11 +49,42 @@ export class TaskNotificationManager {
     console.log('TaskId:', taskId);
     console.log('Course:', course);
     
-    const studentsInCourse = this.getStudentsInCourse(course);
-    console.log('Students found in course:', studentsInCourse);
+    // 🔧 CORRECCIÓN: Obtener la tarea para verificar asignaciones específicas
+    const tasks = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
+    const currentTask = tasks.find((task: any) => task.id === taskId);
     
-    if (studentsInCourse.length === 0) {
-      console.log('No students found in course, skipping notification creation');
+    let targetStudents: Array<{username: string, displayName: string}> = [];
+    
+    if (currentTask && currentTask.assignedTo === 'student' && currentTask.assignedStudentIds) {
+      // 🎯 Tarea asignada a estudiantes específicos
+      console.log('📋 Tarea asignada a estudiantes específicos:', currentTask.assignedStudentIds);
+      
+      // Obtener datos de usuarios para convertir IDs a usernames
+      const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      
+      targetStudents = currentTask.assignedStudentIds
+        .map((studentId: string) => {
+          const user = users.find((u: any) => u.id === studentId);
+          if (user && user.role === 'student') {
+            return {
+              username: user.username,
+              displayName: user.displayName || user.username
+            };
+          }
+          return null;
+        })
+        .filter((student: any) => student !== null);
+      
+      console.log('🎯 Estudiantes específicos encontrados:', targetStudents);
+    } else {
+      // 📚 Tarea asignada a todo el curso
+      console.log('📚 Tarea asignada a todo el curso');
+      targetStudents = this.getStudentsInCourse(course);
+      console.log('Students found in course:', targetStudents);
+    }
+    
+    if (targetStudents.length === 0) {
+      console.log('No target students found, skipping notification creation');
       return;
     }
 
@@ -66,7 +97,7 @@ export class TaskNotificationManager {
       taskId,
       taskTitle,
       targetUserRole: 'student',
-      targetUsernames: studentsInCourse.map(student => student.username),
+      targetUsernames: targetStudents.map(student => student.username),
       fromUsername: teacherUsername,
       fromDisplayName: teacherDisplayName,
       teacherName: teacherDisplayName,
@@ -80,6 +111,7 @@ export class TaskNotificationManager {
 
     notifications.push(newNotification);
     console.log('New notification created:', newNotification);
+    console.log('Target usernames:', newNotification.targetUsernames);
     console.log('Total notifications after creation:', notifications.length);
     
     this.saveNotifications(notifications);
