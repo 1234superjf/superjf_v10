@@ -164,13 +164,76 @@ export class TaskNotificationManager {
 
   // Función helper para obtener nombre del curso
   static getCourseNameById(courseId: string): string {
-    const coursesText = localStorage.getItem('smart-student-courses');
-    if (coursesText) {
+    try {
+      const coursesText = localStorage.getItem('smart-student-courses');
+      const sectionsText = localStorage.getItem('smart-student-sections');
+      
+      if (!coursesText) {
+        console.warn('[getCourseNameById] No courses found in localStorage');
+        return courseId;
+      }
+      
       const courses = JSON.parse(coursesText);
+      const sections = sectionsText ? JSON.parse(sectionsText) : [];
+      
+      // 🔧 CORRECCIÓN: Manejar IDs compuestos (curso-seccion)
+      if (courseId && courseId.includes('-')) {
+        const parts = courseId.split('-');
+        if (parts.length >= 10) { // Dos UUIDs completos
+          // Reconstruir los UUIDs correctos
+          const cursoId = parts.slice(0, 5).join('-'); // Primer UUID completo
+          const seccionId = parts.slice(5, 10).join('-'); // Segundo UUID completo
+          
+          console.log(`[getCourseNameById] Parsing compound ID: ${courseId}`);
+          console.log(`[getCourseNameById] Curso ID: ${cursoId}`);
+          console.log(`[getCourseNameById] Sección ID: ${seccionId}`);
+          
+          // Buscar curso y sección
+          const curso = courses.find((c: any) => c.id === cursoId);
+          const seccion = sections.find((s: any) => s.id === seccionId);
+          
+          if (curso && seccion) {
+            const displayName = `${curso.name} ${seccion.name}`;
+            console.log(`[getCourseNameById] Found compound: ${displayName}`);
+            return displayName;
+          }
+          
+          if (curso) {
+            console.log(`[getCourseNameById] Found curso only from compound: ${curso.name}`);
+            return curso.name;
+          }
+          
+          console.warn(`[getCourseNameById] Curso/Sección not found for IDs: ${cursoId}/${seccionId}`);
+        }
+      }
+      
+      // 🔧 Buscar curso directamente si no es ID compuesto
       const course = courses.find((c: any) => c.id === courseId);
-      return course ? course.name : courseId;
+      if (course) {
+        // 🆕 MEJORA: Buscar sección relacionada para el curso encontrado
+        const relatedSection = sections.find((s: any) => 
+          s.courseId === courseId || 
+          s.course === courseId ||
+          s.relatedCourse === courseId
+        );
+        
+        if (relatedSection) {
+          const displayName = `${course.name} ${relatedSection.name}`;
+          console.log(`[getCourseNameById] Found course + related section: ${displayName}`);
+          return displayName;
+        }
+        
+        console.log(`[getCourseNameById] Found direct course: ${course.name}`);
+        return course.name;
+      }
+      
+      console.warn(`[getCourseNameById] Course not found for ID: ${courseId}`);
+      return 'Curso no encontrado';
+      
+    } catch (error) {
+      console.error('[getCourseNameById] Error:', error);
+      return courseId;
     }
-    return courseId;
   }
 
   // Crear notificación cuando un profesor comenta en una tarea
@@ -183,9 +246,26 @@ export class TaskNotificationManager {
     teacherDisplayName: string,
     commentText: string
   ): void {
+    console.log(`🔔 [createTeacherCommentNotifications] Iniciando para tarea "${taskTitle}" en curso "${course}"`);
+    
+    // 🚨 VALIDACIÓN CRÍTICA: Verificar que el courseId es válido para notificaciones precisas
+    const courseData = this.getCourseDataFromCombinedId(course);
+    if (!courseData) {
+      console.error(`❌ [createTeacherCommentNotifications] No se puede crear notificación - courseId inválido: "${course}"`);
+      console.error(`❌ [createTeacherCommentNotifications] Las notificaciones requieren IDs de curso válidos con sección específica`);
+      return;
+    }
+    
+    console.log(`✅ [createTeacherCommentNotifications] Curso válido - CourseId: ${courseData.courseId}, SectionId: ${courseData.sectionId}`);
+    
     const studentsInCourse = this.getStudentsInCourse(course);
     
-    if (studentsInCourse.length === 0) return;
+    if (studentsInCourse.length === 0) {
+      console.warn(`⚠️ [createTeacherCommentNotifications] No se encontraron estudiantes en el curso "${course}"`);
+      return;
+    }
+
+    console.log(`📊 [createTeacherCommentNotifications] Estudiantes encontrados en curso: ${studentsInCourse.length}`);
 
     // ✅ CORRECCIÓN REFORZADA: Filtrar solo estudiantes y excluir profesores
     const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
@@ -193,7 +273,10 @@ export class TaskNotificationManager {
       .map(student => student.username)
       .filter(username => {
         // Excluir al profesor que hace el comentario
-        if (username === teacherUsername) return false;
+        if (username === teacherUsername) {
+          console.log(`[createTeacherCommentNotifications] ⚠️ Excluyendo profesor que comenta: ${username}`);
+          return false;
+        }
         
         // 🔥 NUEVA VALIDACIÓN: Verificar que el destinatario sea realmente un estudiante
         const targetUser = users.find((u: any) => u.username === username);
@@ -241,7 +324,8 @@ export class TaskNotificationManager {
       id: newNotification.id,
       fromUsername: newNotification.fromUsername,
       targetUsernames: newNotification.targetUsernames,
-      taskTitle: newNotification.taskTitle
+      taskTitle: newNotification.taskTitle,
+      course: newNotification.course
     });
 
     notifications.push(newNotification);
@@ -811,36 +895,47 @@ export class TaskNotificationManager {
     const parts = combinedId.split('-');
     console.log(`[getCourseDataFromCombinedId] Split parts: ${parts.length}`, parts);
     
-    if (parts.length === 5) {
-      // ID simple (solo courseId) - necesitamos encontrar la sección por defecto
-      console.log(`[getCourseDataFromCombinedId] ID simple detectado: "${combinedId}"`);
-      console.warn(`[getCourseDataFromCombinedId] ⚠️ ID simple recibido, pero se necesita ID combinado para notificaciones precisas`);
-      
-      // Para mantener compatibilidad, intentar encontrar una sección por defecto
-      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
-      const assignmentsForCourse = studentAssignments.filter((assignment: any) => assignment.courseId === combinedId);
-      
-      if (assignmentsForCourse.length > 0) {
-        // Usar la primera sección encontrada como fallback
-        const sectionId = assignmentsForCourse[0].sectionId;
-        console.log(`[getCourseDataFromCombinedId] Fallback - Usando primera sección encontrada: "${sectionId}"`);
-        return { courseId: combinedId, sectionId };
-      } else {
-        console.error(`[getCourseDataFromCombinedId] ❌ No se encontraron asignaciones para courseId simple: "${combinedId}"`);
-        return null;
-      }
-    } else if (parts.length === 10) {
-      // ID combinado (courseId-sectionId) - formato correcto
+    if (parts.length >= 10) {
+      // ID combinado (courseId-sectionId) - formato correcto y preferido
       const courseId = parts.slice(0, 5).join('-');
       const sectionId = parts.slice(5, 10).join('-');
       
-      console.log(`[getCourseDataFromCombinedId] ID combinado detectado`);
+      console.log(`[getCourseDataFromCombinedId] ✅ ID combinado detectado`);
       console.log(`   -> courseId: "${courseId}"`);
       console.log(`   -> sectionId: "${sectionId}"`);
       
       return { courseId, sectionId };
+    } else if (parts.length === 5) {
+      // ID simple (solo courseId) - PROBLEMA POTENCIAL
+      console.log(`[getCourseDataFromCombinedId] ⚠️ ID simple detectado: "${combinedId}"`);
+      console.warn(`[getCourseDataFromCombinedId] ⚠️ ID simple puede causar notificaciones incorrectas`);
+      
+      // 🚨 NUEVA VALIDACIÓN: Solo proceder si hay UNA ÚNICA sección para este curso
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const assignmentsForCourse = studentAssignments.filter((assignment: any) => assignment.courseId === combinedId);
+      
+      if (assignmentsForCourse.length === 0) {
+        console.error(`[getCourseDataFromCombinedId] ❌ No se encontraron asignaciones para courseId: "${combinedId}"`);
+        return null;
+      }
+      
+      // Verificar si todas las asignaciones son para la MISMA sección
+      const uniqueSections = [...new Set(assignmentsForCourse.map((assignment: any) => assignment.sectionId))];
+      
+      if (uniqueSections.length === 1) {
+        // ✅ Solo hay una sección para este curso, es seguro proceder
+        const sectionId = uniqueSections[0] as string;
+        console.log(`[getCourseDataFromCombinedId] ✅ Solo una sección encontrada: "${sectionId}"`);
+        return { courseId: combinedId, sectionId };
+      } else {
+        // ❌ Múltiples secciones - no podemos determinar cuál usar
+        console.error(`[getCourseDataFromCombinedId] ❌ Múltiples secciones para curso "${combinedId}": ${uniqueSections.length}`);
+        console.error(`[getCourseDataFromCombinedId] Secciones: ${uniqueSections.join(', ')}`);
+        console.error(`[getCourseDataFromCombinedId] No se puede crear notificación sin sección específica`);
+        return null;
+      }
     } else {
-      console.error(`[getCourseDataFromCombinedId] ❌ Formato de ID inesperado. Partes: ${parts.length}, esperado 5 o 10`);
+      console.error(`[getCourseDataFromCombinedId] ❌ Formato de ID inesperado. Partes: ${parts.length}, esperado 5 o 10+`);
       console.log(`[getCourseDataFromCombinedId] ID recibido: "${combinedId}"`);
       return null;
     }

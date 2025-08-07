@@ -16,6 +16,7 @@ import Link from 'next/link';
 interface TaskComment {
   id: string;
   taskId: string;
+  studentId?: string;
   studentUsername: string;
   studentName: string;
   comment: string;
@@ -24,6 +25,9 @@ interface TaskComment {
   isNew?: boolean;
   readBy?: string[];
   attachments?: TaskFile[]; // Files attached to this comment/submission
+  authorUsername?: string; // Campo adicional para autor real
+  authorRole?: string; // Campo adicional para rol del autor
+  teacherUsername?: string; // Campo adicional para comentarios de profesores
   grade?: {
     id: string;
     percentage: number;
@@ -673,7 +677,6 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
     
     // Si la tarea está asignada a todo el curso
     if (task.assignedTo === 'course') {
-      // Verificar que el estudiante pertenezca al mismo curso y sección de la tarea
       const taskCourseId = task.courseSectionId || task.course;
       
       if (!taskCourseId) {
@@ -681,43 +684,42 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         return false;
       }
       
-      // Obtener información del estudiante actual
-      const usersText = localStorage.getItem('smart-student-users');
-      const allUsers = usersText ? JSON.parse(usersText) : [];
-      const studentData = allUsers.find((u: any) => u.id === studentId || u.username === studentUsername);
+      // Obtener datos del localStorage
+      const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const studentData = users.find((u: any) => u.id === studentId || u.username === studentUsername);
       
       if (!studentData) {
         console.log(`❌ [checkStudentAssignmentToTask] Datos del estudiante no encontrados: ${studentUsername}`);
         return false;
       }
       
-      // Verificar usando el sistema de asignaciones dinámicas
+      // 🎯 VERIFICAR ASIGNACIONES ESPECÍFICAS (copiado de page.tsx que funciona)
       const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
       
-      // Extraer courseId y sectionId de la tarea usando función helper simplificada
-      const availableCourses = getAvailableCoursesForNotifications();
-      const taskCourseData = availableCourses.find((c: any) => c.id === taskCourseId);
+      // Buscar asignación que coincida con el curso de la tarea
+      const matchingAssignment = studentAssignments.find((assignment: any) => {
+        if (assignment.studentId !== studentId) return false;
+        
+        const course = courses.find((c: any) => c.id === assignment.courseId);
+        const section = sections.find((s: any) => s.id === assignment.sectionId);
+        const compositeId = `${course?.id}-${section?.id}`;
+        
+        return compositeId === taskCourseId || assignment.courseId === taskCourseId;
+      });
       
-      if (taskCourseData) {
-        const { sectionId, courseId: actualCourseId } = taskCourseData;
-        
-        // Verificar si el estudiante está asignado al mismo curso Y sección
-        const isAssignedToTaskSection = studentAssignments.some((assignment: any) => 
-          assignment.studentId === studentId && 
-          assignment.sectionId === sectionId && 
-          assignment.courseId === actualCourseId
-        );
-        
-        console.log(`🏫 [checkStudentAssignmentToTask] Verificando curso ${actualCourseId} sección ${sectionId}`);
-        console.log(`📊 [checkStudentAssignmentToTask] Estudiante ${studentUsername} asignado a esta sección: ${isAssignedToTaskSection ? '✅' : '❌'}`);
-        
-        if (isAssignedToTaskSection) {
-          return true;
-        }
+      if (matchingAssignment) {
+        console.log(`✅ [checkStudentAssignmentToTask] Acceso por asignación específica`);
+        return true;
       }
       
       // Fallback: verificar por activeCourses (sistema legacy)
-      const isInActiveCourses = studentData.activeCourses?.includes(taskCourseId) || false;
+      const isInActiveCourses = studentData.activeCourses?.some((course: any) => 
+        course.courseId === taskCourseId.split('-')[0] && 
+        course.sectionId === taskCourseId.split('-')[1]
+      ) || studentData.activeCourses?.includes(taskCourseId) || false;
+      
       console.log(`🔄 [checkStudentAssignmentToTask] Fallback activeCourses para ${studentUsername}: ${isInActiveCourses ? '✅' : '❌'}`);
       
       return isInActiveCourses;
@@ -807,18 +809,21 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         
         // 🔧 FILTRADO DIRECTO PARA ESTUDIANTES: Solo mostrar comentarios de tareas asignadas
         const unread = comments.filter(comment => {
-          // No mostrar comentarios propios
-          if (comment.studentUsername === user?.username) {
+          // No mostrar comentarios propios (verificar tanto studentUsername como authorUsername)
+          if (comment.studentUsername === user?.username || comment.authorUsername === user?.username) {
+            console.log(`🚫 [loadUnreadComments] Comentario propio de ${user?.username} - Filtrando`);
             return false;
           }
           
           // No mostrar entregas de otros estudiantes
           if (comment.isSubmission) {
+            console.log(`🚫 [loadUnreadComments] Entrega de otro estudiante - Filtrando`);
             return false;
           }
           
           // Verificar si ya fue leído
           if (comment.readBy?.includes(user?.username || '')) {
+            console.log(`🚫 [loadUnreadComments] Comentario ya leído por ${user?.username} - Filtrando`);
             return false;
           }
           
@@ -828,6 +833,9 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
             console.log(`🚫 [loadUnreadComments] Tarea no encontrada para comentario: ${comment.taskId}`);
             return false;
           }
+          
+          console.log(`🔍 [loadUnreadComments] Procesando comentario en tarea "${task.title}" (assignedTo: ${task.assignedTo})`);
+          console.log(`📝 [loadUnreadComments] Comentario por: ${comment.authorUsername || comment.studentUsername} (${comment.authorRole || 'student'})`);
           
           // Si es una tarea asignada a estudiantes específicos
           if (task.assignedTo === 'student' && task.assignedStudentIds) {
@@ -1969,8 +1977,10 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                                     <p className="font-medium text-sm text-purple-800 dark:text-purple-200">
                                       {task.title}
                                     </p>
-                                    <Badge variant="outline" className="text-xs border-purple-200 dark:border-purple-600 text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 font-medium">
-                                      {getCourseAbbreviation(task.subject)}
+                                    <Badge variant="outline" className="text-xs border-purple-200 dark:border-purple-600 text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 font-medium flex flex-col items-center justify-center text-center leading-tight min-w-[2.5rem] h-8">
+                                      {splitTextForBadge(getCourseAbbreviation(task.subject)).map((line, idx) => (
+                                        <span key={idx} className="block">{line}</span>
+                                      ))}
                                     </Badge>
                                   </div>
                                   <p className="text-xs text-muted-foreground mt-1">
@@ -1999,8 +2009,10 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                                     <p className="font-medium text-sm text-purple-800 dark:text-purple-200">
                                       {notification.taskTitle}
                                     </p>
-                                    <Badge variant="outline" className="text-xs border-purple-200 dark:border-purple-600 text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 font-medium">
-                                      {getCourseAbbreviation(notification.subject)}
+                                    <Badge variant="outline" className="text-xs border-purple-200 dark:border-purple-600 text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 font-medium flex flex-col items-center justify-center text-center leading-tight min-w-[2.5rem] h-8">
+                                      {splitTextForBadge(getCourseAbbreviation(notification.subject)).map((line, idx) => (
+                                        <span key={idx} className="block">{line}</span>
+                                      ))}
                                     </Badge>
                                   </div>
                                   <p className="text-xs text-muted-foreground mt-1">
@@ -2042,8 +2054,10 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                                     <p className="font-medium text-sm text-orange-800 dark:text-orange-200">
                                       {task.title}
                                     </p>
-                                    <Badge variant="outline" className="text-xs border-orange-200 dark:border-orange-600 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 font-medium">
-                                      {getCourseAbbreviation(task.subject)}
+                                    <Badge variant="outline" className="text-xs border-orange-200 dark:border-orange-600 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 font-medium flex flex-col items-center justify-center text-center leading-tight min-w-[2.5rem] h-8">
+                                      {splitTextForBadge(getCourseAbbreviation(task.subject)).map((line, idx) => (
+                                        <span key={idx} className="block">{line}</span>
+                                      ))}
                                     </Badge>
                                   </div>
                                   <p className="text-xs text-muted-foreground mt-1">
@@ -2072,8 +2086,10 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                                     <p className="font-medium text-sm text-orange-800 dark:text-orange-200">
                                       {notification.taskTitle}
                                     </p>
-                                    <Badge variant="outline" className="text-xs border-orange-200 dark:border-orange-600 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 font-medium">
-                                      {getCourseAbbreviation(notification.subject)}
+                                    <Badge variant="outline" className="text-xs border-orange-200 dark:border-orange-600 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 font-medium flex flex-col items-center justify-center text-center leading-tight min-w-[2.5rem] h-8">
+                                      {splitTextForBadge(getCourseAbbreviation(notification.subject)).map((line, idx) => (
+                                        <span key={idx} className="block">{line}</span>
+                                      ))}
                                     </Badge>
                                   </div>
                                   <p className="text-xs text-muted-foreground mt-1">
@@ -2104,22 +2120,27 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                                 <div className="bg-blue-100 dark:bg-blue-800 p-2 rounded-full">
                                   <MessageSquare className="h-4 w-4 text-blue-600 dark:text-blue-300" />
                                 </div>
-                                <div className="flex-1">
+                                <div className="flex-1 min-w-0">
                                   <div className="flex items-center justify-between">
                                     <p className="font-medium text-sm">
                                       {comment.task?.title || 'Sin título'}
                                     </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {formatDate(comment.timestamp)}
-                                    </p>
+                                    <Badge variant="outline" className="text-xs border-blue-200 dark:border-blue-600 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 font-medium flex flex-col items-center justify-center text-center leading-tight min-w-[2.5rem] h-8">
+                                      {splitTextForBadge(getCourseAbbreviation(comment.task?.subject || 'CNT')).map((line, idx) => (
+                                        <span key={idx} className="block">{line}</span>
+                                      ))}
+                                    </Badge>
                                   </div>
                                   <p className="text-sm text-muted-foreground mt-1">
                                     {comment.comment}
                                   </p>
-                                  <p className="text-xs font-medium mt-1">
-                                    {comment.task?.course ? TaskNotificationManager.getCourseNameById(comment.task.course) : 'Sin curso'} • {comment.task?.subject || 'Sin materia'}
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {comment.task?.courseSectionId ? TaskNotificationManager.getCourseNameById(comment.task.courseSectionId) : 
+                                     comment.task?.course ? TaskNotificationManager.getCourseNameById(comment.task.course) : 'Sin curso'} • {formatDate(comment.timestamp)}
                                   </p>
-                                  {createSafeCommentLink(comment.taskId, comment.id, translate('viewComment'))}
+                                  <div className="mt-2">
+                                    {createSafeCommentLink(comment.taskId, comment.id, translate('viewComment'))}
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -2149,7 +2170,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                           
                           {taskNotifications.filter(n => n.type !== 'new_task').map(notification => (
                             <div key={`grade-comment-${notification.id}`} className="p-4 hover:bg-muted/50">
-                              <div className="flex items-start gap-2">
+                              <div className="flex items-start gap-3">
                                 <div className={`p-2 rounded-full ${
                                   notification.type === 'grade_received' 
                                     ? 'bg-green-100 dark:bg-green-800' 
@@ -2161,7 +2182,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                                     <MessageSquare className="h-4 w-4 text-blue-600 dark:text-blue-300" />
                                   )}
                                 </div>
-                                <div className="flex-1">
+                                <div className="flex-1 min-w-0">
                                   <div className="flex items-center justify-between">
                                     <p className="font-medium text-sm">
                                       {notification.type === 'grade_received'
@@ -2169,9 +2190,15 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                                         : translate('newTeacherComment')
                                       }
                                     </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {formatDate(notification.timestamp)}
-                                    </p>
+                                    <Badge variant="outline" className={`text-xs font-medium flex flex-col items-center justify-center text-center leading-tight min-w-[2.5rem] h-8 ${
+                                      notification.type === 'grade_received'
+                                        ? 'border-green-200 dark:border-green-600 text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30'
+                                        : 'border-blue-200 dark:border-blue-600 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30'
+                                    }`}>
+                                      {splitTextForBadge(getCourseAbbreviation(notification.subject || 'CNT')).map((line, idx) => (
+                                        <span key={idx} className="block">{line}</span>
+                                      ))}
+                                    </Badge>
                                   </div>
                                   <p className="text-sm text-muted-foreground mt-1">
                                     {notification.type === 'grade_received' && notification.grade
@@ -2179,10 +2206,12 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                                       : `Comentario del profesor en: ${notification.taskTitle}`
                                     }
                                   </p>
-                                  <p className="text-xs font-medium mt-1">
-                                    {TaskNotificationManager.getCourseNameById(notification.course)} • {notification.subject}
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {TaskNotificationManager.getCourseNameById(notification.course)} • {formatDate(notification.timestamp)}
                                   </p>
-                                  {createSafeTaskLink(notification.taskId, '', `Ver ${notification.type === 'grade_received' ? 'Calificación' : 'Comentario'}`, notification.type === 'grade_received' ? 'evaluation' : 'task')}
+                                  <div className="mt-2">
+                                    {createSafeTaskLink(notification.taskId, '', `Ver ${notification.type === 'grade_received' ? 'Calificación' : 'Comentario'}`, notification.type === 'grade_received' ? 'evaluation' : 'task')}
+                                  </div>
                                 </div>
                               </div>
                             </div>

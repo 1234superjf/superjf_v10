@@ -27,6 +27,73 @@ interface TaskComment {
   authorRole?: 'student' | 'teacher'; // 🔥 NUEVO: Rol del autor real
 }
 
+// 🎯 Función helper para verificar asignación de estudiante a tarea
+const checkStudentAssignmentToTask = (task: any, studentId: string, studentUsername: string): boolean => {
+  console.log(`🔍 [checkStudentAssignmentToTask] Verificando acceso de ${studentUsername} a "${task.title}"`);
+  
+  // Si la tarea está asignada a estudiantes específicos
+  if (task.assignedTo === 'student' && task.assignedStudentIds) {
+    const isDirectlyAssigned = task.assignedStudentIds.includes(studentId);
+    console.log(`🎯 [checkStudentAssignmentToTask] Asignación directa: ${isDirectlyAssigned ? '✅' : '❌'}`);
+    return isDirectlyAssigned;
+  }
+  
+  // Si la tarea está asignada a todo el curso
+  if (task.assignedTo === 'course') {
+    const taskCourseId = task.courseSectionId || task.course;
+    
+    if (!taskCourseId) {
+      console.log(`⚠️ [checkStudentAssignmentToTask] Tarea sin courseId`);
+      return false;
+    }
+    
+    // Obtener datos del localStorage
+    const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+    const studentData = users.find((u: any) => u.id === studentId || u.username === studentUsername);
+    
+    if (!studentData) {
+      console.log(`❌ [checkStudentAssignmentToTask] Estudiante no encontrado`);
+      return false;
+    }
+    
+    // Verificar asignaciones específicas
+    const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+    const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+    const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+    
+    // Buscar asignación que coincida con el curso de la tarea
+    const matchingAssignment = studentAssignments.find((assignment: any) => {
+      if (assignment.studentId !== studentId) return false;
+      
+      const course = courses.find((c: any) => c.id === assignment.courseId);
+      const section = sections.find((s: any) => s.id === assignment.sectionId);
+      const compositeId = `${course?.id}-${section?.id}`;
+      
+      return compositeId === taskCourseId || assignment.courseId === taskCourseId;
+    });
+    
+    if (matchingAssignment) {
+      console.log(`✅ [checkStudentAssignmentToTask] Acceso por asignación específica`);
+      return true;
+    }
+    
+    // Fallback: verificar por activeCourses
+    const isInActiveCourses = studentData.activeCourses?.includes(taskCourseId) || false;
+    console.log(`🔄 [checkStudentAssignmentToTask] Fallback activeCourses: ${isInActiveCourses ? '✅' : '❌'}`);
+    
+    return isInActiveCourses;
+  }
+  
+  // Compatibilidad con versiones anteriores
+  if (task.assignedStudents && task.assignedStudents.includes(studentUsername)) {
+    console.log(`🔄 [checkStudentAssignmentToTask] Fallback assignedStudents: ✅`);
+    return true;
+  }
+  
+  console.log(`❌ [checkStudentAssignmentToTask] Sin acceso`);
+  return false;
+};
+
 const featureCards = [
   {
     titleKey: 'cardBooksTitle',
@@ -162,10 +229,18 @@ export default function DashboardHomePage() {
           // Filtrar comentarios que no han sido leídos por el usuario actual
           // EXCLUIR comentarios de entrega (isSubmission) ya que son parte del trabajo entregado, no comentarios de discusión
           let unread = comments.filter((comment: TaskComment) => {
-            // Filtros básicos
-            if (comment.studentUsername === user.username || // No contar comentarios propios
-                comment.readBy?.includes(user.username) || // Ya leídos
-                comment.isSubmission) { // Entregas de otros estudiantes
+            // Filtros básicos - No contar comentarios propios (verificar tanto studentUsername como authorUsername)
+            if (comment.studentUsername === user.username || comment.authorUsername === user.username) {
+              return false;
+            }
+            
+            // No contar ya leídos
+            if (comment.readBy?.includes(user.username)) {
+              return false;
+            }
+            
+            // No contar entregas de otros estudiantes
+            if (comment.isSubmission) {
               return false;
             }
             
@@ -175,6 +250,9 @@ export default function DashboardHomePage() {
               console.log(`🚫 [Dashboard-Student] Tarea no encontrada para comentario: ${comment.taskId}`);
               return false;
             }
+            
+            console.log(`🔍 [Dashboard-Student] Procesando comentario en tarea "${task.title}" (assignedTo: ${task.assignedTo})`);
+            console.log(`📝 [Dashboard-Student] Comentario por: ${comment.authorUsername || comment.studentUsername} (${comment.authorRole || 'student'})`);
             
             // Si es una tarea asignada a estudiantes específicos
             if (task.assignedTo === 'student' && task.assignedStudentIds) {
@@ -187,8 +265,24 @@ export default function DashboardHomePage() {
               }
               
               console.log(`✅ [Dashboard-Student] Estudiante ${user.username} SÍ asignado a tarea específica "${task.title}" - Incluyendo comentario en conteo`);
+              return true;
             }
             
+            // 🎯 NUEVO: Para tareas de curso completo, aplicar la misma lógica que en notifications-panel
+            if (task.assignedTo === 'course') {
+              const isAssignedToTask = checkStudentAssignmentToTask(task, user.id || '', user.username || '');
+              
+              if (!isAssignedToTask) {
+                console.log(`🚫 [Dashboard-Student] Estudiante ${user.username} NO asignado a tarea de curso "${task.title}" - Filtrando comentario del conteo`);
+                return false;
+              }
+              
+              console.log(`✅ [Dashboard-Student] Estudiante ${user.username} SÍ asignado a tarea de curso "${task.title}" - Incluyendo comentario en conteo`);
+              return true;
+            }
+            
+            // Fallback para compatibilidad con versiones anteriores
+            console.log(`🔄 [Dashboard-Student] Comentario incluido por compatibilidad`);
             return true;
           });
 
