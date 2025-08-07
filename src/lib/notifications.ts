@@ -488,30 +488,20 @@ export class TaskNotificationManager {
     course: string,
     comments?: any[]
   ): boolean {
-    // Usar exactamente la misma lógica que getStudentsForCourse en la página de tareas
-    const usersObj = JSON.parse(localStorage.getItem('smart-student-users') || '{}');
-    
-    // Convertimos el objeto a un array de usuarios con su nombre de usuario
-    const users = Object.entries(usersObj).map(([username, data]: [string, any]) => ({
-      username,
-      ...data,
-      displayName: data.displayName || username
-    }));
-    
-    const studentsInCourse = users.filter((u: any) => 
-      u.role === 'student' && 
-      u.activeCourses && 
-      u.activeCourses.includes(course)
-    );
-    
-    const allComments = comments || JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]');
-    
-    // Debug logs
     console.log('=== DEBUG checkAllStudentsSubmitted ===');
     console.log('TaskId:', taskId);
     console.log('Course:', course);
-    console.log('All users:', users);
+    
+    // 🔧 USAR LA MISMA LÓGICA CORREGIDA QUE getStudentsInCourse
+    const studentsInCourse = this.getStudentsInCourse(course);
     console.log('Students in course:', studentsInCourse);
+    
+    if (studentsInCourse.length === 0) {
+      console.log('No students in course, marking as submitted');
+      return true;
+    }
+    
+    const allComments = comments || JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]');
     console.log('All comments:', allComments);
     
     // Obtener todas las entregas para esta tarea
@@ -759,28 +749,48 @@ export class TaskNotificationManager {
 
   // Obtener estudiantes en un curso específico
   private static getStudentsInCourse(course: string): Array<{username: string, displayName: string}> {
-    // 🔧 CORREGIDO: Parsear como array (no como objeto) - el sistema usa arrays
-    const usersArray = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+    console.log(`🔍 [getStudentsInCourse] Searching for students in course: "${course}"`);
     
-    // 🔧 CORREGIDO: Verificar que sea un array
-    if (!Array.isArray(usersArray)) {
-      console.error('❌ [getStudentsInCourse] Users format is not an array:', typeof usersArray);
+    // 🔧 USAR LA MISMA LÓGICA QUE EN LA PÁGINA DE TAREAS PARA COMPATIBILIDAD COMPLETA
+    const allUsers: any[] = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+    const studentAssignments: any[] = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+    
+    console.log(`� [getStudentsInCourse] Total users in system: ${allUsers.length}`);
+    console.log(`📋 [getStudentsInCourse] Total student assignments: ${studentAssignments.length}`);
+    
+    // 🔧 NUEVA LÓGICA: Usar getCourseDataFromCombinedId para manejar IDs combinados
+    const courseData = this.getCourseDataFromCombinedId(course);
+    
+    if (!courseData) {
+      console.error(`❌ [getStudentsInCourse] No se pudo parsear courseId: "${course}"`);
       return [];
     }
     
-    console.log(`🔍 [getStudentsInCourse] Searching for students in course: "${course}"`);
-    console.log(`👥 [getStudentsInCourse] Total users in system: ${usersArray.length}`);
+    const { courseId, sectionId } = courseData;
+    console.log(`� [getStudentsInCourse] Parsed course - CourseId: ${courseId}, SectionId: ${sectionId}`);
     
-    const studentsInCourse = usersArray
-      .filter((user: any) => 
-        user.role === 'student' && 
-        user.activeCourses && 
-        user.activeCourses.includes(course)
+    // Obtener estudiantes asignados a este curso y sección específicos
+    const assignedStudentIds = studentAssignments
+      .filter((assignment: any) => 
+        assignment.courseId === courseId && assignment.sectionId === sectionId
       )
-      .map((user: any) => ({
-        username: user.username,
-        displayName: user.displayName || user.username
-      }));
+      .map((assignment: any) => assignment.studentId);
+    
+    console.log(`🎯 [getStudentsInCourse] Student IDs assigned to course-section: ${assignedStudentIds.length}`, assignedStudentIds);
+    
+    // Obtener datos completos de los estudiantes asignados
+    const studentsInCourse = assignedStudentIds
+      .map((studentId: string) => {
+        const user = allUsers.find((u: any) => u.id === studentId && u.role === 'student');
+        if (user) {
+          return {
+            username: user.username,
+            displayName: user.displayName || user.username
+          };
+        }
+        return null;
+      })
+      .filter((student: any): student is {username: string, displayName: string} => student !== null);
     
     console.log(`🎯 [getStudentsInCourse] Students found in "${course}": ${studentsInCourse.length}`);
     studentsInCourse.forEach((student, index) => {
@@ -788,6 +798,52 @@ export class TaskNotificationManager {
     });
     
     return studentsInCourse;
+  }
+
+  // 🔧 NUEVA FUNCIÓN AUXILIAR: Parsear IDs combinados como en la página de tareas
+  private static getCourseDataFromCombinedId(combinedId: string): { courseId: string, sectionId: string } | null {
+    if (!combinedId) {
+      console.warn(`[getCourseDataFromCombinedId] ID vacío`);
+      return null;
+    }
+    
+    // 🔧 CORRECCIÓN CRÍTICA: Manejar tanto IDs simples como combinados
+    const parts = combinedId.split('-');
+    console.log(`[getCourseDataFromCombinedId] Split parts: ${parts.length}`, parts);
+    
+    if (parts.length === 5) {
+      // ID simple (solo courseId) - necesitamos encontrar la sección por defecto
+      console.log(`[getCourseDataFromCombinedId] ID simple detectado: "${combinedId}"`);
+      console.warn(`[getCourseDataFromCombinedId] ⚠️ ID simple recibido, pero se necesita ID combinado para notificaciones precisas`);
+      
+      // Para mantener compatibilidad, intentar encontrar una sección por defecto
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const assignmentsForCourse = studentAssignments.filter((assignment: any) => assignment.courseId === combinedId);
+      
+      if (assignmentsForCourse.length > 0) {
+        // Usar la primera sección encontrada como fallback
+        const sectionId = assignmentsForCourse[0].sectionId;
+        console.log(`[getCourseDataFromCombinedId] Fallback - Usando primera sección encontrada: "${sectionId}"`);
+        return { courseId: combinedId, sectionId };
+      } else {
+        console.error(`[getCourseDataFromCombinedId] ❌ No se encontraron asignaciones para courseId simple: "${combinedId}"`);
+        return null;
+      }
+    } else if (parts.length === 10) {
+      // ID combinado (courseId-sectionId) - formato correcto
+      const courseId = parts.slice(0, 5).join('-');
+      const sectionId = parts.slice(5, 10).join('-');
+      
+      console.log(`[getCourseDataFromCombinedId] ID combinado detectado`);
+      console.log(`   -> courseId: "${courseId}"`);
+      console.log(`   -> sectionId: "${sectionId}"`);
+      
+      return { courseId, sectionId };
+    } else {
+      console.error(`[getCourseDataFromCombinedId] ❌ Formato de ID inesperado. Partes: ${parts.length}, esperado 5 o 10`);
+      console.log(`[getCourseDataFromCombinedId] ID recibido: "${combinedId}"`);
+      return null;
+    }
   }
 
   // Crear notificación cuando un profesor califica una tarea
@@ -979,7 +1035,7 @@ export class TaskNotificationManager {
     console.log('=== DEBUG checkAllStudentsGraded ===');
     console.log('TaskId:', taskId, 'Course:', course);
     
-    // Obtener estudiantes del curso
+    // 🔧 USAR LA MISMA LÓGICA CORREGIDA QUE getStudentsInCourse
     const studentsInCourse = this.getStudentsInCourse(course);
     console.log('Students in course:', studentsInCourse.length);
     

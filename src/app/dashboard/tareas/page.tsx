@@ -1175,24 +1175,32 @@
         }
 
         // 🔍 PASO 2: Extraer información del curso seleccionado
-        const availableCourses = getAvailableCoursesWithNames();
         console.log(`🔍 [DEBUG] courseId buscado: "${courseId}"`);
-        console.log(`📚 [DEBUG] Cursos disponibles:`, availableCourses.map(c => ({id: c.id, name: c.name})));
         
-        // Buscar el curso por ID exacto o por coincidencia parcial
-        let selectedCourseData = availableCourses.find(c => c.id === courseId);
+        let selectedCourseData;
         
-        // Si no se encuentra por ID exacto, buscar por coincidencia parcial (para casos como 9077a79d vs uuid-uuid)
-        if (!selectedCourseData) {
-          console.log(`⚠️ [BÚSQUEDA FALLBACK] No se encontró courseId exacto "${courseId}", intentando búsqueda parcial...`);
+        // 🔧 CORRECCIÓN: Si es un ID combinado, usar la función auxiliar
+        if (courseId.includes('-') && courseId.length > 40) {
+          console.log('� [CORRECCIÓN] Detectado ID combinado, usando getCourseDataFromCombinedId...');
+          selectedCourseData = getCourseDataFromCombinedId(courseId);
+        } else {
+          // Para IDs simples, usar la función original
+          const availableCourses = getAvailableCoursesWithNames();
+          console.log(`📚 [DEBUG] Cursos disponibles:`, availableCourses.map(c => ({id: c.id, name: c.name})));
           
-          // Buscar si el courseId es parte de algún ID compuesto
-          selectedCourseData = availableCourses.find(c => 
-            c.id.includes(courseId) || c.courseId === courseId
-          );
+          // Buscar el curso por ID exacto o por coincidencia parcial
+          selectedCourseData = availableCourses.find(c => c.id === courseId);
           
-          if (selectedCourseData) {
-            console.log(`✅ [FALLBACK EXITOSO] Encontrado curso por búsqueda parcial:`, selectedCourseData);
+          // Si no se encuentra por ID exacto, buscar por coincidencia parcial
+          if (!selectedCourseData) {
+            console.log(`⚠️ [BÚSQUEDA FALLBACK] No se encontró courseId exacto "${courseId}", intentando búsqueda parcial...`);
+            selectedCourseData = availableCourses.find(c => 
+              c.id.includes(courseId) || c.courseId === courseId
+            );
+            
+            if (selectedCourseData) {
+              console.log(`✅ [FALLBACK EXITOSO] Encontrado curso por búsqueda parcial:`, selectedCourseData);
+            }
           }
         }
 
@@ -1200,13 +1208,25 @@
         if (courseId.includes('5to') || courseId.includes('A') || courseId.includes('9077a79d')) {
           console.log('🔍 [DEBUG BÚSQUEDA] Información de cursos:');
           console.log('   📋 courseId buscado:', courseId);
-          console.log('   📚 Cursos disponibles:', availableCourses);
           console.log('   🎯 Curso encontrado:', selectedCourseData);
+          
+          // Solo mostrar availableCourses si no es un ID combinado
+          if (!courseId.includes('-') || courseId.length <= 40) {
+            const availableCoursesForDebug = getAvailableCoursesWithNames();
+            console.log('   📚 Cursos disponibles:', availableCoursesForDebug);
+          }
         }
 
         if (!selectedCourseData) {
           console.error(`[getStudentsForCourse] No se encontró información para courseId: "${courseId}"`);
-          console.log('[DEBUG] Cursos disponibles:', availableCourses.map(c => ({id: c.id, name: c.name})));
+          
+          // Solo mostrar debug de availableCourses para IDs simples
+          if (!courseId.includes('-') || courseId.length <= 40) {
+            const availableCoursesForDebug = getAvailableCoursesWithNames();
+            console.log('[DEBUG] Cursos disponibles:', availableCoursesForDebug.map(c => ({id: c.id, name: c.name})));
+          } else {
+            console.log('[DEBUG] ID combinado no encontrado, verificar función getCourseDataFromCombinedId');
+          }
           
           // FALLBACK PARA CÓDIGOS NO ENCONTRADOS - Crear entrada temporal
           console.log('🔧 [FALLBACK] Creando configuración temporal para courseId no encontrado...');
@@ -1546,6 +1566,64 @@
       return undefined;
     };
 
+    // 🔧 FUNCIÓN AUXILIAR: Extraer datos de curso y sección desde ID combinado
+    // Esta función reemplaza la dependencia problemática de getAvailableCoursesWithNames() para estudiantes
+    const getCourseDataFromCombinedId = (combinedId: string) => {
+      // Cargar datos del sistema
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+      
+      // El formato es: courseId-sectionId
+      const parts = combinedId.split('-');
+      
+      if (parts.length < 2) {
+        console.log(`❌ [getCourseDataFromCombinedId] ID no tiene formato correcto: ${combinedId}`);
+        return null;
+      }
+      
+      // Para IDs UUID, necesitamos reconstruir correctamente
+      // Formato: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      const guidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      
+      let courseId = '';
+      let sectionId = '';
+      
+      // Encontrar dónde termina el primer UUID y empieza el segundo
+      for (let i = 5; i < parts.length - 4; i++) {
+        const testCourseId = parts.slice(0, i).join('-');
+        const testSectionId = parts.slice(i).join('-');
+        
+        if (guidPattern.test(testCourseId) && guidPattern.test(testSectionId)) {
+          courseId = testCourseId;
+          sectionId = testSectionId;
+          break;
+        }
+      }
+      
+      if (!courseId || !sectionId) {
+        console.log(`❌ [getCourseDataFromCombinedId] No se pudieron extraer IDs válidos de: ${combinedId}`);
+        return null;
+      }
+      
+      // Buscar el curso y la sección
+      const course = courses.find((c: any) => c.id === courseId);
+      const section = sections.find((s: any) => s.id === sectionId);
+      
+      if (!course || !section) {
+        console.log(`❌ [getCourseDataFromCombinedId] Curso o sección no encontrado para: ${combinedId}`);
+        return null;
+      }
+      
+      return {
+        id: combinedId,
+        courseId: course.id,
+        sectionId: section.id,
+        name: `${course.name} Sección ${section.name}`,
+        originalCourseName: course.name,
+        sectionName: section.name
+      };
+    };
+
     // 🔧 FUNCIÓN MEJORADA: Verificar si un estudiante está asignado a una tarea específica
     // Incluye verificaciones de curso, sección y estudiante
     const isStudentAssignedToTask = (taskId: string, studentId: string, studentUsername: string): boolean => {
@@ -1589,9 +1667,9 @@
         // Verificar usando el sistema de asignaciones dinámicas
         const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
         
-        // Extraer courseId y sectionId de la tarea
-        const availableCourses = getAvailableCoursesWithNames();
-        const taskCourseData = availableCourses.find(c => c.id === taskCourseId);
+        // 🔧 CORRECCIÓN: Usar función auxiliar en lugar de getAvailableCoursesWithNames()
+        // Esto resuelve el problema donde getAvailableCoursesWithNames() solo funciona para profesores
+        const taskCourseData = getCourseDataFromCombinedId(taskCourseId);
         
         if (taskCourseData) {
           const { sectionId, courseId: actualCourseId } = taskCourseData;
@@ -1609,6 +1687,8 @@
           if (isAssignedToTaskSection) {
             return true;
           }
+        } else {
+          console.log(`❌ [isStudentAssignedToTask] No se pudo obtener datos del curso para: ${taskCourseId}`);
         }
         
         // Fallback: verificar por activeCourses (sistema legacy)
@@ -1766,11 +1846,14 @@
         return tasks.filter(task => {
           // Solo tareas asignadas por un profesor válido y que existan
           if (!task.assignedById) return false;
-          if (task.assignedTo === 'course') {
-            return user.activeCourses?.includes(task.course);
-          } else {
-            return task.assignedStudentIds?.includes(user.id);
-          }
+          
+          // 🔧 CORRECCIÓN: Usar isStudentAssignedToTask para verificación correcta
+          // Esto reemplaza la lógica antigua que causaba el problema
+          const canSeeTask = isStudentAssignedToTask(task.id, user.id, user.username);
+          
+          console.log(`🔍 [getFilteredTasks] Tarea "${task.title}" para estudiante ${user.username}: ${canSeeTask ? '✅ VISIBLE' : '❌ OCULTA'}`);
+          
+          return canSeeTask;
         });
       }
       return [];
@@ -2013,7 +2096,7 @@
       TaskNotificationManager.createNewTaskNotifications(
         taskId,
         formData.title,
-        actualCourseId, // Usar courseId para compatibilidad
+        courseSectionId, // 🔧 CORRECCIÓN: Usar courseSectionId (ID combinado) en lugar de actualCourseId
         formData.subject,
         user?.id || '', // Pass user.id as teacherId
         user?.displayName || '',
