@@ -3623,11 +3623,12 @@
     };
 
     // Función para abrir el diálogo de revisión de evaluación
-    const handleViewEvaluationDetail = (studentId: string, taskId: string) => {
+    const handleViewEvaluationDetail = async (studentId: string, taskId: string) => {
       console.log('🔍 handleViewEvaluationDetail called with:', { studentId, taskId });
       
       const evaluationResult = getStudentEvaluationResult(taskId, studentId);
       console.log('🔍 Evaluation result found:', !!evaluationResult);
+      console.log('🔍 Evaluation result structure:', evaluationResult);
       
       if (!evaluationResult) {
         toast({
@@ -3643,11 +3644,18 @@
       console.log('🔍 Task found for translation:', !!task, task?.topic);
       
       if (task) {
-        // Traducir las preguntas dinámicamente según el idioma actual
-        console.log('🔄 About to translate evaluation result...');
-        const translatedResult = translateEvaluationResult(evaluationResult, task);
-        console.log('🔄 Translation completed, setting result');
-        setSelectedEvaluationResult(translatedResult);
+        try {
+          // Traducir las preguntas dinámicamente según el idioma actual
+          console.log('🔄 About to translate evaluation result...');
+          const translatedResult = await translateEvaluationResult(evaluationResult, task);
+          console.log('🔄 Translation completed, setting result');
+          console.log('🔄 Translated result structure:', translatedResult);
+          setSelectedEvaluationResult(translatedResult);
+        } catch (error) {
+          console.error('❌ Error translating evaluation result:', error);
+          // Usar resultado original si hay error en traducción
+          setSelectedEvaluationResult(evaluationResult);
+        }
       } else {
         console.log('⚠️ No task found, using original result');
         setSelectedEvaluationResult(evaluationResult);
@@ -6585,6 +6593,13 @@
                           <p className="mb-3 text-gray-700 dark:text-gray-300">{question.question}</p>
                           
                           <div className="space-y-2">
+                            <div>
+                              <strong className="text-sm text-gray-600 dark:text-gray-400">{translate('evalReviewStudentAnswer') || 'Respuesta del estudiante:'}</strong>
+                              <p className={`ml-2 ${question.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+                                {question.studentAnswerText || question.studentAnswer || 'No respondió'}
+                              </p>
+                            </div>
+                            
                             <div>
                               <strong className="text-sm text-gray-600 dark:text-gray-400">{translate('evalReviewCorrectAnswer')}</strong>
                               <p className="ml-2 text-green-700 dark:text-green-300">{question.correctAnswer}</p>

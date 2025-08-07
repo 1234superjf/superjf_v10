@@ -926,6 +926,7 @@
     "evalReviewCorrect": "Correct",
     "evalReviewIncorrect": "Incorrect",
     "evalReviewYourAnswer": "Your answer:",
+    "evalReviewStudentAnswer": "Student answer:",
     "evalReviewCorrectAnswer": "Correct answer:",
     "evalReviewNoAnswer": "No answer",
     "evalReviewExplanation": "Explanation:",
