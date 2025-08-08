@@ -38,13 +38,13 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading, logout, isAdmin } = useAuth();
+  const { isAuthenticated, isLoading, logout, isAdmin, user } = useAuth();
   const { translate } = useLanguage();
   const router = useRouter();
   const pathname = usePathname();
   const [activeAccentTheme, setActiveAccentTheme] = useState('default');
 
-  // Navigation items - only regular items, admin features are accessible via dashboard cards
+  // Navigation items
   const allNavItems = navItems;
 
   useEffect(() => {

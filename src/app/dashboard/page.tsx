@@ -207,6 +207,62 @@ export default function DashboardHomePage() {
   const [unreadStudentCommentsCount, setUnreadStudentCommentsCount] = useState(0);
   const [taskNotificationsCount, setTaskNotificationsCount] = useState(0);
   const [pendingTasksCount, setPendingTasksCount] = useState(0);
+  const [unreadCommunicationsCount, setUnreadCommunicationsCount] = useState(0);
+
+  // Utilidad: cargar comunicaciones recibidas del estudiante y contar no leídas
+  const loadUnreadCommunicationsCount = () => {
+    try {
+      if (!user || user.role !== 'student') { setUnreadCommunicationsCount(0); return; }
+      const commRaw = localStorage.getItem('smart-student-communications');
+      if (!commRaw) { setUnreadCommunicationsCount(0); return; }
+      const all = JSON.parse(commRaw) as any[];
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const assignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const myAssignments = assignments.filter((a: any) => a && a.studentId === user.id);
+      const active = (user as any).activeCourses as string[] | undefined;
+      const studentSectionName = (user as any).sectionName;
+
+      const getCourseName = (id?: string, fb?: string) => {
+        if (!id) return fb || '';
+        return courses.find((c: any) => c.id === id)?.name || fb || '';
+      };
+
+      const belongsToStudent = (comm: any): boolean => {
+        if (comm.type === 'student' && comm.targetStudent === user.id) return true;
+        if (comm.type !== 'course') return false;
+        const courseId = comm.targetCourse; const sectionId = comm.targetSection;
+        if (myAssignments.length > 0) {
+          const matchCourseAndSection = myAssignments.some((a: any) => a.courseId === courseId && a.sectionId === sectionId);
+          if (matchCourseAndSection) return true;
+          const matchSectionOnly = myAssignments.some((a: any) => a.sectionId === sectionId);
+          if (matchSectionOnly) return true;
+          if (studentSectionName && comm.targetSectionName && studentSectionName === comm.targetSectionName) return true;
+          return false;
+        }
+        if (active && active.length > 0) {
+          const courseName = getCourseName(courseId, comm.targetCourseName);
+          const normalizedActive = active.map(v => String(v));
+          const hasCourse = normalizedActive.some(str => {
+            if (!str) return false;
+            if (str === courseId) return true;
+            if (courseName && (str === courseName || str.includes(courseName))) return true;
+            return false;
+          });
+          if (!hasCourse) return false;
+          if (studentSectionName && comm.targetSectionName) return studentSectionName === comm.targetSectionName;
+          return true;
+        }
+        return true;
+      };
+
+      const received = all.filter(belongsToStudent);
+      const unread = received.filter((c: any) => !((c.readBy || []).includes(user.id)));
+      setUnreadCommunicationsCount(unread.length);
+    } catch (e) {
+      console.error('[Dashboard] Error cargando comunicaciones del estudiante:', e);
+      setUnreadCommunicationsCount(0);
+    }
+  };
 
   // Cargar comentarios no leídos de las tareas y entregas pendientes
   useEffect(() => {
@@ -783,6 +839,7 @@ export default function DashboardHomePage() {
     loadPendingTaskSubmissions();
     loadTaskNotifications();
     loadPendingTasks();
+  loadUnreadCommunicationsCount();
     
     // 🔔 NUEVA FUNCIONALIDAD: Cargar tareas pendientes del profesor para notificaciones
     if (user?.role === 'teacher') {
@@ -831,6 +888,9 @@ export default function DashboardHomePage() {
         // También actualizar otras métricas relacionadas con tareas
         loadPendingTasks();
         loadPendingTaskSubmissions();
+      }
+      if (e.key === 'smart-student-communications' || e.key === 'smart-student-student-assignments' || e.key === 'smart-student-courses') {
+        loadUnreadCommunicationsCount();
       }
     };
     
@@ -925,6 +985,7 @@ export default function DashboardHomePage() {
         
         loadPendingTasks();
         loadTaskNotifications();
+  loadUnreadCommunicationsCount();
       } else if (user?.role === 'admin') {
         loadPendingPasswordRequests();
       }
@@ -1035,6 +1096,11 @@ export default function DashboardHomePage() {
     window.addEventListener('updateDashboardCounts', handleDashboardCountsUpdate as EventListener);
     window.addEventListener('studentCommentsUpdated', handleStudentCommentsUpdated as EventListener);
     window.addEventListener('taskDialogClosed', handleTaskDialogClosed as EventListener);
+    // Comunicaciones: escuchar eventos dedicados
+    const handleStudentCommunicationsUpdated = () => {
+      loadUnreadCommunicationsCount();
+    };
+    window.addEventListener('studentCommunicationsUpdated', handleStudentCommunicationsUpdated as EventListener);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
@@ -1044,6 +1110,7 @@ export default function DashboardHomePage() {
       window.removeEventListener('studentCommentsUpdated', handleStudentCommentsUpdated as EventListener);
       window.removeEventListener('taskDialogClosed', handleTaskDialogClosed as EventListener);
       window.removeEventListener('taskGraded', handleTaskGraded); // 🔥 NUEVO: Remover listener taskGraded
+  window.removeEventListener('studentCommunicationsUpdated', handleStudentCommunicationsUpdated as EventListener);
     };
   }, [user]);
 
@@ -1162,8 +1229,8 @@ export default function DashboardHomePage() {
                     
                     totalCount = pendingTaskSubmissionsCount + unreadStudentCommentsCount + teacherNotificationsExcludingDuplicates;
                   } else {
-                    // Para estudiantes: mantener lógica original
-                    totalCount = pendingTasksCount + unreadCommentsCount + taskNotificationsCount;
+                    // Para estudiantes: sumar comunicaciones no leídas
+                    totalCount = pendingTasksCount + unreadCommentsCount + taskNotificationsCount + unreadCommunicationsCount;
                   }
                   
                   // ✅ LOGS DE DEBUG MEJORADOS
@@ -1186,6 +1253,9 @@ export default function DashboardHomePage() {
                   }
                   console.log(`  • pendingTasksCount: ${pendingTasksCount}`);
                   console.log(`  • unreadCommentsCount: ${unreadCommentsCount}`);
+                  if (user.role === 'student') {
+                    console.log(`  • unreadCommunicationsCount: ${unreadCommunicationsCount}`);
+                  }
                   console.log(`  🎯 NOTIFICATION PANEL TOTAL COUNT: ${totalCount}`);
                   
                   // ✅ VERIFICACIÓN ADICIONAL
@@ -1273,6 +1343,15 @@ export default function DashboardHomePage() {
                   );
                 })()
               )}
+              {/* Burbuja para Comunicaciones (estudiante) */}
+              {user?.role === 'student' && card.titleKey === 'cardCommunicationsStudentTitle' && unreadCommunicationsCount > 0 && (
+                <Badge 
+                  className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
+                  title={translate('unreadCommunicationsBadge', { count: String(unreadCommunicationsCount) }) || `${unreadCommunicationsCount} comunicaciones sin leer`}
+                >
+                  {unreadCommunicationsCount > 99 ? '99+' : unreadCommunicationsCount}
+                </Badge>
+              )}
               <card.icon className={`w-10 h-10 mb-3 ${getIconColorClass(card.colorClass)}`} />
               <CardTitle className="text-lg font-semibold font-headline">{translate(card.titleKey)}</CardTitle>
             </CardHeader>
@@ -1289,7 +1368,12 @@ export default function DashboardHomePage() {
                   "hover:shadow-lg transition-shadow duration-200"
                 )}
               >
-                <Link href={card.targetPage}>{translate(card.btnKey)}</Link>
+                <Link href={card.targetPage}>
+                  {card.titleKey === 'cardCommunicationsStudentTitle' && user?.role === 'teacher' 
+                    ? 'Crear Comunicados' 
+                    : translate(card.btnKey)
+                  }
+                </Link>
               </Button>
             </CardContent>
           </Card>

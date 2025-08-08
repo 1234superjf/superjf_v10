@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Bell, MessageSquare, Clock, Key, ClipboardCheck, ClipboardList, Lock } from 'lucide-react';
+import { Bell, MessageSquare, Clock, Key, ClipboardCheck, ClipboardList, Lock, Megaphone } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -51,7 +51,7 @@ interface TaskFile {
 interface Task {
   id: string;
   title: string;
-  description: string;
+  courseSectionId?: string; // opcional para compatibilidad con nuevas secciones
   dueDate: string;
   subject: string;
   course: string;
@@ -106,6 +106,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
   const [pendingGrading, setPendingGrading] = useState<any[]>([]);
   const [count, setCount] = useState(propCount);
   const [isMarking, setIsMarking] = useState(false);
+  const [studentCommunications, setStudentCommunications] = useState<any[]>([]);
 
   // ✅ LOG DE DEBUG: Verificar qué count está recibiendo el componente
   console.log(`🔔 [NotificationsPanel] Received count: ${propCount} for user: ${user?.username} (${user?.role})`);
@@ -157,6 +158,127 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
     };
     
     return abbreviations[subject] || subject.substring(0, 3).toUpperCase();
+  };
+
+  // Helper: obtener displayName por ID desde localStorage (fallback a rol Profesor)
+  const getDisplayNameById = (id?: string): string => {
+    try {
+      if (!id) return translate('roleTeacher') || 'Profesor';
+      const usersRaw = localStorage.getItem('smart-student-users');
+      if (!usersRaw) return translate('roleTeacher') || 'Profesor';
+      const users = JSON.parse(usersRaw);
+      const u = users.find((u: any) => u.id === id);
+      return u?.displayName || u?.username || translate('roleTeacher') || 'Profesor';
+    } catch {
+      return translate('roleTeacher') || 'Profesor';
+    }
+  };
+
+  // UTIL: Cargar comunicaciones recibidas del estudiante (mismo filtro que módulo de comunicaciones)
+  const loadStudentCommunications = () => {
+    try {
+      if (!user || user.role !== 'student') { setStudentCommunications([]); return; }
+      const commRaw = localStorage.getItem('smart-student-communications');
+      if (!commRaw) { setStudentCommunications([]); return; }
+      const all: any[] = JSON.parse(commRaw);
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const assignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      // Fallback por username si no existiera id en algunas asignaciones
+      const myAssignments = assignments.filter((a: any) => a && (a.studentId === user.id || a.studentUsername === (user as any).username));
+      const active = (user as any).activeCourses as string[] | undefined;
+      const studentSectionName = (user as any).sectionName;
+
+      const getCourseName = (id?: string, fb?: string) => {
+        if (!id) return fb || '';
+        return courses.find((c: any) => c.id === id)?.name || fb || '';
+      };
+
+      // Normalizador de IDs curso/sección (soporta targetCourse/targetSection y formatos combinados)
+      const extractCourseSection = (comm: any) => {
+        let courseId = comm.targetCourse || comm.courseId || '';
+        let sectionId = comm.targetSection || comm.sectionId || '';
+
+        const trySplit = (val: string) => {
+          if (typeof val !== 'string') return null;
+          if (val.includes('::')) { const [c, s] = val.split('::'); if (c && s) return { c, s }; }
+          const parts = val.split('-');
+          if (parts.length >= 10) { // UUID v4 course + section (5 y 5 bloques)
+            const c = parts.slice(0, 5).join('-');
+            const s = parts.slice(5, 10).join('-');
+            if (c && s) return { c, s };
+          }
+          return null;
+        };
+
+        const fromCourse = trySplit(courseId);
+        const fromSection = trySplit(sectionId);
+        if (fromCourse && (!sectionId || sectionId === courseId || fromSection)) { courseId = fromCourse.c; sectionId = fromCourse.s; }
+        else if (fromSection) { courseId = fromSection.c; sectionId = fromSection.s; }
+
+        return { courseId, sectionId };
+      };
+
+      const belongsToStudent = (comm: any): boolean => {
+        // Directo al estudiante
+        if (comm.type === 'student' && (comm.targetStudent === user.id || comm.targetStudent === (user as any).username)) return true;
+        if (comm.type !== 'course') return false;
+
+        const { courseId, sectionId } = extractCourseSection(comm);
+        if (!courseId && !sectionId) return false;
+
+        // Asignaciones específicas del estudiante
+        if (myAssignments.length > 0) {
+          // Coincide curso+sección
+          const matchCourseAndSection = sectionId
+            ? myAssignments.some((a: any) => a.courseId === courseId && a.sectionId === sectionId)
+            : false;
+          if (matchCourseAndSection) return true;
+
+          // Solo sección (algunas comunicaciones vienen con sectionId, curso opcional)
+          if (sectionId) {
+            const matchSectionOnly = myAssignments.some((a: any) => a.sectionId === sectionId);
+            if (matchSectionOnly) return true;
+          }
+
+          // Solo curso cuando la comunicación no especifica sección
+          if (!sectionId && courseId) {
+            const matchCourseOnly = myAssignments.some((a: any) => a.courseId === courseId);
+            if (matchCourseOnly) return true;
+          }
+
+          // Fallback por nombre de sección (legacy)
+          if (studentSectionName && comm.targetSectionName && studentSectionName === comm.targetSectionName) return true;
+          return false;
+        }
+
+        // Sistema legacy: activeCourses del usuario
+        if (active && active.length > 0) {
+          const courseName = getCourseName(courseId, comm.targetCourseName);
+          const normalizedActive = active.map(v => String(v));
+          const hasCourse = normalizedActive.some(str => {
+            if (!str) return false;
+            if (str === courseId) return true;
+            if (courseName && (str === courseName || str.includes(courseName))) return true;
+            return false;
+          });
+          if (!hasCourse) return false;
+          if (studentSectionName && comm.targetSectionName) return studentSectionName === comm.targetSectionName;
+          return true;
+        }
+
+        // Si no hay asignaciones registradas, permitir por defecto (para entornos demo)
+        return true;
+      };
+
+      const received = all
+        .filter(belongsToStudent)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 5); // limitar a 5 más recientes
+      setStudentCommunications(received);
+    } catch (e) {
+      console.error('[NotificationsPanel] Error cargando comunicaciones de estudiante:', e);
+      setStudentCommunications([]);
+    }
   };
 
   // 🔧 NUEVA: Función para validar si una tarea existe
@@ -482,7 +604,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
       const loadDataSynchronized = async () => {
         console.log(`[NotificationsPanel] 🔄 Starting synchronized data load for ${user.username} (${user.role})`);
         
-        // Clear all states first to avoid residual data when switching users/roles
+  // Clear all states first to avoid residual data when switching users/roles
         setUnreadComments([]);
         setPendingTasks([]);
         setPasswordRequests([]);
@@ -491,6 +613,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         setClassTasks([]);
         setTaskNotifications([]);
         setPendingGrading([]);
+  setStudentCommunications([]);
         
         try {
           if (user.role === 'admin') {
@@ -504,6 +627,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
             loadUnreadComments();
             loadTaskNotifications(); // Primero las notificaciones (más rápido)
             loadPendingTasks(); // Luego las tareas (puede tardar más por filtrado)
+            loadStudentCommunications(); // Y comunicaciones recibidas
             
             console.log(`[NotificationsPanel] ✅ Student data loaded synchronously`);
           } else if (user.role === 'teacher') {
@@ -590,6 +714,11 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
           loadStudentSubmissions();
         }
       }
+      if (e.key === 'smart-student-communications') {
+        if (user?.role === 'student') {
+          loadStudentCommunications();
+        }
+      }
     };
     
     // Setup listeners for both the storage event and custom events
@@ -647,11 +776,22 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
       setTimeout(() => {
         loadUnreadComments();
         loadPendingTasks();
+  loadStudentCommunications();
         loadTaskNotifications();
         console.log('✅ [handleEvaluationCompleted] All notification components reloaded');
       }, 100); // Pequeño delay para asegurar que el localStorage se actualice primero
     };
     window.addEventListener('evaluationCompleted', handleEvaluationCompleted as EventListener);
+    
+    // 🔔 NUEVO: Escuchar actualizaciones de comunicaciones de estudiantes
+    const handleStudentCommunicationsUpdated = (event: CustomEvent) => {
+      console.log('🎯 [handleStudentCommunicationsUpdated] Event received in notifications panel:', event.detail);
+      if (user?.role === 'student') {
+        console.log('🔄 [handleStudentCommunicationsUpdated] Reloading student communications in panel');
+        loadStudentCommunications();
+      }
+    };
+    window.addEventListener('studentCommunicationsUpdated', handleStudentCommunicationsUpdated as EventListener);
     
     return () => {
       window.removeEventListener('storage', handleStorageChange);
@@ -660,6 +800,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
       window.removeEventListener('pendingTasksUpdated', handlePendingTasksUpdated);
       window.removeEventListener('taskGraded', handleGradingUpdated);
       window.removeEventListener('evaluationCompleted', handleEvaluationCompleted as EventListener);
+  window.removeEventListener('studentCommunicationsUpdated', handleStudentCommunicationsUpdated as EventListener);
     };
   }, [user, open]); // Reload data when the panel is opened or user changes
 
@@ -1576,6 +1717,73 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
           });
           
           TaskNotificationManager.saveNotifications(updatedNotifications);
+        // NUEVO: Marcar todas las comunicaciones como leídas para el estudiante
+        try {
+          const commRaw = localStorage.getItem('smart-student-communications');
+          if (commRaw && user?.id) {
+            const all: any[] = JSON.parse(commRaw);
+            const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+            const assignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+            const myAssignments = assignments.filter((a: any) => a && a.studentId === user.id);
+            const active = (user as any).activeCourses as string[] | undefined;
+            const studentSectionName = (user as any).sectionName;
+
+            const getCourseName = (id?: string, fb?: string) => {
+              if (!id) return fb || '';
+              return courses.find((c: any) => c.id === id)?.name || fb || '';
+            };
+
+            const belongsToStudent = (comm: any): boolean => {
+              if (comm.type === 'student' && comm.targetStudent === user.id) return true;
+              if (comm.type !== 'course') return false;
+              const courseId = comm.targetCourse; const sectionId = comm.targetSection;
+              if (myAssignments.length > 0) {
+                const matchCourseAndSection = myAssignments.some((a: any) => a.courseId === courseId && a.sectionId === sectionId);
+                if (matchCourseAndSection) return true;
+                const matchSectionOnly = myAssignments.some((a: any) => a.sectionId === sectionId);
+                if (matchSectionOnly) return true;
+                if (studentSectionName && comm.targetSectionName && studentSectionName === comm.targetSectionName) return true;
+                return false;
+              }
+              if (active && active.length > 0) {
+                const courseName = getCourseName(courseId, comm.targetCourseName);
+                const normalizedActive = active.map(v => String(v));
+                const hasCourse = normalizedActive.some(str => {
+                  if (!str) return false;
+                  if (str === courseId) return true;
+                  if (courseName && (str === courseName || str.includes(courseName))) return true;
+                  return false;
+                });
+                if (!hasCourse) return false;
+                if (studentSectionName && comm.targetSectionName) return studentSectionName === comm.targetSectionName;
+                return true;
+              }
+              return true;
+            };
+
+            const updatedAll = all.map(c => {
+              if (belongsToStudent(c)) {
+                const readBy = c.readBy || [];
+                if (!readBy.includes(user.id)) {
+                  hasUpdates = true;
+                  return { ...c, readBy: [...readBy, user.id], readAt: { ...(c.readAt || {}), [user.id]: new Date().toISOString() } };
+                }
+                if (!c.readAt || !c.readAt[user.id]) {
+                  hasUpdates = true;
+                  return { ...c, readAt: { ...(c.readAt || {}), [user.id]: new Date().toISOString() } };
+                }
+              }
+              return c;
+            });
+            if (hasUpdates) {
+              localStorage.setItem('smart-student-communications', JSON.stringify(updatedAll));
+              // refrescar lista local del panel
+              loadStudentCommunications();
+            }
+          }
+        } catch (e) {
+          console.warn('[NotificationsPanel] Error marcando comunicaciones como leídas:', e);
+        }
         }
         
         if (hasUpdates) {
@@ -1732,6 +1940,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
             loadTaskNotifications();
             loadPendingTasks();
             loadUnreadComments();
+      loadStudentCommunications();
           } else if (user?.role === 'teacher') {
             console.log('👩‍🏫 [TEACHER_PANEL_OPEN] Ejecutando limpieza automática de notificaciones...');
             TaskNotificationManager.cleanupFinalizedTaskNotifications();
@@ -1775,7 +1984,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
             <CardHeader className="pb-2 pt-4 px-4 flex-shrink-0">
               <CardTitle className="text-lg font-semibold flex items-center justify-between">
                 <span>{translate('notifications')}</span>
-                {((user?.role === 'student' && (unreadComments.length > 0 || taskNotifications.length > 0)) ||
+                {((user?.role === 'student' && (unreadComments.length > 0 || taskNotifications.length > 0 || (studentCommunications.filter(c => !(c.readBy||[]).includes(user?.id)).length > 0))) ||
                   (user?.role === 'teacher' && (unreadStudentComments.length > 0 || pendingGrading.length > 0 || taskNotifications.length > 0))) && (
                   <Button 
                     variant="ghost" 
@@ -1872,7 +2081,12 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                   })()}
                   
                   {/* 🔥 SIMPLIFICADO: Mostrar mensaje directo sin notificaciones */}
-                  {unreadComments.length === 0 && pendingTasks.length === 0 && taskNotifications.length === 0 ? (
+                  {(() => {
+                    const unreadCommsCount = studentCommunications.filter(c => !(c.readBy||[]).includes(user?.id)).length;
+                    const showEmpty = unreadComments.length === 0 && pendingTasks.length === 0 && taskNotifications.length === 0 && unreadCommsCount === 0;
+                    console.log('🧮 [NotificationsPanel] EMPTY CHECK:', { unreadComments: unreadComments.length, pendingTasks: pendingTasks.length, taskNotifications: taskNotifications.length, unreadCommsCount, showEmpty });
+                    return showEmpty;
+                  })() ? (
                     <>
                       {console.log('🎯 [NotificationsPanel] MOSTRANDO MENSAJE SIN NOTIFICACIONES - ESTUDIANTE')}
                       <div className="py-8 px-6 text-center">
@@ -1951,6 +2165,44 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                     </>
                   ) : (
                     <div className="divide-y divide-border">
+                      {/* 0. COMUNICACIONES (NUEVA SECCIÓN) */}
+                      {user?.role === 'student' && studentCommunications.length > 0 && (
+                        <>
+                          <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400 dark:border-red-500">
+                            <h3 className="text-sm font-medium text-red-800 dark:text-red-200 flex items-center gap-2">
+                              <Megaphone className="h-4 w-4" />
+                              {translate('communicationsSection') || 'Comunicaciones'} ({studentCommunications.filter(c => !(c.readBy||[]).includes(user?.id)).length})
+                            </h3>
+                          </div>
+                          {studentCommunications.map(comm => (
+                            <div key={comm.id} className="p-4 hover:bg-muted/50">
+                              <div className="flex items-start gap-3">
+                                <div className="bg-red-100 dark:bg-red-800 p-2 rounded-full">
+                                  <Megaphone className="h-4 w-4 text-red-600 dark:text-red-300" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between">
+                                    <p className="font-medium text-sm text-red-800 dark:text-red-200 truncate">
+                                      {comm.title}
+                                    </p>
+                                    <Badge variant="outline" className={`text-xs ${(!(comm.readBy||[]).includes(user?.id)) ? 'border-red-300 text-red-700 bg-red-50 dark:border-red-600 dark:text-red-300 dark:bg-red-900/30' : 'border-gray-200 text-gray-600 bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:bg-gray-900/20'}`}>
+                                      {(!(comm.readBy||[]).includes(user?.id)) ? translate('unreadCommunication') || 'Sin leer' : translate('readCommunication') || 'Leído'}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-1 truncate">
+                                    {getDisplayNameById(comm.senderId)} • {formatDate(comm.createdAt)}
+                                  </p>
+                                  <div className="mt-2">
+                                    <Link href={`/dashboard/comunicaciones?commId=${encodeURIComponent(comm.id)}#open`} className="inline-block mt-1 text-xs text-red-600 dark:text-red-300 hover:underline">
+                                      {translate('viewCommunicationButton') || 'Ver comunicación'}
+                                    </Link>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
                       {/* 1. EVALUACIONES PENDIENTES - FIRST POSITION */}
                       {(pendingTasks.filter(task => task.taskType === 'evaluation').length > 0 || 
                         taskNotifications.filter(n => n.type === 'new_task' && n.taskType === 'evaluation').length > 0) && (
