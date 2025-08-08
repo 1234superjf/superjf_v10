@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/contexts/language-context';
 import { useAuth } from '@/contexts/auth-context';
 import { 
@@ -32,6 +32,7 @@ interface Student {
   displayName: string;
   activeCourses: string[];
   assignedTeachers?: Record<string, string>;
+  id?: string;
 }
 
 interface AttendanceRecord {
@@ -40,7 +41,7 @@ interface AttendanceRecord {
   date: string;
   status: 'present' | 'absent' | 'late' | 'excused';
   subject: string;
-  course: string;
+  course: string; // composite course-section id
   teacherUsername: string;
   notes?: string;
   timestamp: string;
@@ -54,10 +55,9 @@ interface AttendanceStats {
   total: number;
 }
 
-const monthNames = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-];
+// Obtener nombre de mes acorde al locale del navegador
+const getMonthName = (monthIndex: number, year: number) =>
+  new Date(year, monthIndex, 1).toLocaleString(undefined, { month: 'long' });
 
 const statusColors = {
   present: 'bg-green-100 text-green-800',
@@ -86,6 +86,7 @@ export default function AttendancePage() {
   
   // Estados principales
   const [selectedView, setSelectedView] = useState<'dashboard' | 'calendar' | 'students' | 'reports'>('dashboard');
+  // selectedCourse es un ID compuesto courseId-sectionId
   const [selectedCourse, setSelectedCourse] = useState<string>('');
   const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -97,8 +98,20 @@ export default function AttendancePage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [mySubjects, setMySubjects] = useState<string[]>([]);
-  const [myCourses, setMyCourses] = useState<string[]>([]);
+  const [teacherCourseSections, setTeacherCourseSections] = useState<Array<{ id: string; courseId: string; sectionId: string; label: string }>>([]);
   const [dailyAttendance, setDailyAttendance] = useState<Record<string, 'present' | 'absent' | 'late' | 'excused'>>({});
+
+  // Derivados del selectedCourse
+  const selectedCourseIds = useMemo(() => {
+    if (!selectedCourse) return { courseId: '', sectionId: '' };
+    const parts = selectedCourse.split('-');
+    if (parts.length >= 10) {
+      // UUIDv4 course + section (5 y 5 bloques)
+      return { courseId: parts.slice(0, 5).join('-'), sectionId: parts.slice(5, 10).join('-') };
+    }
+    const [courseId, sectionId] = selectedCourse.split('::');
+    return { courseId: courseId || '', sectionId: sectionId || '' };
+  }, [selectedCourse]);
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -111,38 +124,59 @@ export default function AttendancePage() {
   const loadTeacherData = () => {
     try {
       const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
-      
-      // Obtener cursos y materias del profesor
-      const teacher = users.find((u: any) => u.username === user?.username);
-      if (teacher) {
-        const courses = teacher.activeCourses || [];
-        const subjects = teacher.teachingSubjects || [];
-        
-        setMyCourses(courses);
-        setMySubjects(subjects);
-        
-        if (courses.length > 0 && !selectedCourse) {
-          setSelectedCourse(courses[0]);
-        }
-        if (subjects.length > 0 && !selectedSubject) {
-          setSelectedSubject(subjects[0]);
-        }
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+      const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+
+      // Filtrar asignaciones del profesor por id o username
+      const myAssignments = teacherAssignments.filter((ta: any) =>
+        ta.teacherId === user?.id || ta.teacherId === user?.username || ta.teacherUsername === user?.username
+      );
+
+      const courseSections = myAssignments.map((ta: any) => {
+        const c = courses.find((x: any) => x.id === ta.courseId);
+        const s = sections.find((x: any) => x.id === ta.sectionId);
+        const id = `${ta.courseId}-${ta.sectionId}`;
+        return { id, courseId: ta.courseId, sectionId: ta.sectionId, label: `${c?.name || translate('course')} ${s?.name || ''}` };
+      });
+      // Quitar duplicados por id
+      const unique = Array.from(new Map(courseSections.map(cs => [cs.id, cs])).values());
+      setTeacherCourseSections(unique);
+
+      // Materias del profesor
+      const teacher = users.find((u: any) => u.username === user?.username || u.id === user?.id);
+      const subjects = teacher?.teachingSubjects || [];
+      setMySubjects(subjects);
+
+      if (unique.length > 0 && !selectedCourse) {
+        setSelectedCourse(unique[0].id);
+      }
+      if (subjects.length > 0 && !selectedSubject) {
+        setSelectedSubject(subjects[0]);
       }
 
-      // Cargar estudiantes asignados al profesor
-      const assignedStudents = users.filter((u: any) => {
-        if (u.role !== 'student') return false;
-        
-        // Verificar si el estudiante está asignado a este profesor
-        if (u.assignedTeachers) {
-          return Object.values(u.assignedTeachers).includes(user?.username);
-        }
-        return u.assignedTeacher === user?.username;
-      });
-
-      setStudents(assignedStudents);
+      // Cargar estudiantes por sección seleccionada (si ya hay selección inicial)
+      if (unique.length > 0) {
+        const initial = unique[0];
+        loadStudentsForSection(initial.sectionId, users);
+      }
     } catch (error) {
       console.error('Error loading teacher data:', error);
+    }
+  };
+
+  // Cargar estudiantes de una sección específica usando smart-student-student-assignments
+  const loadStudentsForSection = (sectionId: string, usersCache?: any[]) => {
+    try {
+      const users = usersCache || JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const studentIds = studentAssignments
+        .filter((sa: any) => sa.sectionId === sectionId)
+        .map((sa: any) => sa.studentId || sa.studentUsername);
+      const assigned = users.filter((u: any) => u.role === 'student' && (studentIds.includes(u.id) || studentIds.includes(u.username)));
+      setStudents(assigned);
+    } catch (e) {
+      console.error('Error loading students for section:', e);
     }
   };
 
@@ -264,8 +298,8 @@ export default function AttendancePage() {
   };
 
   const filteredStudents = students.filter(student => {
-    if (!selectedCourse) return true;
-    if (!student.activeCourses.includes(selectedCourse)) return false;
+  if (!selectedCourse) return true;
+  // Si hay asignaciones formales, students ya viene filtrado por sección
     if (searchTerm) {
       return student.displayName.toLowerCase().includes(searchTerm.toLowerCase());
     }
@@ -283,6 +317,13 @@ export default function AttendancePage() {
     
     setDailyAttendance(dayAttendance);
   }, [selectedDate, selectedCourse, selectedSubject, attendanceRecords]);
+
+  // Cuando cambia el curso-sección seleccionado, recargar estudiantes de esa sección
+  useEffect(() => {
+    if (!selectedCourse) return;
+    const { sectionId } = selectedCourseIds;
+    if (sectionId) loadStudentsForSection(sectionId);
+  }, [selectedCourse]);
 
   if (user?.role !== 'teacher') {
     return (
@@ -304,32 +345,43 @@ export default function AttendancePage() {
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            <UserCheck className="inline h-8 w-8 mr-2 text-indigo-600" />
-            {translate('attendanceManagement')}
+        <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-50 via-indigo-100 to-blue-50 dark:from-indigo-900/20 dark:via-indigo-800/20 dark:to-blue-900/20 border border-indigo-200 dark:border-indigo-800 w-full">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-center">
+            <UserCheck className="inline h-7 w-7 md:h-8 md:w-8 mr-2 text-indigo-600" />
+            {translate('attendanceManagement') || 'Gestión de Asistencia'}
           </h1>
-          <p className="text-gray-600 mt-1">
-            {translate('attendanceControl')}
+          <p className="text-gray-600 dark:text-gray-300 mt-1">
+            {translate('attendanceControl') || 'Registra y visualiza la asistencia de tus estudiantes.'}
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Badge className="bg-indigo-600 text-white">{new Date(selectedDate).toLocaleDateString()}</Badge>
+            {selectedCourse && (
+              <Badge variant="outline" className="border-indigo-300 text-indigo-700 dark:text-indigo-300">
+                {teacherCourseSections.find(cs => cs.id === selectedCourse)?.label || translate('course')}
+              </Badge>
+            )}
+            {selectedSubject && (
+              <Badge variant="outline" className="border-blue-300 text-blue-700 dark:text-blue-300">{selectedSubject}</Badge>
+            )}
+          </div>
         </div>
         
         {/* Filtros principales */}
         <div className="flex flex-wrap gap-2">
-          <Select value={selectedCourse} onValueChange={setSelectedCourse}>
+          <Select value={selectedCourse} onValueChange={(v) => setSelectedCourse(v)}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder={translate('attendanceSelectCourse')} />
+              <SelectValue placeholder={translate('attendanceSelectCourse') || 'Curso-Sección'} />
             </SelectTrigger>
             <SelectContent>
-              {myCourses.map(course => (
-                <SelectItem key={course} value={course}>{course}</SelectItem>
+              {teacherCourseSections.map(cs => (
+                <SelectItem key={cs.id} value={cs.id}>{cs.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
           
           <Select value={selectedSubject} onValueChange={setSelectedSubject}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder={translate('attendanceSelectSubject')} />
+              <SelectValue placeholder={translate('attendanceSelectSubject') || 'Asignatura'} />
             </SelectTrigger>
             <SelectContent>
               {mySubjects.map(subject => (
@@ -428,7 +480,7 @@ export default function AttendancePage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <CalendarDays className="h-5 w-5" />
-                  {translate('attendanceDate')} - {new Date(selectedDate).toLocaleDateString('es-ES')}
+                  {translate('attendanceDate') || 'Asistencia del día'} - {new Date(selectedDate).toLocaleDateString()}
                 </CardTitle>
                 <Input
                   type="date"
@@ -439,10 +491,20 @@ export default function AttendancePage() {
               </div>
             </CardHeader>
             <CardContent>
+              {/* Acciones rápidas */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Button size="sm" variant="secondary" onClick={() => {
+                  const next: Record<string, 'present' | 'absent' | 'late' | 'excused'> = {};
+                  filteredStudents.forEach(s => { next[s.username] = 'present'; });
+                  setDailyAttendance(next);
+                  filteredStudents.forEach(s => markAttendance(s.username, 'present'));
+                }}>{translate('markAllPresent') || 'Marcar todos presente'}</Button>
+                <Button size="sm" variant="outline" onClick={() => setDailyAttendance({})}>{translate('clearMarks') || 'Limpiar marcas'}</Button>
+              </div>
               {filteredStudents.length === 0 ? (
                 <div className="text-center py-8">
                   <Users className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                  <p className="text-gray-500">{translate('noStudentsSelected')}</p>
+                  <p className="text-gray-500">{translate('noStudentsSelected') || 'No hay estudiantes para la sección seleccionada.'}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -512,7 +574,7 @@ export default function AttendancePage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <Calendar className="h-5 w-5" />
-                  {translate('attendanceCalendarTitle')} - {monthNames[selectedMonth]} {selectedYear}
+                  {translate('attendanceCalendarTitle') || 'Calendario de Asistencia'} - {getMonthName(selectedMonth, selectedYear)} {selectedYear}
                 </CardTitle>
                 <div className="flex items-center gap-2">
                   <Button
@@ -548,7 +610,7 @@ export default function AttendancePage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-7 gap-1 mb-4">
-                {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(day => (
+                {[translate('sunShort')||'Dom', translate('monShort')||'Lun', translate('tueShort')||'Mar', translate('wedShort')||'Mié', translate('thuShort')||'Jue', translate('friShort')||'Vie', translate('satShort')||'Sáb'].map(day => (
                   <div key={day} className="p-2 text-center font-semibold text-gray-600">
                     {day}
                   </div>
@@ -596,7 +658,7 @@ export default function AttendancePage() {
                             )}
                           </div>
                           <div className="text-xs text-gray-500">
-                            {stats.total} {translate('records')}
+                            {stats.total} {translate('records') || 'registros'}
                           </div>
                         </div>
                       )}
@@ -617,12 +679,12 @@ export default function AttendancePage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5" />
-                  {translate('studentTracking')}
+                  {translate('studentTracking') || 'Seguimiento por estudiante'}
                 </CardTitle>
                 <div className="flex items-center gap-2">
                   <Search className="h-4 w-4 text-gray-400" />
                   <Input
-                    placeholder={translate('searchStudent')}
+                    placeholder={translate('searchStudent') || 'Buscar estudiante'}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-64"
@@ -652,7 +714,7 @@ export default function AttendancePage() {
                         </div>
                         <div className="text-right">
                           <div className="text-2xl font-bold text-indigo-600">{attendanceRate}%</div>
-                          <div className="text-sm text-gray-500">{translate('attendanceRate')}</div>
+                          <div className="text-sm text-gray-500">{translate('attendanceRate') || 'Tasa de asistencia'}</div>
                         </div>
                       </div>
                       
@@ -700,15 +762,15 @@ export default function AttendancePage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Download className="h-5 w-5" />
-                {translate('attendanceReportsTitle')}
+                {translate('attendanceReportsTitle') || 'Reportes de asistencia'}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-center py-8">
                 <BarChart3 className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-                <h3 className="text-xl font-semibold text-gray-700 mb-2">{translate('reportsComingSoon')}</h3>
+                <h3 className="text-xl font-semibold text-gray-700 mb-2">{translate('reportsComingSoon') || 'Pronto disponible'}</h3>
                 <p className="text-gray-500 max-w-md mx-auto">
-                  {translate('reportsDescription')}
+                  {translate('reportsDescription') || 'Podrás descargar reportes detallados por curso, sección y asignatura.'}
                 </p>
               </div>
             </CardContent>
