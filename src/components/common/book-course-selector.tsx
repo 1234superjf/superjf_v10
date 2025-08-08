@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/language-context';
 import { useAppData } from '@/contexts/app-data-context';
 import { useAuth } from '@/contexts/auth-context';
+import { bookPDFs } from '@/lib/books-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { CourseData } from '@/lib/types';
 
@@ -127,6 +128,23 @@ export function BookCourseSelector({
     } catch (error) {
       console.error('[BookSelector] Error al obtener asignaturas por curso:', error);
       return [];
+    }
+  };
+
+  // Función para obtener asignaturas disponibles para estudiantes/admin a partir de la biblioteca de libros
+  const getSubjectsForCourseForStudent = (courseName: string) => {
+    if (!courseName) return [] as string[];
+    try {
+      const subjects = new Set<string>();
+      bookPDFs.forEach((b) => {
+        if (b.course === courseName && b.subject) {
+          subjects.add(b.subject);
+        }
+      });
+      return Array.from(subjects);
+    } catch (e) {
+      console.warn('[BookSelector] Error obteniendo asignaturas para estudiante:', e);
+      return [] as string[];
     }
   };
 
@@ -317,27 +335,41 @@ export function BookCourseSelector({
     );
   }
 
-  // Cargar asignaturas disponibles para el profesor del curso seleccionado
+  // Cargar asignaturas disponibles según rol y curso seleccionado
   useEffect(() => {
-    if (showSubjectSelector && user?.role === 'teacher' && selectedCourse) {
-      console.log('🔍 [BookSelector] Cargando asignaturas para profesor:', user.username, 'en curso:', selectedCourse);
-      const subjectsForCourse = getTeacherAssignedSubjectsForCourse(selectedCourse);
-      
-      if (subjectsForCourse.length > 0) {
-        console.log('✅ [BookSelector] Asignaturas encontradas para el curso:', subjectsForCourse);
-        setAvailableSubjects(subjectsForCourse);
-        
-        // Resetear la selección de asignatura si la actual no está disponible
-        if (selectedSubject && !subjectsForCourse.includes(selectedSubject)) {
+    if (!showSubjectSelector) {
+      setAvailableSubjects([]);
+      return;
+    }
+
+    if (selectedCourse) {
+      if (user?.role === 'teacher') {
+        console.log('🔍 [BookSelector] Cargando asignaturas para profesor:', user.username, 'en curso:', selectedCourse);
+        const subjectsForCourse = getTeacherAssignedSubjectsForCourse(selectedCourse);
+
+        if (subjectsForCourse.length > 0) {
+          console.log('✅ [BookSelector] Asignaturas encontradas para el curso:', subjectsForCourse);
+          setAvailableSubjects(subjectsForCourse);
+
+          if (selectedSubject && !subjectsForCourse.includes(selectedSubject)) {
+            onSubjectChange?.('');
+          }
+        } else {
+          console.log('⚠️ [BookSelector] No hay asignaturas asignadas para el curso:', selectedCourse);
+          setAvailableSubjects([]);
           onSubjectChange?.('');
         }
       } else {
-        console.log('⚠️ [BookSelector] No hay asignaturas asignadas para el curso:', selectedCourse);
-        setAvailableSubjects([]);
-        onSubjectChange?.('');
+        // Estudiante/Admin: derivar asignaturas desde bookPDFs para el curso
+        const subjectsForCourse = getSubjectsForCourseForStudent(selectedCourse);
+        setAvailableSubjects(subjectsForCourse);
+        if (selectedSubject && !subjectsForCourse.includes(selectedSubject)) {
+          onSubjectChange?.('');
+        }
       }
-    } else if (!showSubjectSelector) {
+    } else {
       setAvailableSubjects([]);
+      onSubjectChange?.('');
     }
   }, [showSubjectSelector, user?.role, selectedCourse, selectedSubject, onSubjectChange, language]);
 
@@ -384,7 +416,7 @@ export function BookCourseSelector({
         </SelectContent>
       </Select>
 
-      {showSubjectSelector && user?.role === 'teacher' && (
+    {showSubjectSelector && (
         <Select 
           onValueChange={(value) => {
             if (onSubjectChange) {
@@ -394,7 +426,7 @@ export function BookCourseSelector({
             }
           }} 
           value={selectedSubject}
-          disabled={!selectedCourse || availableSubjects.length === 0}
+      disabled={!selectedCourse || availableSubjects.length === 0}
         >
           <SelectTrigger className="w-full py-3 text-base md:text-sm">
             <SelectValue placeholder={translate('selectSubject')} />

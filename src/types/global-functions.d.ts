@@ -6,7 +6,7 @@ declare global {
       asignacionesCreadas: number;
       mensaje: string;
     };
-    exportarBBDDConAsignaciones?: () => {
+  exportarBBDDConAsignaciones?: () => {
       exito: boolean;
       archivo: string;
       estadisticas?: any;

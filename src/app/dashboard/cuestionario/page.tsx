@@ -45,13 +45,35 @@ export default function CuestionarioPage() {
     const progressInterval = startProgress('quiz', 7000);
     
     try {
-      const result = await generateQuiz({
-        bookTitle: selectedBook || selectedSubject,
-        topic: currentTopic,
-        courseName: selectedCourse || "General", 
-        language: currentUiLanguage,
-      });
-      setQuizResult(result.quiz);
+      try {
+        const result = await generateQuiz({
+          bookTitle: selectedBook || selectedSubject,
+          topic: currentTopic,
+          courseName: selectedCourse || "General", 
+          language: currentUiLanguage,
+        });
+        setQuizResult(result.quiz);
+      } catch (err: any) {
+        const msg = String(err?.message || err || '');
+        if (!msg.includes('Invalid Server Actions request')) throw err;
+        const resp = await fetch('/api/generate-quiz', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bookTitle: selectedBook || selectedSubject,
+            topic: currentTopic,
+            courseName: selectedCourse || 'General',
+            language: currentUiLanguage,
+          })
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        if (!data?.quiz) throw new Error('Respuesta inválida del generador de cuestionarios');
+        setQuizResult(data.quiz);
+      }
       
       // Show success notification
       toast({ 

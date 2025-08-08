@@ -208,7 +208,7 @@ function crearFuncionesExportacionBasicas() {
         try {
             const datos = {
                 metadatos: {
-                    version: '1.0.0',
+                    version: '1.1.0',
                     fechaExportacion: new Date().toISOString(),
                     tipo: 'exportacion-basica'
                 },
@@ -219,7 +219,14 @@ function crearFuncionesExportacionBasicas() {
                 'smart-student-student-assignments': JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]'),
                 'smart-student-teacher-assignments': JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]'),
                 'smart-student-administrators': JSON.parse(localStorage.getItem('smart-student-administrators') || '[]'),
-                'smart-student-config': JSON.parse(localStorage.getItem('smart-student-config') || '{}')
+                'smart-student-config': JSON.parse(localStorage.getItem('smart-student-config') || '{}'),
+                // Nuevas colecciones
+                'smart-student-tasks': JSON.parse(localStorage.getItem('smart-student-tasks') || '[]'),
+                'smart-student-task-comments': JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]'),
+                'smart-student-task-notifications': JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]'),
+                'smart-student-evaluations': JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]'),
+                'smart-student-evaluation-results': JSON.parse(localStorage.getItem('smart-student-evaluation-results') || '[]'),
+                'smart-student-attendance': JSON.parse(localStorage.getItem('smart-student-attendance') || '[]')
             };
             
             const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' });

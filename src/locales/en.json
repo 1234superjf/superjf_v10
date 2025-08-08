@@ -377,6 +377,12 @@
     "cardCommunicationsStudentTitle": "Communications",
     "cardCommunicationsStudentDesc": "Check announcements, events, updates and more",
     "cardCommunicationsStudentBtn": "Read Updates",
+        "attendance": {
+            "present": "Present",
+            "absent": "Absent",
+            "late": "Late",
+            "excused": "Excused"
+        },
         "attendanceManagement": "Attendance Management",
         "attendanceControl": "Record and visualize your students' attendance.",
         "attendanceSelectCourse": "Course-Section",

@@ -396,6 +396,12 @@
     "cardAttendanceTitle": "Asistencia",
     "cardAttendanceDesc": "Control y registro de asistencia de estudiantes",
     "cardAttendanceBtn": "Gestionar Asistencia",
+    "attendance": {
+        "present": "Presente",
+        "absent": "Ausente",
+        "late": "Tarde",
+        "excused": "Justificado"
+    },
         "attendanceManagement": "Gestión de Asistencia",
         "attendanceControl": "Registra y visualiza la asistencia de tus estudiantes.",
         "attendanceSelectCourse": "Curso-Sección",

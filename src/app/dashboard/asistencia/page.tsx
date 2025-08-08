@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLanguage } from '@/contexts/language-context';
 import { useAuth } from '@/contexts/auth-context';
 import { 
@@ -60,10 +60,10 @@ const getMonthName = (monthIndex: number, year: number) =>
   new Date(year, monthIndex, 1).toLocaleString(undefined, { month: 'long' });
 
 const statusColors = {
-  present: 'bg-green-100 text-green-800',
-  absent: 'bg-red-100 text-red-800',
-  late: 'bg-yellow-100 text-yellow-800',
-  excused: 'bg-blue-100 text-blue-800'
+  present: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  absent: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  late: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+  excused: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
 };
 
 const statusIcons = {
@@ -73,23 +73,45 @@ const statusIcons = {
   excused: UserCheck
 };
 
-const statusLabels = {
-  present: 'Presente',
-  absent: 'Ausente',
-  late: 'Tarde',
-  excused: 'Justificado'
+// Labels traducibles para los estados (definidos dentro del componente usando translate)
+
+// Utilidades de fechas en horario local para evitar desfases por zona horaria
+const toLocalDateString = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const parseLocalDate = (ymd: string) => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
 };
 
 export default function AttendancePage() {
   const { translate } = useLanguage();
   const { user } = useAuth();
   
+  // Helper de traducción con fallback: si translate devuelve la clave tal cual, usamos el valor por defecto
+  const t = useCallback((key: string, def?: string) => {
+    const val = translate(key);
+    return val === key ? (def || '') : val;
+  }, [translate]);
+
+  // Mapas de etiquetas con traducción
+  const statusLabels = useMemo(() => ({
+    present: t('attendance.present', t('present', 'Present')),
+    absent: t('attendance.absent', t('absent', 'Absent')),
+    late: t('attendance.late', t('late', 'Late')),
+    excused: t('attendance.excused', t('excused', 'Excused'))
+  }), [t]);
+  
   // Estados principales
   const [selectedView, setSelectedView] = useState<'dashboard' | 'calendar' | 'students' | 'reports'>('dashboard');
   // selectedCourse es un ID compuesto courseId-sectionId
   const [selectedCourse, setSelectedCourse] = useState<string>('');
   const [selectedSubject, setSelectedSubject] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(toLocalDateString(new Date()));
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -124,24 +146,102 @@ export default function AttendancePage() {
   const loadTeacherData = () => {
     try {
       const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
-      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
-      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
-      const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+  // Datos bases
+  const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+  const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+  // Posibles colecciones del Mod Admin (Gestión Usuarios)
+  const adminCourses = JSON.parse(localStorage.getItem('smart-student-admin-courses') || '[]');
+  const adminSections = JSON.parse(localStorage.getItem('smart-student-admin-sections') || '[]');
+  const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+
+      // Intentar obtener un mapa de etiquetas curso-sección si existe en el storage
+      // Estructuras soportadas:
+      // - Array de { courseId, sectionId, label }
+      // - Objeto con clave `${courseId}-${sectionId}`: label
+      let csLabelMap: Record<string, string> = {};
+      try {
+        const labelsRaw = localStorage.getItem('smart-student-course-section-labels')
+          || localStorage.getItem('smart-student-course-sections-labels')
+          || localStorage.getItem('smart-student-course-sections-map');
+        if (labelsRaw) {
+          const parsed = JSON.parse(labelsRaw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((x: any) => {
+              if (x && (x.courseId || x.course) && (x.sectionId || x.section) && x.label) {
+                const k = `${x.courseId || x.course}-${x.sectionId || x.section}`;
+                csLabelMap[k] = x.label;
+              }
+            });
+          } else if (parsed && typeof parsed === 'object') {
+            csLabelMap = parsed;
+          }
+        }
+      } catch {}
+
+      const getCourseSectionLabel = (courseId: string, sectionId: string) => {
+        const key = `${courseId}-${sectionId}`;
+        if (csLabelMap[key]) return csLabelMap[key];
+        // Buscar en colecciones base y en Admin (priorizar Admin si tiene nombres humanos)
+        const courseSources = [
+          ...adminCourses,
+          ...courses
+        ];
+        const sectionSources = [
+          ...adminSections,
+          ...sections
+        ];
+        // localizar sección primero
+        const s = sectionSources.find((x: any) => x && (x.id === sectionId || x.sectionId === sectionId)) || {};
+        // si no viene courseId, intentar derivarlo desde la sección encontrada
+        const derivedCourseId = courseId || (s && (s.courseId || (s.course && (s.course.id || s.courseId))));
+        const c = courseSources.find((x: any) => x && (x.id === derivedCourseId || x.courseId === derivedCourseId)) || {};
+        // Tomar nombres más expresivos posibles
+        const courseName = c.fullName || c.displayName || c.longName || c.label || c.gradeName || c.name || translate('course');
+        const sectionName = s.fullName || s.displayName || s.longName || s.label || s.name || '';
+        // Si el assignment ya trae label explícito, usarlo
+        if ((c as any).label && (s as any).label) return `${(c as any).label} ${(s as any).label}`.trim();
+        return `${courseName} ${sectionName}`.trim();
+      };
 
       // Filtrar asignaciones del profesor por id o username
       const myAssignments = teacherAssignments.filter((ta: any) =>
-        ta.teacherId === user?.id || ta.teacherId === user?.username || ta.teacherUsername === user?.username
+        ta.teacherId === user?.id ||
+        ta.teacherId === user?.username ||
+        ta.teacherUsername === user?.username ||
+        ta.teacher === user?.username
       );
 
-      const courseSections = myAssignments.map((ta: any) => {
-        const c = courses.find((x: any) => x.id === ta.courseId);
-        const s = sections.find((x: any) => x.id === ta.sectionId);
-        const id = `${ta.courseId}-${ta.sectionId}`;
-        return { id, courseId: ta.courseId, sectionId: ta.sectionId, label: `${c?.name || translate('course')} ${s?.name || ''}` };
+      // Normalizar posibles nombres de campos y deducir courseId desde la sección cuando falte
+      const sectionSourcesAll = [...adminSections, ...sections];
+      const normalizeIds = (ta: any) => {
+        const sectionId = ta.sectionId || ta.section || ta.sectionUUID || ta.sectionUuid || ta.section_id || ta.sectionID;
+        let courseId = ta.courseId || ta.course || ta.courseUUID || ta.courseUuid || ta.course_id || ta.courseID;
+        if (!courseId && sectionId) {
+          const sec = sectionSourcesAll.find((s: any) => s && (s.id === sectionId || s.sectionId === sectionId));
+          courseId = sec?.courseId || (sec?.course && (sec.course.id || sec.courseId)) || courseId;
+        }
+        return { courseId, sectionId };
+      };
+
+      const courseSections: Array<{ id: string; courseId: string; sectionId: string; label: string }> = myAssignments
+        .map((ta: any) => {
+          const { courseId, sectionId } = normalizeIds(ta);
+          if (!sectionId) return null;
+          const safeCourseId = courseId || 'unknown-course';
+          const id = `${safeCourseId}-${sectionId}`;
+          return { id, courseId: safeCourseId, sectionId, label: getCourseSectionLabel(courseId, sectionId) };
+        })
+        .filter(Boolean) as Array<{ id: string; courseId: string; sectionId: string; label: string }>;
+      // Quitar duplicados por id (tipado fuerte)
+      const seen = new Set<string>();
+      const unique: Array<{ id: string; courseId: string; sectionId: string; label: string }> = courseSections.filter((cs) => {
+        if (seen.has(cs.id)) return false;
+        seen.add(cs.id);
+        return true;
       });
-      // Quitar duplicados por id
-      const unique = Array.from(new Map(courseSections.map(cs => [cs.id, cs])).values());
-      setTeacherCourseSections(unique);
+  // Ordenar por etiqueta para una mejor UX
+  unique.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
+  setTeacherCourseSections(unique);
 
       // Materias del profesor
       const teacher = users.find((u: any) => u.username === user?.username || u.id === user?.id);
@@ -157,7 +257,7 @@ export default function AttendancePage() {
 
       // Cargar estudiantes por sección seleccionada (si ya hay selección inicial)
       if (unique.length > 0) {
-        const initial = unique[0];
+        const initial: { id: string; courseId: string; sectionId: string; label: string } = unique[0];
         loadStudentsForSection(initial.sectionId, users);
       }
     } catch (error) {
@@ -285,7 +385,7 @@ export default function AttendancePage() {
   };
 
   const getDateAttendanceStats = (date: Date): AttendanceStats => {
-    const dateStr = date.toISOString().split('T')[0];
+  const dateStr = toLocalDateString(date);
     const dayRecords = getAttendanceForDate(dateStr);
 
     return {
@@ -318,12 +418,37 @@ export default function AttendancePage() {
     setDailyAttendance(dayAttendance);
   }, [selectedDate, selectedCourse, selectedSubject, attendanceRecords]);
 
+  // Sincronizar mes/año del calendario con la fecha seleccionada del encabezado/input
+  useEffect(() => {
+    const d = new Date(selectedDate);
+    const m = d.getMonth();
+    const y = d.getFullYear();
+    if (m !== selectedMonth) setSelectedMonth(m);
+    if (y !== selectedYear) setSelectedYear(y);
+  }, [selectedDate]);
+
   // Cuando cambia el curso-sección seleccionado, recargar estudiantes de esa sección
   useEffect(() => {
     if (!selectedCourse) return;
     const { sectionId } = selectedCourseIds;
     if (sectionId) loadStudentsForSection(sectionId);
   }, [selectedCourse]);
+
+  // Escuchar cambios en asignaciones del Admin en tiempo real para refrescar selector
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'smart-student-teacher-assignments' || e.key === 'smart-student-admin-sections' || e.key === 'smart-student-admin-courses') {
+        loadTeacherData();
+      }
+    };
+    const handleCustom = () => loadTeacherData();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('teacherAssignmentsChanged', handleCustom as any);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('teacherAssignmentsChanged', handleCustom as any);
+    };
+  }, []);
 
   if (user?.role !== 'teacher') {
     return (
@@ -354,14 +479,11 @@ export default function AttendancePage() {
             {translate('attendanceControl') || 'Registra y visualiza la asistencia de tus estudiantes.'}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Badge className="bg-indigo-600 text-white">{new Date(selectedDate).toLocaleDateString()}</Badge>
+            <Badge className="bg-indigo-600 text-white">{parseLocalDate(selectedDate).toLocaleDateString()}</Badge>
             {selectedCourse && (
               <Badge variant="outline" className="border-indigo-300 text-indigo-700 dark:text-indigo-300">
                 {teacherCourseSections.find(cs => cs.id === selectedCourse)?.label || translate('course')}
               </Badge>
-            )}
-            {selectedSubject && (
-              <Badge variant="outline" className="border-blue-300 text-blue-700 dark:text-blue-300">{selectedSubject}</Badge>
             )}
           </div>
         </div>
@@ -370,22 +492,17 @@ export default function AttendancePage() {
         <div className="flex flex-wrap gap-2">
           <Select value={selectedCourse} onValueChange={(v) => setSelectedCourse(v)}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder={translate('attendanceSelectCourse') || 'Curso-Sección'} />
+              <SelectValue placeholder={translate('attendanceSelectCourse') || 'Curso + Sección'} />
             </SelectTrigger>
             <SelectContent>
               {teacherCourseSections.map(cs => (
-                <SelectItem key={cs.id} value={cs.id}>{cs.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          
-          <Select value={selectedSubject} onValueChange={setSelectedSubject}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder={translate('attendanceSelectSubject') || 'Asignatura'} />
-            </SelectTrigger>
-            <SelectContent>
-              {mySubjects.map(subject => (
-                <SelectItem key={subject} value={subject}>{subject}</SelectItem>
+                <SelectItem
+                  key={cs.id}
+                  value={cs.id}
+                  className="hover:!bg-transparent focus:!bg-transparent data-[highlighted]:!bg-transparent data-[state=checked]:!bg-transparent data-[highlighted]:!text-current data-[state=checked]:!text-current focus-visible:!ring-0 outline-none"
+                >
+                  {cs.label}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -397,15 +514,14 @@ export default function AttendancePage() {
         {[
           { id: 'dashboard', label: translate('dashboardTab'), icon: BarChart3 },
           { id: 'calendar', label: translate('calendarTab'), icon: Calendar },
-          { id: 'students', label: translate('studentsTab'), icon: Users },
-          { id: 'reports', label: translate('reportsTab'), icon: Download }
+          { id: 'students', label: translate('studentsTab'), icon: Users }
         ].map(tab => (
           <Button
             key={tab.id}
             variant={selectedView === tab.id ? 'default' : 'ghost'}
             className={cn(
-              "flex items-center gap-2",
-              selectedView === tab.id && "bg-indigo-600 text-white"
+              "flex items-center gap-2 hover:bg-indigo-600 hover:text-white",
+              selectedView === tab.id && "bg-indigo-600 text-white hover:bg-indigo-600"
             )}
             onClick={() => setSelectedView(tab.id as any)}
           >
@@ -446,26 +562,26 @@ export default function AttendancePage() {
                 color: 'yellow' 
               }
             ].map((stat, index) => (
-              <Card key={index}>
+              <Card key={index} className="border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                      <p className="text-3xl font-bold text-gray-900">{stat.value}</p>
+                      <p className="text-sm font-medium text-gray-600 dark:text-gray-300">{stat.title}</p>
+                      <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{stat.value}</p>
                     </div>
                     <div className={cn(
                       "p-3 rounded-full",
-                      stat.color === 'blue' && "bg-blue-100",
-                      stat.color === 'green' && "bg-green-100",
-                      stat.color === 'red' && "bg-red-100",
-                      stat.color === 'yellow' && "bg-yellow-100"
+                      stat.color === 'blue' && "bg-blue-100 dark:bg-blue-900/30",
+                      stat.color === 'green' && "bg-green-100 dark:bg-green-900/30",
+                      stat.color === 'red' && "bg-red-100 dark:bg-red-900/30",
+                      stat.color === 'yellow' && "bg-yellow-100 dark:bg-yellow-900/30"
                     )}>
                       <stat.icon className={cn(
                         "h-6 w-6",
-                        stat.color === 'blue' && "text-blue-600",
-                        stat.color === 'green' && "text-green-600",
-                        stat.color === 'red' && "text-red-600",
-                        stat.color === 'yellow' && "text-yellow-600"
+                        stat.color === 'blue' && "text-blue-600 dark:text-blue-300",
+                        stat.color === 'green' && "text-green-600 dark:text-green-300",
+                        stat.color === 'red' && "text-red-600 dark:text-red-300",
+                        stat.color === 'yellow' && "text-yellow-600 dark:text-yellow-300"
                       )} />
                     </div>
                   </div>
@@ -480,7 +596,7 @@ export default function AttendancePage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <CalendarDays className="h-5 w-5" />
-                  {translate('attendanceDate') || 'Asistencia del día'} - {new Date(selectedDate).toLocaleDateString()}
+                  {translate('attendanceDate') || 'Asistencia del día'} - {parseLocalDate(selectedDate).toLocaleDateString()}
                 </CardTitle>
                 <Input
                   type="date"
@@ -493,13 +609,13 @@ export default function AttendancePage() {
             <CardContent>
               {/* Acciones rápidas */}
               <div className="flex flex-wrap gap-2 mb-4">
-                <Button size="sm" variant="secondary" onClick={() => {
+                <Button size="sm" variant="secondary" className="hover:bg-indigo-600 hover:text-white transition-colors" onClick={() => {
                   const next: Record<string, 'present' | 'absent' | 'late' | 'excused'> = {};
                   filteredStudents.forEach(s => { next[s.username] = 'present'; });
                   setDailyAttendance(next);
                   filteredStudents.forEach(s => markAttendance(s.username, 'present'));
                 }}>{translate('markAllPresent') || 'Marcar todos presente'}</Button>
-                <Button size="sm" variant="outline" onClick={() => setDailyAttendance({})}>{translate('clearMarks') || 'Limpiar marcas'}</Button>
+                <Button size="sm" variant="outline" className="hover:bg-indigo-600 hover:text-white transition-colors" onClick={() => setDailyAttendance({})}>{translate('clearMarks') || 'Limpiar marcas'}</Button>
               </div>
               {filteredStudents.length === 0 ? (
                 <div className="text-center py-8">
@@ -536,16 +652,19 @@ export default function AttendancePage() {
                             {Object.entries(statusLabels).map(([status, label]) => {
                               const Icon = statusIcons[status as keyof typeof statusIcons];
                               return (
-                                <Button
+                <Button
                                   key={status}
                                   size="sm"
                                   variant={currentStatus === status ? "default" : "outline"}
                                   className={cn(
-                                    "p-2",
-                                    currentStatus === status && status === 'present' && "bg-green-600 hover:bg-green-700",
-                                    currentStatus === status && status === 'absent' && "bg-red-600 hover:bg-red-700",
-                                    currentStatus === status && status === 'late' && "bg-yellow-600 hover:bg-yellow-700",
-                                    currentStatus === status && status === 'excused' && "bg-blue-600 hover:bg-blue-700"
+                  "p-2 transition-colors",
+                  // Mantener el mismo color al hacer hover (incoloro)
+                  currentStatus === status && status === 'present' && "bg-green-600 hover:bg-green-600",
+                  currentStatus === status && status === 'absent' && "bg-red-600 hover:bg-red-600",
+                  currentStatus === status && status === 'late' && "bg-yellow-600 hover:bg-yellow-600",
+                  currentStatus === status && status === 'excused' && "bg-blue-600 hover:bg-blue-600",
+                  // Para estados no seleccionados: hover con color indigo característico
+                  currentStatus !== status && "hover:bg-indigo-600 hover:text-white"
                                   )}
                                   onClick={() => markAttendance(student.username, status as any)}
                                   title={label}
@@ -580,13 +699,19 @@ export default function AttendancePage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="hover:bg-transparent"
                     onClick={() => {
-                      if (selectedMonth === 0) {
-                        setSelectedMonth(11);
-                        setSelectedYear(selectedYear - 1);
-                      } else {
-                        setSelectedMonth(selectedMonth - 1);
-                      }
+                      // Ir al mes anterior manteniendo el día en rango
+                      const current = new Date(selectedDate);
+                      let newMonth = selectedMonth - 1;
+                      let newYear = selectedYear;
+                      if (newMonth < 0) { newMonth = 11; newYear = selectedYear - 1; }
+                      const day = current.getDate();
+                      const maxDay = new Date(newYear, newMonth + 1, 0).getDate();
+                      const newDate = new Date(newYear, newMonth, Math.min(day, maxDay));
+                      setSelectedMonth(newMonth);
+                      setSelectedYear(newYear);
+                      setSelectedDate(toLocalDateString(newDate));
                     }}
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -594,13 +719,19 @@ export default function AttendancePage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="hover:bg-transparent"
                     onClick={() => {
-                      if (selectedMonth === 11) {
-                        setSelectedMonth(0);
-                        setSelectedYear(selectedYear + 1);
-                      } else {
-                        setSelectedMonth(selectedMonth + 1);
-                      }
+                      // Ir al mes siguiente manteniendo el día en rango
+                      const current = new Date(selectedDate);
+                      let newMonth = selectedMonth + 1;
+                      let newYear = selectedYear;
+                      if (newMonth > 11) { newMonth = 0; newYear = selectedYear + 1; }
+                      const day = current.getDate();
+                      const maxDay = new Date(newYear, newMonth + 1, 0).getDate();
+                      const newDate = new Date(newYear, newMonth, Math.min(day, maxDay));
+                      setSelectedMonth(newMonth);
+                      setSelectedYear(newYear);
+                      setSelectedDate(toLocalDateString(newDate));
                     }}
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -628,16 +759,16 @@ export default function AttendancePage() {
                       key={index}
                       className={cn(
                         "p-2 min-h-16 border rounded cursor-pointer transition-colors",
-                        isCurrentMonth ? "bg-white" : "bg-gray-50",
-                        isToday && "bg-blue-50 border-blue-200",
-                        hasData && "border-indigo-200"
+                        isCurrentMonth ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800/60",
+                        isToday && "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700",
+                        hasData && "border-indigo-200 dark:border-indigo-700"
                       )}
-                      onClick={() => setSelectedDate(date.toISOString().split('T')[0])}
+                      onClick={() => setSelectedDate(toLocalDateString(date))}
                     >
                       <div className={cn(
                         "text-sm font-medium",
-                        isCurrentMonth ? "text-gray-900" : "text-gray-400",
-                        isToday && "text-blue-600"
+                        isCurrentMonth ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500",
+                        isToday && "text-blue-600 dark:text-blue-300"
                       )}>
                         {date.getDate()}
                       </div>
@@ -755,28 +886,7 @@ export default function AttendancePage() {
         </div>
       )}
 
-      {/* Reports View */}
-      {selectedView === 'reports' && (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Download className="h-5 w-5" />
-                {translate('attendanceReportsTitle') || 'Reportes de asistencia'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8">
-                <BarChart3 className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-                <h3 className="text-xl font-semibold text-gray-700 mb-2">{translate('reportsComingSoon') || 'Pronto disponible'}</h3>
-                <p className="text-gray-500 max-w-md mx-auto">
-                  {translate('reportsDescription') || 'Podrás descargar reportes detallados por curso, sección y asignatura.'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      
     </div>
   );
 }

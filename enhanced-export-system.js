@@ -23,8 +23,8 @@
     
     // ==================== CONFIGURACIÓN DE VERSIONES ====================
     
-    const VERSION_EXPORTACION = '2.0.0';
-    const VERSIONES_COMPATIBLES = ['1.0.0', '2.0.0'];
+    const VERSION_EXPORTACION = '2.1.0';
+    const VERSIONES_COMPATIBLES = ['1.0.0', '2.0.0', '2.1.0'];
     
     /**
      * Genera metadatos completos para la exportación
@@ -45,7 +45,13 @@
                 cursos: configuracion.cursos.length,
                 secciones: configuracion.secciones.length,
                 asignacionesEstudiantes: configuracion.asignacionesEstudiantes.length,
-                asignacionesProfesores: configuracion.asignacionesProfesores.length
+                asignacionesProfesores: configuracion.asignacionesProfesores.length,
+                tareas: configuracion.tareas.length,
+                comentariosTarea: configuracion.comentariosTarea.length,
+                notificacionesTarea: configuracion.notificacionesTarea.length,
+                evaluaciones: configuracion.evaluaciones.length,
+                resultadosEvaluacion: configuracion.resultadosEvaluacion.length,
+                registrosAsistencia: configuracion.asistencia.length
             },
             configuracionSistema: obtenerConfiguracionSistema(),
             validacionIntegridad: generarHashIntegridad(configuracion)
@@ -65,6 +71,13 @@
             const asignacionesProfesores = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
             const administradores = JSON.parse(localStorage.getItem('smart-student-administrators') || '[]');
             const configuracionSistema = JSON.parse(localStorage.getItem('smart-student-config') || '{}');
+            // Nuevas colecciones
+            const tareas = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
+            const comentariosTarea = JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]');
+            const notificacionesTarea = JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]');
+            const evaluaciones = JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]');
+            const resultadosEvaluacion = JSON.parse(localStorage.getItem('smart-student-evaluation-results') || '[]');
+            const asistencia = JSON.parse(localStorage.getItem('smart-student-attendance') || '[]');
             
             return {
                 usuarios,
@@ -76,7 +89,14 @@
                 materias,
                 asignacionesEstudiantes,
                 asignacionesProfesores,
-                configuracionSistema
+                configuracionSistema,
+                // Nuevas colecciones
+                tareas,
+                comentariosTarea,
+                notificacionesTarea,
+                evaluaciones,
+                resultadosEvaluacion,
+                asistencia
             };
         } catch (error) {
             console.error('❌ [ERROR] Error al obtener configuración completa:', error);
@@ -151,6 +171,14 @@
                 // NOVEDAD: Configuración de asignaciones incluida
                 'smart-student-student-assignments': configuracionActualizada.asignacionesEstudiantes,
                 'smart-student-teacher-assignments': configuracionActualizada.asignacionesProfesores,
+                
+                // NUEVO: Datos académicos adicionales
+                'smart-student-tasks': configuracionActualizada.tareas,
+                'smart-student-task-comments': configuracionActualizada.comentariosTarea,
+                'smart-student-task-notifications': configuracionActualizada.notificacionesTarea,
+                'smart-student-evaluations': configuracionActualizada.evaluaciones,
+                'smart-student-evaluation-results': configuracionActualizada.resultadosEvaluacion,
+                'smart-student-attendance': configuracionActualizada.asistencia,
                 
                 // Configuración de mapeo dinámico
                 configuracionAsignaciones: {
@@ -421,7 +449,14 @@
             'smart-student-administrators',
             'smart-student-config',
             'smart-student-student-assignments',
-            'smart-student-teacher-assignments'
+            'smart-student-teacher-assignments',
+            // Nuevas colecciones
+            'smart-student-tasks',
+            'smart-student-task-comments',
+            'smart-student-task-notifications',
+            'smart-student-evaluations',
+            'smart-student-evaluation-results',
+            'smart-student-attendance'
         ];
         
         claves.forEach(clave => {

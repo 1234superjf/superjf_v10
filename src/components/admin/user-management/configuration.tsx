@@ -369,18 +369,25 @@ export default function Configuration() {
         teacherAssignments: JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]'),
         // ✅ NUEVA CARACTERÍSTICA: Incluir asignaciones de estudiantes
         studentAssignments: JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]'),
+        // ✅ NUEVO: Incluir tareas/evaluaciones/comentarios/notificaciones/resultados/ asistencia
+        tasks: JSON.parse(localStorage.getItem('smart-student-tasks') || '[]'),
+        taskComments: JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]'),
+        taskNotifications: JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]'),
+        evaluations: JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]'),
+        evaluationResults: JSON.parse(localStorage.getItem('smart-student-evaluation-results') || '[]'),
+        attendance: JSON.parse(localStorage.getItem('smart-student-attendance') || '[]'),
         // ✅ USUARIOS PRINCIPALES CON CAMPOS COMPLETOS PARA LOGIN
         users: exportUsers,
         // ✅ METADATOS DE CORRECCIÓN DINÁMICA
         metadatos: {
-          version: '2.0.0',
+          version: '2.1.0',
           tipoExportacion: 'completa-con-asignaciones',
           fechaExportacion: new Date().toISOString(),
           includeAsignaciones: true,
           sistemaCorreccionDinamica: typeof window.regenerarAsignacionesDinamicas === 'function'
         },
         exportDate: new Date().toISOString(),
-        version: '2.0' // Incrementar versión para indicar corrección de asignaciones incluida
+        version: '2.1' // Incrementar versión por inclusión de tareas/evaluaciones/asistencia
       };
 
       const dataStr = JSON.stringify(data, null, 2);
@@ -470,6 +477,32 @@ export default function Configuration() {
           if (importedData.studentAssignments) {
             console.log('🎯 [ASIGNACIONES] Aplicando asignaciones de estudiantes importadas...');
             localStorage.setItem('smart-student-student-assignments', JSON.stringify(importedData.studentAssignments));
+          }
+
+          // ✅ NUEVO: Importar colecciones académicas adicionales si existen
+          if (importedData.tasks) {
+            console.log('📝 [TAREAS] Restaurando tareas...');
+            localStorage.setItem('smart-student-tasks', JSON.stringify(importedData.tasks));
+          }
+          if (importedData.taskComments) {
+            console.log('💬 [COMENTARIOS] Restaurando comentarios de tareas...');
+            localStorage.setItem('smart-student-task-comments', JSON.stringify(importedData.taskComments));
+          }
+          if (importedData.taskNotifications) {
+            console.log('🔔 [NOTIFICACIONES] Restaurando notificaciones de tareas...');
+            localStorage.setItem('smart-student-task-notifications', JSON.stringify(importedData.taskNotifications));
+          }
+          if (importedData.evaluations) {
+            console.log('🎓 [EVALUACIONES] Restaurando evaluaciones...');
+            localStorage.setItem('smart-student-evaluations', JSON.stringify(importedData.evaluations));
+          }
+          if (importedData.evaluationResults) {
+            console.log('📊 [RESULTADOS] Restaurando resultados de evaluación...');
+            localStorage.setItem('smart-student-evaluation-results', JSON.stringify(importedData.evaluationResults));
+          }
+          if (importedData.attendance) {
+            console.log('🗓️ [ASISTENCIA] Restaurando registros de asistencia...');
+            localStorage.setItem('smart-student-attendance', JSON.stringify(importedData.attendance));
           }
 
           // ✅ MEJORAR IMPORTACIÓN: Consolidar todos los usuarios y garantizar campos completos
@@ -790,6 +823,9 @@ export default function Configuration() {
       localStorage.removeItem('smart-student-tasks');
       localStorage.removeItem('smart-student-task-notifications');
       localStorage.removeItem('smart-student-task-comments');
+  localStorage.removeItem('smart-student-evaluations');
+  localStorage.removeItem('smart-student-evaluation-results');
+  localStorage.removeItem('smart-student-attendance');
 
       toast({
         title: translate('systemReset') || 'System reset',

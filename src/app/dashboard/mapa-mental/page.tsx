@@ -47,13 +47,39 @@ export default function MapaMentalPage() {
     const progressInterval = startProgress('mindmap', 10000);
     
     try {
-      const result = await createMindMapAction({
-        centralTheme: centralTheme.trim(),
-        bookTitle: selectedBook || selectedSubject,
-        language: currentUiLanguage,
-        isHorizontal: isHorizontal,
-      });
-      setMindMapResult(result.imageDataUri);
+      // Intentar Server Action primero
+      try {
+        const result = await createMindMapAction({
+          centralTheme: centralTheme.trim(),
+          bookTitle: selectedBook || selectedSubject,
+          language: currentUiLanguage,
+          isHorizontal: isHorizontal,
+        });
+        setMindMapResult(result.imageDataUri);
+      } catch (err: any) {
+        const msg = String(err?.message || err || '');
+        const looksLikeInvalidServerActions = msg.includes('Invalid Server Actions request');
+        if (!looksLikeInvalidServerActions) throw err;
+
+        // Fallback a API cuando Server Actions no es válido (p.ej., origen no permitido)
+        const resp = await fetch('/api/create-mindmap', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            centralTheme: centralTheme.trim(),
+            bookTitle: selectedBook || selectedSubject,
+            language: currentUiLanguage,
+            isHorizontal: isHorizontal,
+          })
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        if (!data?.imageDataUri) throw new Error('Respuesta inválida del generador de mapas');
+        setMindMapResult(data.imageDataUri);
+      }
       
       // Show success notification
       toast({ 
@@ -65,7 +91,7 @@ export default function MapaMentalPage() {
       // Increment maps count
       const currentCount = parseInt(localStorage.getItem('mapsCreatedCount') || '0', 10);
       localStorage.setItem('mapsCreatedCount', (currentCount + 1).toString());
-    } catch (error) {
+  } catch (error) {
       console.error("Error generating mind map:", error);
       toast({ title: translate('errorGenerating'), description: (error as Error).message, variant: 'destructive'});
       setMindMapResult(null);

@@ -469,7 +469,14 @@
                 timestamp: new Date().toISOString(),
                 'smart-student-users': JSON.parse(localStorage.getItem('smart-student-users') || '[]'),
                 'smart-student-student-assignments': JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]'),
-                'smart-student-teacher-assignments': JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]')
+                'smart-student-teacher-assignments': JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]'),
+                // Nuevas colecciones para respaldo
+                'smart-student-tasks': JSON.parse(localStorage.getItem('smart-student-tasks') || '[]'),
+                'smart-student-task-comments': JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]'),
+                'smart-student-task-notifications': JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]'),
+                'smart-student-evaluations': JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]'),
+                'smart-student-evaluation-results': JSON.parse(localStorage.getItem('smart-student-evaluation-results') || '[]'),
+                'smart-student-attendance': JSON.parse(localStorage.getItem('smart-student-attendance') || '[]')
             };
             
             localStorage.setItem('smart-student-backup-seguridad', JSON.stringify(datosActuales));
@@ -491,6 +498,13 @@
                 localStorage.setItem('smart-student-users', JSON.stringify(datosRespaldo['smart-student-users']));
                 localStorage.setItem('smart-student-student-assignments', JSON.stringify(datosRespaldo['smart-student-student-assignments']));
                 localStorage.setItem('smart-student-teacher-assignments', JSON.stringify(datosRespaldo['smart-student-teacher-assignments']));
+                // Restaurar nuevas colecciones
+                localStorage.setItem('smart-student-tasks', JSON.stringify(datosRespaldo['smart-student-tasks'] || []));
+                localStorage.setItem('smart-student-task-comments', JSON.stringify(datosRespaldo['smart-student-task-comments'] || []));
+                localStorage.setItem('smart-student-task-notifications', JSON.stringify(datosRespaldo['smart-student-task-notifications'] || []));
+                localStorage.setItem('smart-student-evaluations', JSON.stringify(datosRespaldo['smart-student-evaluations'] || []));
+                localStorage.setItem('smart-student-evaluation-results', JSON.stringify(datosRespaldo['smart-student-evaluation-results'] || []));
+                localStorage.setItem('smart-student-attendance', JSON.stringify(datosRespaldo['smart-student-attendance'] || []));
                 
                 console.log('🔄 [RESTAURACIÓN] Respaldo de seguridad restaurado');
             }

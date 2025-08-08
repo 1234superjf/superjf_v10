@@ -147,6 +147,81 @@ const USERS: Record<string, {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// === Helpers de normalización de cursos ===
+// Normaliza un nombre de curso con sección ("4to Básico A") a su nombre base ("4to Básico").
+function normalizeToBaseCourseName(name: string | undefined | null): string {
+  if (!name) return '';
+  const str = String(name).trim();
+  // Buscar los tokens clave "Básico"/"Basico" o "Medio" y cortar desde el inicio hasta el final del token
+  const lower = str.toLowerCase();
+  const basicIdx = lower.indexOf('básico') >= 0 ? lower.indexOf('básico') : lower.indexOf('basico');
+  const medioIdx = lower.indexOf('medio');
+  let cutIdx = -1;
+  let tokenLen = 0;
+  if (basicIdx >= 0 && (medioIdx < 0 || basicIdx < medioIdx)) {
+    cutIdx = basicIdx; tokenLen = 'básico'.length; // longitud no afecta para slice por índice inicial encontrado en lower
+  } else if (medioIdx >= 0) {
+    cutIdx = medioIdx; tokenLen = 'medio'.length;
+  }
+  if (cutIdx >= 0) {
+    // Determinar el fin real del token respetando el case original
+    const end = cutIdx + tokenLen;
+    // Tomar substring respetando los índices del string original
+    const base = str.substring(0, end).replace(/\s+/g, ' ').trim();
+    return base;
+  }
+  return str;
+}
+
+// Resuelve un ID de sección o curso a nombre de curso base, usando localStorage de Gestión de Usuario
+function resolveIdToCourseName(id: string): string | null {
+  try {
+    const sectionsRaw = localStorage.getItem('smart-student-sections');
+    const coursesRaw = localStorage.getItem('smart-student-courses');
+    const sections = sectionsRaw ? JSON.parse(sectionsRaw) : [];
+    const courses = coursesRaw ? JSON.parse(coursesRaw) : [];
+
+    // Intentar como sección primero
+    const section = Array.isArray(sections) ? sections.find((s: any) => String(s.id) === String(id)) : null;
+    if (section) {
+      const course = Array.isArray(courses) ? courses.find((c: any) => String(c.id) === String(section.courseId)) : null;
+      return course?.name || null;
+    }
+
+    // Intentar como curso directamente
+    const course = Array.isArray(courses) ? courses.find((c: any) => String(c.id) === String(id)) : null;
+    if (course) return course.name;
+  } catch (e) {
+    console.warn('[Auth] No se pudo resolver ID a nombre de curso:', e);
+  }
+  return null;
+}
+
+// Obtiene nombres de cursos base normalizados desde activeCourses (que puede contener nombres con sección o IDs)
+function computeNormalizedCoursesFromActive(activeCourses: any[]): string[] {
+  if (!Array.isArray(activeCourses)) return [];
+  const result = new Set<string>();
+  for (const entry of activeCourses) {
+    // Soportar distintos formatos en activeCourses
+    let candidateIdOrName: string;
+    if (entry && typeof entry === 'object') {
+      const obj: any = entry;
+      const possibleId = obj.sectionId ?? obj.courseId ?? obj.id ?? obj.value ?? obj.key;
+      const possibleName = obj.name ?? obj.courseName ?? obj.label;
+      candidateIdOrName = possibleId != null ? String(possibleId) : String(possibleName ?? '');
+    } else {
+      candidateIdOrName = String(entry);
+    }
+
+    // Intentar resolver como ID a nombre de curso
+    const resolvedName = resolveIdToCourseName(candidateIdOrName);
+    const nameOrId = resolvedName || candidateIdOrName;
+    const base = normalizeToBaseCourseName(nameOrId);
+    if (base) result.add(base);
+  }
+  return Array.from(result);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -336,38 +411,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Funciones de permisos
   const hasAccessToCourse = (course: string): boolean => {
-    if (!user) return false;
-    
-    // Admin tiene acceso a todos los cursos
-    if (user.role === 'admin') return true;
-    
-    // Verificar que activeCourses existe y es un array
-    if (!user.activeCourses || !Array.isArray(user.activeCourses)) {
-      return false;
-    }
-    
-    // Primero verificar si el curso está directamente en activeCourses (compatibilidad con nombres)
-    if (user.activeCourses.includes(course)) {
-      return true;
-    }
-    
-    // Si activeCourses contiene IDs, necesitamos convertir IDs a nombres
-    try {
-      const storedCourses = localStorage.getItem('smart-student-courses');
-      if (storedCourses) {
-        const courses = JSON.parse(storedCourses);
-        
-        // Verificar si algún ID en activeCourses corresponde al nombre del curso
-        return user.activeCourses.some(courseId => {
-          const courseObj = courses.find((c: any) => c.id === courseId);
-          return courseObj && courseObj.name === course;
-        });
-      }
-    } catch (error) {
-      console.warn('Error al verificar acceso a curso:', error);
-    }
-    
-    return false;
+  if (!user) return false;
+
+  // Admin tiene acceso a todos los cursos
+  if (user.role === 'admin') return true;
+
+  // Conjunto normalizado de cursos accesibles (base, sin sección)
+  const normalized = computeNormalizedCoursesFromActive(user.activeCourses || []);
+  const wanted = normalizeToBaseCourseName(course);
+  return normalized.includes(wanted);
   };
 
   const isAdmin = (): boolean => {
@@ -376,8 +428,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const getAccessibleCourses = (): string[] => {
     if (!user) return [];
-    
-    // Admin ve todos los cursos disponibles
+
+    // Admin ve todos los cursos disponibles (base)
     if (user.role === 'admin') {
       return [
         '1ro Básico', '2do Básico', '3ro Básico', '4to Básico', '5to Básico',
@@ -385,32 +437,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         '3ro Medio', '4to Medio'
       ];
     }
-    
-    // Verificar que activeCourses existe y es un array
-    if (!user.activeCourses || !Array.isArray(user.activeCourses)) {
-      return [];
-    }
-    
-    // Si activeCourses contiene nombres de cursos directamente, retornarlos
-    if (user.activeCourses.some(course => typeof course === 'string' && course.includes('Básico'))) {
-      return user.activeCourses;
-    }
-    
-    // Si activeCourses contiene IDs, convertir a nombres
-    try {
-      const storedCourses = localStorage.getItem('smart-student-courses');
-      if (storedCourses) {
-        const courses = JSON.parse(storedCourses);
-        return user.activeCourses.map(courseId => {
-          const courseObj = courses.find((c: any) => c.id === courseId);
-          return courseObj ? courseObj.name : courseId;
-        }).filter(Boolean);
-      }
-    } catch (error) {
-      console.warn('Error al obtener cursos accesibles:', error);
-    }
-    
-    return user.activeCourses;
+
+    // Normalizar desde activeCourses (nombres con sección o IDs) a nombres base
+    return computeNormalizedCoursesFromActive(user.activeCourses || []);
   };
 
   const refreshUser = () => {
