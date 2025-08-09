@@ -624,7 +624,7 @@ export default function TeacherStatisticsPage() {
             ctx.drawImage(full, 0, p * sliceH, full.width, c.height, 0, 0, c.width, c.height);
           }
           const w = full.width * ratio; const h = c.height * ratio;
-          pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageWidth - w)/2, margin, w, h, undefined, 'FAST');
+              pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageWidth - w)/2, margin, w, h, undefined, 'MEDIUM');
         }
         pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
         return;
@@ -654,7 +654,7 @@ export default function TeacherStatisticsPage() {
             ctx.drawImage(canvas, 0, i * sliceH, canvas.width, c.height, 0, 0, c.width, c.height);
           }
           const w = canvas.width * ratio; const h = c.height * ratio;
-          pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageWidth - w)/2, margin, w, h, undefined, 'FAST');
+              pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageWidth - w)/2, margin, w, h, undefined, 'MEDIUM');
         }
       }
       pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
