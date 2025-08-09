@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Bell, MessageSquare, Clock, Key, ClipboardCheck, ClipboardList, Lock, Megaphone } from 'lucide-react';
+import { ATTENDANCE_COLOR, getHeaderBgClass, getHeaderBorderClass, getTitleTextClass, getIconTextClass, getIconBgClass, getBodyTextClass, getBadgeBgClass, getLinkTextClass } from '@/lib/ui-colors';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -107,6 +108,8 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
   const [count, setCount] = useState(propCount);
   const [isMarking, setIsMarking] = useState(false);
   const [studentCommunications, setStudentCommunications] = useState<any[]>([]);
+  // Elementos de asistencia pendiente por curso-sección: { id: `${courseId}-${sectionId}`, label: `${courseName} ${sectionName}` }
+  const [pendingAttendance, setPendingAttendance] = useState<{ id: string; label: string }[]>([]);
 
   // ✅ LOG DE DEBUG: Verificar qué count está recibiendo el componente
   console.log(`🔔 [NotificationsPanel] Received count: ${propCount} for user: ${user?.username} (${user?.role})`);
@@ -359,6 +362,107 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
       </Link>
     );
   };
+
+  // 📅 NUEVO: Calcular asistencia pendiente por curso-sección para hoy (profesores)
+  const computePendingAttendance = () => {
+    try {
+      if (!user || user.role !== 'teacher') { setPendingAttendance([]); return; }
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, '0');
+      const d = String(today.getDate()).padStart(2, '0');
+      const todayStr = `${y}-${m}-${d}`;
+
+      const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+      const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const csLabels: Record<string, string> = {};
+
+      const parseComposite = (val?: string) => {
+        if (!val || typeof val !== 'string') return null as null | { c: string; s: string };
+        if (val.includes('::')) {
+          const [c, s] = val.split('::');
+          if (c && s) return { c, s };
+        }
+        const parts = val.split('-');
+        if (parts.length >= 10) {
+          const c = parts.slice(0, 5).join('-');
+          const s = parts.slice(5, 10).join('-');
+          if (c && s) return { c, s };
+        }
+        return null;
+      };
+
+      const getLabel = (courseId: string, sectionId: string, fbCourseName?: string, fbSectionName?: string) => {
+        const csId = `${courseId}-${sectionId}`;
+        if (csLabels[csId]) return csLabels[csId];
+        const c = courses.find((x: any) => x.id === courseId);
+        const s = sections.find((x: any) => x.id === sectionId || x.sectionId === sectionId);
+        const label = `${(c?.name || fbCourseName || '').trim() || 'Curso'} ${(s?.name || fbSectionName || '').trim()}`.trim();
+        csLabels[csId] = label;
+        return label;
+      };
+
+      const myAssignments = teacherAssignments.filter((ta: any) =>
+        ta.teacherId === user.id || ta.teacherUsername === user.username || ta.teacher === user.username
+      );
+
+  const uniqueCS: Array<{ id: string; label: string; courseId: string; sectionId: string }> = [];
+      const seen = new Set<string>();
+      myAssignments.forEach((ta: any) => {
+        let sectionId = ta.sectionId || ta.section || ta.sectionUUID || ta.section_id || ta.sectionID;
+        let courseId = ta.courseId || ta.course || ta.courseUUID || ta.course_id || ta.courseID;
+
+        if ((!courseId || !sectionId) && ta.courseSectionId) {
+          const parsed = parseComposite(String(ta.courseSectionId));
+          if (parsed) { courseId = courseId || parsed.c; sectionId = sectionId || parsed.s; }
+        }
+
+        if (!courseId && sectionId) {
+          const sec = sections.find((s: any) => s && (s.id === sectionId || s.sectionId === sectionId || s.uuid === sectionId));
+          courseId = sec?.courseId || (sec?.course && (sec.course.id || sec.courseId));
+        }
+
+        if (!sectionId && ta.sectionName) {
+          const sec = sections.find((s: any) => (s?.name === ta.sectionName) && (s?.courseId === courseId || s?.course?.id === courseId));
+          if (sec) sectionId = sec.id || sec.sectionId;
+        }
+
+        if (courseId && sectionId) {
+          const id = `${courseId}-${sectionId}`;
+          if (!seen.has(id)) {
+            seen.add(id);
+            const label = getLabel(courseId, sectionId, ta.courseName, ta.sectionName);
+            uniqueCS.push({ id, label, courseId, sectionId });
+          }
+        }
+      });
+
+      const attendance = JSON.parse(localStorage.getItem('smart-student-attendance') || '[]');
+      const pendingList: { id: string; label: string }[] = [];
+      uniqueCS.forEach(({ id, label, sectionId }) => {
+        // Estudiantes asignados a la sección
+        const assigned = (studentAssignments || []).filter((sa: any) => sa.sectionId === sectionId);
+        const assignedCount = assigned.length;
+
+        // Registros de asistencia únicos por estudiante para hoy y este curso-sección
+        const todaySectionRecords = (attendance || []).filter((r: any) => r.date === todayStr && r.course === id);
+        const uniqueStudents = new Set<string>();
+        todaySectionRecords.forEach((r: any) => { if (r.studentUsername) uniqueStudents.add(r.studentUsername); });
+
+        // Pendiente si aún no se ha marcado a todos los estudiantes de la sección
+        const isPending = assignedCount > 0 ? uniqueStudents.size < assignedCount : false;
+        if (isPending) pendingList.push({ id, label });
+      });
+      setPendingAttendance(pendingList);
+    } catch (e) {
+      console.error('[NotificationsPanel] Error calculando asistencia pendiente:', e);
+      setPendingAttendance([]);
+    }
+  };
+
+  useEffect(() => { computePendingAttendance(); }, [user]);
 
   const createSafeTaskLink = (taskId: string, additionalParams: string = '', linkText?: string, linkType: 'evaluation' | 'task' = 'task'): JSX.Element => {
     const taskExists = validateTaskExists(taskId);
@@ -718,6 +822,15 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         if (user?.role === 'student') {
           loadStudentCommunications();
         }
+      }
+      // Recalcular asistencia si cambian asignaciones, secciones, cursos o registros de asistencia
+      if (
+        e.key === 'smart-student-attendance' ||
+        e.key === 'smart-student-teacher-assignments' ||
+        e.key === 'smart-student-sections' ||
+        e.key === 'smart-student-courses'
+      ) {
+        computePendingAttendance();
       }
     };
     
@@ -1950,6 +2063,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
               loadStudentSubmissions();
               loadPendingGrading();
               loadUnreadComments();
+              computePendingAttendance();
             }, 100);
           }
         }
@@ -2479,7 +2593,49 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
               {/* Teacher: Submissions to review */}
               {user?.role === 'teacher' && (
                 <div>
-                  {(studentSubmissions.length === 0 && pendingGrading.length === 0 && unreadStudentComments.length === 0 && taskNotifications.length === 0) ? (
+                  {/* NUEVO: Asistencia pendiente (solo se muestra si hay pendientes) */}
+                  {pendingAttendance.length > 0 && (
+                  <div className="divide-y divide-border">
+                    {/* Encabezado con estilo dinámico según ATTENDANCE_COLOR */}
+                    <div className={`px-4 py-2 ${getHeaderBgClass(ATTENDANCE_COLOR)} ${getHeaderBorderClass(ATTENDANCE_COLOR)}`}>
+                      <h3 className={`text-sm font-medium ${getTitleTextClass(ATTENDANCE_COLOR)} flex items-center gap-2`}>
+                        <ClipboardList className={`h-4 w-4 ${getIconTextClass(ATTENDANCE_COLOR)}`} />
+                        Asistencia {pendingAttendance.length > 0 ? `(${pendingAttendance.length})` : ''}
+                      </h3>
+                    </div>
+                    <div className="p-4">
+                      <div className="flex items-start gap-2">
+                        <div className={`${getIconBgClass(ATTENDANCE_COLOR)} p-2 rounded-full`}>
+                          <ClipboardList className={`h-4 w-4 ${getIconTextClass(ATTENDANCE_COLOR)}`} />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <p className={`font-medium text-sm ${getBodyTextClass(ATTENDANCE_COLOR)}`}>Registro diario</p>
+                            {pendingAttendance.length > 0 && (
+                              <Badge className={`text-xs ${getBadgeBgClass(ATTENDANCE_COLOR)}`}>{pendingAttendance.length}</Badge>
+                            )}
+                          </div>
+                          {pendingAttendance.length === 0 ? (
+                            <p className="text-sm text-muted-foreground mt-1">No hay asistencia pendiente para hoy</p>
+                          ) : (
+                            <ul className="mt-2 space-y-1">
+                              {pendingAttendance.map((item) => (
+                                <li key={item.id} className={`text-sm ${getBodyTextClass(ATTENDANCE_COLOR)} flex items-center`}>
+                                  <span className="mr-2">•</span>{item.label}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <Link href="/dashboard/asistencia" className={`inline-block mt-2 text-xs ${getLinkTextClass(ATTENDANCE_COLOR)} hover:underline`}>
+                            Ir a Asistencia
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  )}
+
+                  {(studentSubmissions.length === 0 && pendingGrading.length === 0 && unreadStudentComments.length === 0 && taskNotifications.length === 0 && pendingAttendance.length === 0) ? (
                     <div className="py-8 px-6 text-center">
                       {/* Contenedor principal con animación sutil */}
                       <div className="relative">

@@ -221,6 +221,7 @@ function crearFuncionesExportacionBasicas() {
                 'smart-student-administrators': JSON.parse(localStorage.getItem('smart-student-administrators') || '[]'),
                 'smart-student-config': JSON.parse(localStorage.getItem('smart-student-config') || '{}'),
                 // Nuevas colecciones
+                'smart-student-communications': JSON.parse(localStorage.getItem('smart-student-communications') || '[]'),
                 'smart-student-tasks': JSON.parse(localStorage.getItem('smart-student-tasks') || '[]'),
                 'smart-student-task-comments': JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]'),
                 'smart-student-task-notifications': JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]'),

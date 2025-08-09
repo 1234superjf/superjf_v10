@@ -42,6 +42,7 @@ Se ha implementado exitosamente la mejora del sistema de exportar/importar para 
 - 👑 **Administradores**: Usuarios con rol de administrador
 - 🔗 **Asignaciones Profesor-Sección**: Relación profesor → sección → asignatura
 - 👥 **Usuarios Principales**: Registro unificado de credenciales
+- 📧 **Comunicaciones**: Mensajes/anuncios creados por profesores
 
 ## 🗂️ **Estructura del Archivo de Backup**
 
@@ -57,6 +58,7 @@ Se ha implementado exitosamente la mejora del sistema de exportar/importar para 
   "administrators": [...],        // NUEVO
   "teacherAssignments": [...],    // NUEVO
   "users": [...],                 // NUEVO
+  "communications": [...],        // NUEVO
   "exportDate": "2025-01-XX",
   "version": "1.1"               // ACTUALIZADO
 }

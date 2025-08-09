@@ -46,6 +46,7 @@
                 secciones: configuracion.secciones.length,
                 asignacionesEstudiantes: configuracion.asignacionesEstudiantes.length,
                 asignacionesProfesores: configuracion.asignacionesProfesores.length,
+                comunicaciones: (configuracion.comunicaciones || []).length,
                 tareas: configuracion.tareas.length,
                 comentariosTarea: configuracion.comentariosTarea.length,
                 notificacionesTarea: configuracion.notificacionesTarea.length,
@@ -72,6 +73,7 @@
             const administradores = JSON.parse(localStorage.getItem('smart-student-administrators') || '[]');
             const configuracionSistema = JSON.parse(localStorage.getItem('smart-student-config') || '{}');
             // Nuevas colecciones
+            const comunicaciones = JSON.parse(localStorage.getItem('smart-student-communications') || '[]');
             const tareas = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
             const comentariosTarea = JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]');
             const notificacionesTarea = JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]');
@@ -91,6 +93,7 @@
                 asignacionesProfesores,
                 configuracionSistema,
                 // Nuevas colecciones
+                comunicaciones,
                 tareas,
                 comentariosTarea,
                 notificacionesTarea,
@@ -173,6 +176,7 @@
                 'smart-student-teacher-assignments': configuracionActualizada.asignacionesProfesores,
                 
                 // NUEVO: Datos académicos adicionales
+                'smart-student-communications': configuracionActualizada.comunicaciones,
                 'smart-student-tasks': configuracionActualizada.tareas,
                 'smart-student-task-comments': configuracionActualizada.comentariosTarea,
                 'smart-student-task-notifications': configuracionActualizada.notificacionesTarea,
@@ -451,6 +455,7 @@
             'smart-student-student-assignments',
             'smart-student-teacher-assignments',
             // Nuevas colecciones
+            'smart-student-communications',
             'smart-student-tasks',
             'smart-student-task-comments',
             'smart-student-task-notifications',
@@ -611,7 +616,8 @@
                 'Cursos': configuracion.cursos.length,
                 'Secciones': configuracion.secciones.length,
                 'Asignaciones estudiantes': configuracion.asignacionesEstudiantes.length,
-                'Asignaciones profesores': configuracion.asignacionesProfesores.length
+                'Asignaciones profesores': configuracion.asignacionesProfesores.length,
+                'Comunicaciones': (configuracion.comunicaciones || []).length
             });
             
             // Validar consistencia de asignaciones

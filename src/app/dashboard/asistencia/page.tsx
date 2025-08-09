@@ -285,11 +285,8 @@ export default function AttendancePage() {
       const stored = localStorage.getItem('smart-student-attendance');
       if (stored) {
         const records = JSON.parse(stored);
-        // Filtrar solo los registros de este profesor
-        const myRecords = records.filter((record: AttendanceRecord) => 
-          record.teacherUsername === user?.username
-        );
-        setAttendanceRecords(myRecords);
+        // ✅ Asistencia compartida: cargar TODOS los registros (independiente del profesor)
+        setAttendanceRecords(records);
       }
     } catch (error) {
       console.error('Error loading attendance records:', error);
@@ -299,12 +296,11 @@ export default function AttendancePage() {
   const saveAttendanceRecord = (record: AttendanceRecord) => {
     try {
       const stored = JSON.parse(localStorage.getItem('smart-student-attendance') || '[]');
+      // ✅ Asistencia única por estudiante-fecha-curso (independiente de profesor/asignatura)
       const existingIndex = stored.findIndex((r: AttendanceRecord) => 
         r.studentUsername === record.studentUsername &&
         r.date === record.date &&
-        r.subject === record.subject &&
-        r.course === record.course &&
-        r.teacherUsername === record.teacherUsername
+        r.course === record.course
       );
 
       if (existingIndex >= 0) {
@@ -313,7 +309,20 @@ export default function AttendancePage() {
         stored.push(record);
       }
 
-      localStorage.setItem('smart-student-attendance', JSON.stringify(stored));
+      const newValue = JSON.stringify(stored);
+      const oldValue = localStorage.getItem('smart-student-attendance');
+      localStorage.setItem('smart-student-attendance', newValue);
+      // Notificar a otros módulos (dashboard/campana) para actualizar contadores
+      try {
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'smart-student-attendance',
+          oldValue,
+          newValue,
+          storageArea: localStorage,
+        }));
+      } catch {}
+  try { window.dispatchEvent(new CustomEvent('updateDashboardCounts', { detail: { source: 'attendance', action: 'save' } })); } catch {}
+  try { window.dispatchEvent(new CustomEvent('notificationsUpdated', { detail: { source: 'attendance', action: 'save' } })); } catch {}
       loadAttendanceRecords();
     } catch (error) {
       console.error('Error saving attendance record:', error);
@@ -341,19 +350,54 @@ export default function AttendancePage() {
     }));
   };
 
+  // Limpiar marcas del día: elimina registros persistidos y refresca el calendario
+  const clearMarks = useCallback(() => {
+    try {
+      const all: AttendanceRecord[] = JSON.parse(localStorage.getItem('smart-student-attendance') || '[]');
+      // ✅ Borrar para el día y curso/ sección seleccionados, independiente de profesor/asignatura
+      const filtered = all.filter((r: AttendanceRecord) => !(
+        r.date === selectedDate &&
+        r.course === selectedCourse
+      ));
+
+      if (filtered.length !== all.length) {
+        const oldValue = localStorage.getItem('smart-student-attendance');
+        const newValue = JSON.stringify(filtered);
+        localStorage.setItem('smart-student-attendance', newValue);
+        // Notificar a otros módulos (dashboard/campana) para actualizar contadores
+        try {
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'smart-student-attendance',
+            oldValue,
+            newValue,
+            storageArea: localStorage,
+          }));
+        } catch {}
+  try { window.dispatchEvent(new CustomEvent('updateDashboardCounts', { detail: { source: 'attendance', action: 'clear' } })); } catch {}
+  try { window.dispatchEvent(new CustomEvent('notificationsUpdated', { detail: { source: 'attendance', action: 'clear' } })); } catch {}
+      }
+
+      // Reset estado local y recargar desde storage para refrescar el calendario
+      setDailyAttendance({});
+      loadAttendanceRecords();
+    } catch (e) {
+      console.error('Error clearing attendance marks:', e);
+      setDailyAttendance({});
+    }
+  }, [user?.username, selectedDate, selectedCourse, selectedSubject]);
+
   const getAttendanceForDate = (date: string) => {
+    // ✅ Asistencia compartida: considerar solo fecha y curso (ignorar asignatura y profesor)
     return attendanceRecords.filter(record => 
       record.date === date &&
-      record.course === selectedCourse &&
-      record.subject === selectedSubject
+      record.course === selectedCourse
     );
   };
 
   const getStudentAttendanceStats = (studentUsername: string): AttendanceStats => {
     const studentRecords = attendanceRecords.filter(record => 
       record.studentUsername === studentUsername &&
-      record.course === selectedCourse &&
-      record.subject === selectedSubject
+      record.course === selectedCourse
     );
 
     const stats = {
@@ -615,7 +659,7 @@ export default function AttendancePage() {
                   setDailyAttendance(next);
                   filteredStudents.forEach(s => markAttendance(s.username, 'present'));
                 }}>{translate('markAllPresent') || 'Marcar todos presente'}</Button>
-                <Button size="sm" variant="outline" className="hover:bg-indigo-600 hover:text-white transition-colors" onClick={() => setDailyAttendance({})}>{translate('clearMarks') || 'Limpiar marcas'}</Button>
+                <Button size="sm" variant="outline" className="hover:bg-indigo-600 hover:text-white transition-colors" onClick={clearMarks}>{translate('clearMarks') || 'Limpiar marcas'}</Button>
               </div>
               {filteredStudents.length === 0 ? (
                 <div className="text-center py-8">

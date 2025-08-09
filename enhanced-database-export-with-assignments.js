@@ -11,6 +11,7 @@ function crearExportacionCompleta() {
     
     // Cargar datos actuales
     const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+    const communications = JSON.parse(localStorage.getItem('smart-student-communications') || '[]');
     const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
     const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
     const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
@@ -49,6 +50,7 @@ function crearExportacionCompleta() {
     const exportacionCompleta = {
         // Datos existentes
         users: users,
+    communications: communications,
         courses: courses,
         sections: sections,
         studentAssignments: studentAssignments,
@@ -102,6 +104,12 @@ function aplicarConfiguracionDesdeBBDD(datosImportados) {
         // Crear configuración por defecto y aplicar
         const configDefault = crearExportacionCompleta().assignmentConfiguration;
         aplicarAsignacionesDinamicas(configDefault, datosImportados);
+    }
+    
+    // Aplicar comunicaciones si vienen en el export
+    if (Array.isArray(datosImportados.communications)) {
+        localStorage.setItem('smart-student-communications', JSON.stringify(datosImportados.communications));
+        console.log(`✅ Comunicaciones importadas: ${datosImportados.communications.length}`);
     }
 }
 

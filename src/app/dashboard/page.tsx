@@ -185,7 +185,7 @@ const teacherCards = [
     targetPage: '/dashboard/asistencia',
     icon: UserCheck,
     colorClass: 'indigo',
-    showBadge: false,
+  showBadge: true,
   },
   {
     titleKey: 'cardStatisticsTitle',
@@ -208,6 +208,63 @@ export default function DashboardHomePage() {
   const [taskNotificationsCount, setTaskNotificationsCount] = useState(0);
   const [pendingTasksCount, setPendingTasksCount] = useState(0);
   const [unreadCommunicationsCount, setUnreadCommunicationsCount] = useState(0);
+  const [pendingAttendanceCount, setPendingAttendanceCount] = useState(0);
+
+  // Calcular asistencia pendiente para profesores (pendiente si NO todos los estudiantes de la sección tienen marcaje hoy)
+  const computePendingAttendanceCount = () => {
+    try {
+      if (!user || user.role !== 'teacher') { setPendingAttendanceCount(0); return; }
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, '0');
+      const d = String(today.getDate()).padStart(2, '0');
+      const todayStr = `${y}-${m}-${d}`;
+
+      const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+      const myAssignments = teacherAssignments.filter((ta: any) =>
+        ta.teacherId === user.id || ta.teacherUsername === user.username || ta.teacher === user.username
+      );
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const uniqueCS: Array<{ id: string; courseId: string; sectionId: string }> = [];
+      const seen = new Set<string>();
+      myAssignments.forEach((ta: any) => {
+        const sectionId = ta.sectionId || ta.section || ta.sectionUUID || ta.section_id || ta.sectionID;
+        let courseId = ta.courseId || ta.course || ta.courseUUID || ta.course_id || ta.courseID;
+        if (!courseId && sectionId) {
+          const sec = sections.find((s: any) => s && (s.id === sectionId || s.sectionId === sectionId));
+          courseId = sec?.courseId || (sec?.course && (sec.course.id || sec.courseId)) || courseId;
+        }
+        if (sectionId) {
+          const id = `${courseId || 'unknown-course'}-${sectionId}`;
+          if (!seen.has(id)) { seen.add(id); uniqueCS.push({ id, courseId: courseId || 'unknown-course', sectionId }); }
+        }
+      });
+
+      const attendance = JSON.parse(localStorage.getItem('smart-student-attendance') || '[]');
+      let pending = 0;
+      uniqueCS.forEach(({ id, sectionId }) => {
+        // Estudiantes asignados a la sección
+        const assigned = (studentAssignments || []).filter((sa: any) => sa.sectionId === sectionId);
+        const assignedCount = assigned.length;
+
+        // Registros únicos por estudiante hoy para este curso-sección
+        const todaySectionRecords = (attendance || []).filter((r: any) => r.date === todayStr && r.course === id);
+        const uniqueStudents = new Set<string>();
+        todaySectionRecords.forEach((r: any) => { if (r.studentUsername) uniqueStudents.add(r.studentUsername); });
+
+        // Contar como pendiente si aún no están todos marcados
+        const isPending = assignedCount > 0 ? uniqueStudents.size < assignedCount : false;
+        if (isPending) pending++;
+      });
+      setPendingAttendanceCount(pending);
+    } catch (e) {
+      console.error('[Dashboard] Error calculando asistencia pendiente:', e);
+      setPendingAttendanceCount(0);
+    }
+  };
+
+  useEffect(() => { computePendingAttendanceCount(); }, [user]);
 
   // Utilidad: cargar comunicaciones recibidas del estudiante y contar no leídas
   const loadUnreadCommunicationsCount = () => {
@@ -892,6 +949,15 @@ export default function DashboardHomePage() {
       if (e.key === 'smart-student-communications' || e.key === 'smart-student-student-assignments' || e.key === 'smart-student-courses') {
         loadUnreadCommunicationsCount();
       }
+      // Recalcular asistencia pendiente del profesor si cambian datos relevantes
+      if (
+        e.key === 'smart-student-attendance' ||
+        e.key === 'smart-student-teacher-assignments' ||
+        e.key === 'smart-student-sections' ||
+        e.key === 'smart-student-courses'
+      ) {
+        computePendingAttendanceCount();
+      }
     };
     
     // Función para manejar el evento personalizado cuando se marcan comentarios como leídos
@@ -961,6 +1027,7 @@ export default function DashboardHomePage() {
         loadPendingTaskSubmissions();
         loadTaskNotifications();
         loadPendingTeacherTasks();
+        computePendingAttendanceCount();
       } else if (user?.role === 'student') {
         // Recargar comentarios no leídos
         const storedComments = localStorage.getItem('smart-student-task-comments');
@@ -1227,7 +1294,7 @@ export default function DashboardHomePage() {
                       notif.type !== 'task_completed' // 🔧 EXCLUIR task_completed para evitar duplicación
                     ).length;
                     
-                    totalCount = pendingTaskSubmissionsCount + unreadStudentCommentsCount + teacherNotificationsExcludingDuplicates;
+                    totalCount = pendingTaskSubmissionsCount + unreadStudentCommentsCount + teacherNotificationsExcludingDuplicates + pendingAttendanceCount; // ➕ incluir asistencia pendiente en la campana
                   } else {
                     // Para estudiantes: sumar comunicaciones no leídas
                     totalCount = pendingTasksCount + unreadCommentsCount + taskNotificationsCount + unreadCommunicationsCount;
@@ -1248,6 +1315,7 @@ export default function DashboardHomePage() {
                       ).length;
                     console.log(`  • taskNotificationsCount (excluding task_submission & task_completed): ${teacherNotificationsExcludingDuplicates} ⭐ (FIXED: no duplicates)`);
                     console.log(`  • taskNotificationsCount (original): ${taskNotificationsCount} ⚠️ (included duplicates)`);
+                    console.log(`  • pendingAttendanceCount (today): ${pendingAttendanceCount} ➕ (included in bell)`);
                   } else {
                     console.log(`  • taskNotificationsCount: ${taskNotificationsCount} ⭐ (includes evaluation_completed)`);
                   }
@@ -1437,6 +1505,14 @@ export default function DashboardHomePage() {
             }`}
           >
             <CardHeader className="items-center relative">
+              {card.showBadge && card.titleKey === 'cardAttendanceTitle' && pendingAttendanceCount > 0 && (
+                <Badge 
+                  className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
+                  title={`${pendingAttendanceCount} pendientes de asistencia hoy`}
+                >
+                  {pendingAttendanceCount > 99 ? '99+' : pendingAttendanceCount}
+                </Badge>
+              )}
               <card.icon className={`w-10 h-10 mb-3 ${getIconColorClass(card.colorClass)}`} />
               <CardTitle className="text-lg font-semibold font-headline">{translate(card.titleKey)}</CardTitle>
             </CardHeader>

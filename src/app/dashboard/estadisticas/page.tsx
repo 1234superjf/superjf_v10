@@ -8,8 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { BarChart3, ClipboardList, FileCheck2, Users, Activity, TrendingUp, Clock } from 'lucide-react';
+import { BarChart3, ClipboardList, FileCheck2, Users, Activity, TrendingUp, Clock, Download, ChevronDown } from 'lucide-react';
 import { ensureDemoTeacherData } from '@/lib/demo/teacher-stats-demo';
+import TrendChart from '@/components/charts/TrendChart';
 
 type Period = '7d' | '30d' | '90d' | 'all';
 
@@ -54,12 +55,15 @@ function belongsToTeacher(x: any, username?: string): boolean {
 
 function useTeacherStats(username?: string, period: Period = '30d') {
   const [refreshTick, setRefreshTick] = useState(0);
-  const window = getTimeWindow(period);
+  const timeWindow = getTimeWindow(period);
 
   useEffect(() => {
     const onStorage = () => setRefreshTick(t => t + 1);
-    window.addEventListener?.('storage', onStorage);
-    return () => window.removeEventListener?.('storage', onStorage);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', onStorage);
+      return () => window.removeEventListener('storage', onStorage);
+    }
+    return;
   }, []);
 
   const read = (key: string): any[] => {
@@ -80,7 +84,7 @@ function useTeacherStats(username?: string, period: Period = '30d') {
 
     const inWindow = (x: any) => {
       const t = parseWhen(x);
-      if (window.from && t) return t >= window.from;
+      if (timeWindow.from && t) return t >= timeWindow.from;
       return true;
     };
 
@@ -101,9 +105,18 @@ function useTeacherStats(username?: string, period: Period = '30d') {
       return byLink || byOwner;
     }).filter(inWindow);
     const gradedSubs = teacherSubs.filter(s => typeof s.grade === 'number' || s.isGraded === true);
+    const rawVal = (s: any) => (typeof s.grade === 'number' ? s.grade : (s.score ?? 0));
+    const norm100 = (s: any) => {
+      const v = rawVal(s);
+      return v <= 1 ? v * 100 : v; // normalizamos a 0-100 si vino en 0-1
+    };
     const avgGrade = gradedSubs.length > 0
-      ? (gradedSubs.reduce((acc, s) => acc + (typeof s.grade === 'number' ? s.grade : (s.score ?? 0)), 0) / gradedSubs.length)
+      ? (gradedSubs.reduce((acc, s) => acc + rawVal(s), 0) / gradedSubs.length)
       : undefined;
+    const avgScore100 = gradedSubs.length > 0
+      ? (gradedSubs.reduce((acc, s) => acc + norm100(s), 0) / gradedSubs.length)
+      : undefined;
+    const avgScore20 = typeof avgScore100 === 'number' ? avgScore100 / 5 : undefined;
 
     // ASISTENCIA
     const attendance: any[] = read('smart-student-attendance');
@@ -113,7 +126,7 @@ function useTeacherStats(username?: string, period: Period = '30d') {
 
     // Tendencia por día
     const bucketSize = 1; // días
-    const fromTs = window.from ?? (teacherSubs.reduce((min, s) => Math.min(min, parseWhen(s) ?? now()), now()));
+  const fromTs = timeWindow.from ?? (teacherSubs.reduce((min, s) => Math.min(min, parseWhen(s) ?? now()), now()));
     const toTs = now();
     const daysCount = Math.max(1, Math.ceil((toTs - fromTs) / days(bucketSize)));
     const series = new Array(daysCount).fill(0) as number[];
@@ -138,10 +151,63 @@ function useTeacherStats(username?: string, period: Period = '30d') {
     // Distribución de notas (asumiendo 0-100 si viene score, o número libre en grade)
     const bins = { low: 0, mid: 0, high: 0, top: 0 };
     gradedSubs.forEach(s => {
-      const val = typeof s.grade === 'number' ? s.grade : (s.score ?? 0);
-      const score = val <= 1 ? val * 100 : val; // si el valor viniera 0-1
+      const score = norm100(s); // 0-100
       if (score <= 40) bins.low++; else if (score <= 60) bins.mid++; else if (score <= 80) bins.high++; else bins.top++;
     });
+
+    // Aprobados/Reprobados (umbral 60)
+    const approvedCount = bins.high + bins.top;
+    const failedCount = bins.low + bins.mid;
+
+    // Promedio destacado por estudiante (0-20)
+    const byStudent: Record<string, { sum: number; n: number }> = {};
+    gradedSubs.forEach(s => {
+      const key = s.studentUsername || s.studentId || s.userId || '—';
+      const sc = norm100(s);
+      if (!byStudent[key]) byStudent[key] = { sum: 0, n: 0 };
+      byStudent[key].sum += sc; byStudent[key].n += 1;
+    });
+    const topStudentAvg20 = Object.values(byStudent).length
+      ? Math.max(...Object.values(byStudent).map(x => (x.sum / x.n) / 5))
+      : undefined;
+
+    // Promedio por curso (0-20) para "Comparación de Cursos"
+    const byCourse: Record<string, { sum: number; n: number }> = {};
+    gradedSubs.forEach(s => {
+      const course = s.course || s.courseId || s.sectionId || '—';
+      const sc = norm100(s);
+      if (!byCourse[course]) byCourse[course] = { sum: 0, n: 0 };
+      byCourse[course].sum += sc; byCourse[course].n += 1;
+    });
+    const courseAvg20 = Object.entries(byCourse)
+      .map(([label, v]) => ({ label, avg20: (v.sum / Math.max(1, v.n)) / 5 }))
+      .sort((a, b) => b.avg20 - a.avg20)
+      .slice(0, 5);
+
+    // Promedio mensual (últimos 5 meses) 0-20 para "Notas por Fecha"
+    const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const labelsES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const nowD = new Date();
+    const months: { key: string; label: string }[] = [];
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(nowD.getFullYear(), nowD.getMonth() - i, 1);
+      months.push({ key: monthKey(d), label: labelsES[d.getMonth()] });
+    }
+    const monthlyAgg: Record<string, { sum: number; n: number }> = {};
+    months.forEach(m => (monthlyAgg[m.key] = { sum: 0, n: 0 }));
+    gradedSubs.forEach(s => {
+      const t = parseWhen(s);
+      if (!t) return;
+      const d = new Date(t);
+      const key = monthKey(d);
+      if (!(key in monthlyAgg)) return;
+      monthlyAgg[key].sum += norm100(s);
+      monthlyAgg[key].n += 1;
+    });
+    const monthlyAvg20 = months.map(m => (
+      monthlyAgg[m.key].n > 0 ? (monthlyAgg[m.key].sum / monthlyAgg[m.key].n) / 5 : 0
+    ));
+    const monthlyLabels = months.map(m => m.label);
 
     return {
       tasksCreated,
@@ -149,14 +215,21 @@ function useTeacherStats(username?: string, period: Period = '30d') {
       submissions: teacherSubs.length,
       gradedSubmissions: gradedSubs.length,
       avgGrade,
+  avgScore20: avgScore20,
       attendance: { present, total },
       trendSeries: series,
       topCourses,
       gradeBins: bins,
+  approvedCount,
+  failedCount,
+  topStudentAvg20,
+  courseAvg20,
+  monthlyAvg20,
+  monthlyLabels,
       _debug: refreshTick,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [username, period, window.from, refreshTick]);
+  }, [username, period, timeWindow.from, refreshTick]);
 
   return value;
 }
@@ -224,14 +297,44 @@ export default function TeacherStatisticsPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-[hsl(var(--custom-rose-100))] text-[hsl(var(--custom-rose-800))] dark:bg-[hsl(var(--custom-rose-700))] dark:text-white">
-            <BarChart3 className="w-6 h-6" />
+            <TrendingUp className="w-6 h-6" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">{t('statisticsPageTitle', 'Estadísticas')}</h1>
             <p className="text-muted-foreground">{t('statisticsPageSub', 'Análisis y métricas de tu gestión como profesor')}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
+        <Button className="home-card-button-green w-auto flex items-center gap-2" onClick={() => {
+          // Exportación básica: descargar JSON con resumen visible
+          const payload = {
+            period,
+            approved: stats.approvedCount,
+            failed: stats.failedCount,
+            avg20: stats.avgScore20,
+            topStudentAvg20: stats.topStudentAvg20,
+          };
+          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = `estadisticas-${new Date().toISOString().slice(0,10)}.json`;
+          a.click(); URL.revokeObjectURL(url);
+        }}>
+          <Download className="w-4 h-4" /> {t('download', 'Descargar')}
+        </Button>
+      </div>
+
+      {/* Filtros (chips) */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="outline" className="home-card-button-stats w-auto flex items-center gap-2">
+          {t('grades', 'Notas')} <ChevronDown className="w-4 h-4 opacity-70" />
+        </Button>
+        <Button variant="outline" className="home-card-button-stats w-auto flex items-center gap-2">
+          {t('course', 'Curso')} <ChevronDown className="w-4 h-4 opacity-70" />
+        </Button>
+        <Button variant="outline" className="home-card-button-stats w-auto flex items-center gap-2">
+          {t('allLevels', 'Todos los niveles')} <ChevronDown className="w-4 h-4 opacity-70" />
+        </Button>
+        <div className="flex items-center gap-2 bg-muted rounded-lg p-1 ml-auto">
           {(['7d','30d','90d','all'] as Period[]).map(p => (
             <Button
               key={p}
@@ -245,56 +348,41 @@ export default function TeacherStatisticsPage() {
         </div>
       </div>
 
-      {/* Top KPIs */}
+      {/* Top KPIs (según imagen) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <ClipboardList className="w-4 h-4" /> {t('statsTasksCreated', 'Tareas creadas')}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('approvedStudents', 'Estudiantes aprobados')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats.tasksCreated}</div>
-            <p className="text-sm text-muted-foreground">{t('lastPeriod', 'en el periodo seleccionado')}</p>
+            <div className="text-5xl font-extrabold text-emerald-400">{stats.approvedCount ?? 0}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <FileCheck2 className="w-4 h-4" /> {t('statsSubmissions', 'Entregas de tareas')}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('failedStudents', 'Estudiantes reprobados')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats.submissions}</div>
-            <p className="text-sm text-muted-foreground">{t('gradedCountLabel', 'Calificadas')}: {stats.gradedSubmissions}</p>
+            <div className="text-5xl font-extrabold text-blue-400">{stats.failedCount ?? 0}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Activity className="w-4 h-4" /> {t('statsAvgGrade', 'Promedio de calificación')}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('avgAllStudents', 'Promedio de todos los estudiantes')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{typeof stats.avgGrade === 'number' ? stats.avgGrade.toFixed(1) : '—'}</div>
-            <p className="text-sm text-muted-foreground">{t('onlyGraded', 'Solo sobre entregas calificadas')}</p>
+            <div className="text-5xl font-extrabold text-blue-300">{typeof stats.avgScore20 === 'number' ? stats.avgScore20.toFixed(1) : '—'}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Users className="w-4 h-4" /> {t('statsAttendanceRate', 'Asistencia (%)')}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('topStudentAvg', 'Promedio de estudiante destacado')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{attendanceRate}%</div>
-            <Progress value={attendanceRate} className="mt-2" />
-            <p className="text-sm text-muted-foreground mt-1">
-              {stats.attendance.present}/{stats.attendance.total} {t('attendanceMarks', 'marcajes')}
-            </p>
+            <div className="text-5xl font-extrabold text-fuchsia-300">{typeof stats.topStudentAvg20 === 'number' ? stats.topStudentAvg20.toFixed(1) : '—'}</div>
           </CardContent>
         </Card>
       </div>
@@ -337,54 +425,49 @@ export default function TeacherStatisticsPage() {
         </Card>
       </div>
 
-      {/* Trend and Distribution */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
+      {/* Gráficos principales */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Comparación de Cursos (barras) */}
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5" /> {t('trendSubmissions', 'Tendencia de entregas')}
-            </CardTitle>
+            <CardTitle>{t('courseComparison', 'Comparación de Cursos')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-28 flex items-end gap-1">
-              {stats.trendSeries && stats.trendSeries.length > 0 ? (
-                stats.trendSeries.map((v, i) => {
-                  const max = Math.max(1, ...stats.trendSeries);
-                  const h = Math.round((v / max) * 100);
-                  return (
-                    <div key={i} className="flex-1 min-w-[4px] bg-[hsl(var(--custom-rose-100))] dark:bg-[hsl(var(--custom-rose-700))] rounded-t">
-                      <div style={{ height: `${h}%` }} className="w-full bg-[hsl(var(--custom-rose-700))] dark:bg-white rounded-t"></div>
-                    </div>
-                  );
-                })
-              ) : (
+            <div className="h-56 flex items-end gap-4 px-2">
+              {(() => { const data = stats.courseAvg20 ?? []; return data; })().map((c, idx, arr) => {
+                const max = Math.max(1, ...arr.map((x: any) => x.avg20));
+                const h = Math.round((c.avg20 / max) * 180);
+                const color = ['#60A5FA','#F9A8D4','#C4B5FD','#34D399'][idx % 4];
+                return (
+                  <div key={c.label} className="flex-1 flex flex-col items-center">
+                    <div style={{ height: `${h}px`, backgroundColor: color }} className="w-10 rounded-t-md"></div>
+                    <div className="mt-2 text-sm text-center truncate w-16" title={c.label}>{c.label}</div>
+                  </div>
+                );
+              })}
+              {(stats.courseAvg20?.length ?? 0) === 0 && (
                 <p className="text-sm text-muted-foreground">{t('noData', 'Sin datos')}</p>
               )}
             </div>
           </CardContent>
         </Card>
 
+        {/* Notas por Fecha (línea) */}
         <Card>
           <CardHeader>
-            <CardTitle>{t('gradesDistribution', 'Distribución de calificaciones')}</CardTitle>
+            <CardTitle>{t('gradesOverTime', 'Notas por Fecha')}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {([
-              { k: 'low', label: '<=40' },
-              { k: 'mid', label: '41-60' },
-              { k: 'high', label: '61-80' },
-              { k: 'top', label: '81-100' },
-            ] as const).map(b => {
-              const total = stats.gradedSubmissions || 1;
-              const n = (stats.gradeBins as any)?.[b.k] || 0;
-              const pct = Math.round((n / total) * 100);
-              return (
-                <div key={b.k}>
-                  <div className="flex justify-between text-sm mb-1"><span>{b.label}</span><span>{n} ({pct}%)</span></div>
-                  <Progress value={pct} />
-                </div>
-              );
-            })}
+          <CardContent>
+            {stats.monthlyAvg20 && stats.monthlyAvg20.length ? (
+              <TrendChart
+                data={stats.monthlyAvg20}
+                labels={stats.monthlyLabels || []}
+                color={'#60A5FA'}
+                height={200}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('noData', 'Sin datos')}</p>
+            )}
           </CardContent>
         </Card>
       </div>
