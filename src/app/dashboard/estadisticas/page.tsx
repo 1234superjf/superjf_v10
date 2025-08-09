@@ -13,8 +13,203 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { ensureDemoTeacherData } from '@/lib/demo/teacher-stats-demo';
 import TrendChart from '@/components/charts/TrendChart';
+// Componente: Gráfico temporal de asistencia con filtros por curso y estudiante
+function AttendanceTrendCard({
+  period,
+  teacherUsername,
+  teacherCourses,
+}: {
+  period: Period;
+  teacherUsername: string;
+  teacherCourses: Array<{ id: string; courseId: string; sectionId: string; label: string; level?: Level }>;
+}) {
+  const [course, setCourse] = useState<string | 'all'>('all');
+  const [student, setStudent] = useState<string | 'all'>('all');
+
+  // Rango de fechas
+  const timeWindow = getTimeWindow(period);
+  const fromTs = timeWindow.from ?? (Date.now() - days(30));
+  const toTs = Date.now();
+
+  // Estudiantes asignados a la sección seleccionada (si aplica)
+  const assignedStudents = useMemo(() => {
+    try {
+      if (course === 'all') return [] as Array<{ username: string; displayName: string }>; 
+      const sectionId = course.split('-').slice(-1)[0];
+      const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const assignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const ids = assignments.filter((a: any) => a.sectionId === sectionId).map((a: any) => a.studentId || a.studentUsername);
+      const mapped = users
+        .filter((u: any) => u.role === 'student' && (ids.includes(u.id) || ids.includes(u.username)))
+        .map((u: any) => ({ username: u.username || u.id, displayName: u.displayName || u.name || u.username }));
+      // Orden alfabético
+  mapped.sort((a: { username: string; displayName: string }, b: { username: string; displayName: string }) => (a.displayName || '').localeCompare(b.displayName || ''));
+      return mapped;
+    } catch { return []; }
+  }, [course]);
+
+  // Serie temporal: porcentaje de presencia por día (0-100)
+  const { series, labels } = useMemo(() => {
+    try {
+      const att = JSON.parse(localStorage.getItem('smart-student-attendance') || '[]');
+      const dayMs = days(1);
+      const buckets: { from: number; to: number }[] = [];
+      let ptr = fromTs - (fromTs % dayMs); // alineado a medianoche local aproximada
+      const end = toTs;
+      while (ptr <= end) {
+        buckets.push({ from: ptr, to: ptr + dayMs });
+        ptr += dayMs;
+      }
+
+      const isInBucket = (ts: number, b: { from: number; to: number }) => ts >= b.from && ts < b.to;
+      const parseDateAny = (s: any): number => {
+        if (!s) return 0;
+        if (typeof s === 'number') return s; // epoch ms
+        if (typeof s === 'string') {
+          // Si ya es ISO o similar, Date.parse
+          if (s.includes('T') || s.includes(':') || s.includes('/')) {
+            const t = Date.parse(s);
+            return Number.isNaN(t) ? 0 : t;
+          }
+          // Formato YYYY-MM-DD
+          const parts = s.split('-').map(Number);
+          const Y = parts[0]; const M = parts[1]; const D = parts[2];
+          if (Y && M && D) return new Date(Y, (M || 1) - 1, D || 1).getTime();
+          const t = Date.parse(s);
+          return Number.isNaN(t) ? 0 : t;
+        }
+        return 0;
+      };
+
+      const filtered = (att as any[]).filter(a => {
+        // Filtrar por profesor si existe el campo (respetando asistencia unificada)
+        if (teacherUsername && a.teacherUsername && a.teacherUsername !== teacherUsername) {
+          // mantener: la asistencia es única, pero si se guardó teacherUsername distinto, no contamos en stats del profesor
+          return false;
+        }
+        // Filtro por curso (course es id compuesto courseId-sectionId)
+        if (course !== 'all' && a.course !== course) return false;
+        // Filtro por estudiante
+        if (student !== 'all' && a.studentUsername !== student) return false;
+        // Filtro por tiempo
+        const t = a.timestamp ? (typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.timestamp)) : parseDateAny(a.date);
+        if (Number.isNaN(t)) return false;
+        if (timeWindow.from && t < timeWindow.from) return false;
+        return t <= toTs;
+      });
+
+      const seriesVals: number[] = [];
+      const labelsStr: string[] = [];
+
+      buckets.forEach(b => {
+        const dayRecs = filtered.filter(a => {
+          const t = a.timestamp ? (typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.timestamp)) : parseDateAny(a.date);
+          return isInBucket(t, b);
+        });
+        const total = dayRecs.length;
+        const present = dayRecs.filter(a => a.status === 'present').length;
+        const pct = total > 0 ? Math.round((present / total) * 100) : 0;
+        seriesVals.push(pct);
+        const d = new Date(b.from);
+        labelsStr.push(`${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`);
+      });
+
+      // Fallback demo: si no hay datos o todos 0, generar histórico aleatorio estable
+      const hasSignal = seriesVals.some(v => v > 0);
+      if (!hasSignal) {
+        const seed = (teacherUsername || 'demo') + '|' + String(fromTs) + '|' + String(toTs) + '|' + String(course) + '|' + String(student);
+        let h = 2166136261;
+        for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24); }
+        const rnd = () => {
+          // xorshift32 simple
+          h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 1000) / 1000;
+        };
+        const synth: number[] = [];
+        let base = 82 + Math.round(rnd() * 10); // 82-92%
+        for (let i = 0; i < buckets.length; i++) {
+          const drift = (rnd() - 0.5) * 4; // +-2%
+          base = Math.max(60, Math.min(98, base + drift));
+          // ocasionales bajones
+          const shock = rnd() < 0.06 ? -10 - rnd() * 10 : 0;
+          const val = Math.round(Math.max(40, Math.min(99, base + shock)));
+          synth.push(val);
+        }
+        return { series: synth, labels: labelsStr };
+      }
+      return { series: seriesVals, labels: labelsStr };
+    } catch {
+      return { series: [], labels: [] };
+    }
+  }, [period, course, student, teacherUsername, fromTs, toTs]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>Asistencia en el tiempo</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {/* Filtros locales */}
+        <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Curso</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className={`text-xs px-2 py-1 rounded border ${course === 'all' ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                onClick={() => { setCourse('all'); setStudent('all'); }}
+              >Todos</button>
+              {teacherCourses.map(tc => (
+                <button
+                  key={tc.id}
+                  className={`text-xs px-2 py-1 rounded border truncate max-w-[10rem] ${course === tc.id ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                  onClick={() => { setCourse(tc.id); setStudent('all'); }}
+                  title={tc.label}
+                >{tc.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Estudiante (si hay curso seleccionado) */}
+          {course !== 'all' && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Estudiante</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className={`text-xs px-2 py-1 rounded border ${student === 'all' ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                  onClick={() => setStudent('all')}
+                >Todos</button>
+                {assignedStudents.map((s: { username: string; displayName: string }) => (
+                  <button
+                    key={s.username}
+                    className={`text-xs px-2 py-1 rounded border truncate max-w-[10rem] ${student === s.username ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                    onClick={() => setStudent(s.username)}
+                    title={s.displayName}
+                  >{s.displayName}</button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {series.length > 0 ? (
+          <TrendChart data={series} labels={labels} color={'#34D399'} height={200} />
+        ) : (
+          <p className="text-sm text-muted-foreground">Sin datos</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 
 type Period = '7d' | '30d' | '90d' | 'all';
+type Level = 'basica' | 'media';
+
+type StatsFilters = {
+  courseSectionId?: string; // id compuesto courseId-sectionId
+  level?: Level; // filtra por nivel del curso
+};
 
 interface TimeWindow {
   from?: number; // epoch ms
@@ -55,7 +250,7 @@ function belongsToTeacher(x: any, username?: string): boolean {
   return fields.includes(username);
 }
 
-function useTeacherStats(username?: string, period: Period = '30d') {
+function useTeacherStats(username?: string, period: Period = '30d', filters?: StatsFilters) {
   const [refreshTick, setRefreshTick] = useState(0);
   const timeWindow = getTimeWindow(period);
 
@@ -90,10 +285,55 @@ function useTeacherStats(username?: string, period: Period = '30d') {
       return true;
     };
 
+    // Helpers para filtrar por curso/nivel
+    const readRaw = (key: string): any[] => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } };
+    const coursesAll = [...readRaw('smart-student-admin-courses'), ...readRaw('smart-student-courses')];
+    const sectionsAll = [...readRaw('smart-student-admin-sections'), ...readRaw('smart-student-sections')];
+    const levelByCourseId: Record<string, Level | undefined> = {};
+    coursesAll.forEach((c: any) => { if (c?.id) levelByCourseId[c.id] = (c.level as Level) || undefined; });
+
+    const extractCourseSectionId = (obj: any): string | undefined => {
+      // intenta obtiene id compuesto desde varios campos comunes
+      const cs = obj?.courseSectionId || obj?.course || obj?.courseIdSectionId;
+      if (cs && typeof cs === 'string' && cs.includes('-')) return cs;
+      const courseId = obj?.courseId || obj?.course?.id || obj?.course;
+      const sectionId = obj?.sectionId || obj?.section?.id || obj?.section;
+      if (courseId && sectionId) return `${courseId}-${sectionId}`;
+      // A veces solo viene sectionId: derivar courseId
+      if (!courseId && sectionId) {
+        const s = sectionsAll.find((s: any) => s && (s.id === sectionId || s.sectionId === sectionId));
+        const cId = s?.courseId || (s?.course && (s.course.id || s.courseId));
+        if (cId) return `${cId}-${sectionId}`;
+      }
+      return undefined;
+    };
+
+    const extractCourseLevel = (obj: any): Level | undefined => {
+      const csId = extractCourseSectionId(obj);
+      if (!csId) return undefined;
+      const parts = csId.split('-');
+      const cId = parts.length >= 2 ? parts.slice(0, parts.length - 1).join('-') : parts[0];
+      return levelByCourseId[cId];
+    };
+
+    const matchFilters = (obj: any): boolean => {
+      if (!filters) return true;
+      const { courseSectionId, level } = filters;
+      if (courseSectionId) {
+        const csId = extractCourseSectionId(obj);
+        if (csId !== courseSectionId) return false;
+      }
+      if (level) {
+        const lvl = extractCourseLevel(obj);
+        if (lvl !== level) return false;
+      }
+      return true;
+    };
+
     // TAREAS
     const tasks: any[] = read('smart-student-tasks');
-    const teacherTasks = tasks.filter(t => belongsToTeacher(t, username));
-    const teacherTasksInWindow = teacherTasks.filter(inWindow);
+  const teacherTasks = tasks.filter(t => belongsToTeacher(t, username));
+  const teacherTasksInWindow = teacherTasks.filter(inWindow).filter(matchFilters);
     const tasksCreated = teacherTasksInWindow.length;
     const evaluationTasks = teacherTasksInWindow.filter(t => (t.type === 'evaluation' || t.taskType === 'evaluation')).length;
 
@@ -101,11 +341,11 @@ function useTeacherStats(username?: string, period: Period = '30d') {
     const submissions: any[] = read('smart-student-submissions');
     // Preferimos enlazar por taskId si existe y el task es del profesor
     const taskIdsOfTeacher = new Set((teacherTasks as any[]).map(t => t.id || t.taskId));
-    const teacherSubs = submissions.filter(s => {
+  const teacherSubs = submissions.filter(s => {
       const byLink = s.taskId && taskIdsOfTeacher.has(s.taskId);
       const byOwner = belongsToTeacher(s, username);
       return byLink || byOwner;
-    }).filter(inWindow);
+  }).filter(inWindow).filter(matchFilters);
     const gradedSubs = teacherSubs.filter(s => typeof s.grade === 'number' || s.isGraded === true);
     const rawVal = (s: any) => (typeof s.grade === 'number' ? s.grade : (s.score ?? 0));
     const norm100 = (s: any) => {
@@ -122,7 +362,7 @@ function useTeacherStats(username?: string, period: Period = '30d') {
 
     // ASISTENCIA
     const attendance: any[] = read('smart-student-attendance');
-    const teacherAtt = attendance.filter(a => a.teacherUsername === username).filter(inWindow);
+  const teacherAtt = attendance.filter(a => a.teacherUsername === username).filter(inWindow).filter(matchFilters);
     const present = teacherAtt.filter(a => a.status === 'present').length;
     const total = teacherAtt.length;
 
@@ -231,7 +471,7 @@ function useTeacherStats(username?: string, period: Period = '30d') {
       _debug: refreshTick,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [username, period, timeWindow.from, refreshTick]);
+  }, [username, period, timeWindow.from, refreshTick, JSON.stringify(filters)]);
 
   return value;
 }
@@ -240,6 +480,8 @@ export default function TeacherStatisticsPage() {
   const { user } = useAuth();
   const { translate } = useLanguage();
   const [period, setPeriod] = useState<Period>('30d');
+  const [selectedCourse, setSelectedCourse] = useState<string | 'all'>('all');
+  const [selectedLevel, setSelectedLevel] = useState<'all' | Level>('all');
   const router = useRouter();
 
   // Generar datos demo si el entorno está vacío (solo cliente)
@@ -262,7 +504,14 @@ export default function TeacherStatisticsPage() {
     } catch {}
   }, [user?.username]);
 
-  const stats = useTeacherStats(user?.username, period);
+  const stats = useTeacherStats(
+    user?.username,
+    period,
+    {
+      courseSectionId: selectedCourse !== 'all' ? selectedCourse : undefined,
+      level: selectedLevel !== 'all' ? selectedLevel : undefined,
+    }
+  );
 
   const t = (key: string, fallback?: string) => {
     const v = translate(key);
@@ -293,37 +542,91 @@ export default function TeacherStatisticsPage() {
     });
   }, [user?.username]);
 
+  // Cursos/secciones reales del profesor (para filtros)
+  const teacherCourses = useMemo(() => {
+    try {
+      const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+      const sections = [...JSON.parse(localStorage.getItem('smart-student-admin-sections') || '[]'), ...JSON.parse(localStorage.getItem('smart-student-sections') || '[]')];
+      const courses = [...JSON.parse(localStorage.getItem('smart-student-admin-courses') || '[]'), ...JSON.parse(localStorage.getItem('smart-student-courses') || '[]')];
+      const my = teacherAssignments.filter((ta: any) => ta.teacherId === user?.id || ta.teacherUsername === user?.username || ta.teacher === user?.username);
+      const normalize = (ta: any) => {
+        const sectionId = ta.sectionId || ta.section || ta.sectionUUID || ta.section_id || ta.sectionID;
+        let courseId = ta.courseId || ta.course || ta.courseUUID || ta.course_id || ta.courseID;
+        if (!courseId && sectionId) {
+          const sec = sections.find((s: any) => s && (s.id === sectionId || s.sectionId === sectionId));
+          courseId = sec?.courseId || (sec?.course && (sec.course.id || sec.courseId)) || courseId;
+        }
+        return { sectionId, courseId };
+      };
+      const getLabel = (courseId?: string, sectionId?: string) => {
+        const c = courses.find((x: any) => x && (x.id === courseId));
+        const s = sections.find((x: any) => x && (x.id === sectionId || x.sectionId === sectionId));
+        const courseName = c?.fullName || c?.displayName || c?.longName || c?.label || c?.gradeName || c?.name || 'Curso';
+        const sectionName = s?.fullName || s?.displayName || s?.longName || s?.label || s?.name || '';
+        return `${courseName} ${sectionName}`.trim();
+      };
+      const list = my.map((ta: any) => {
+        const { sectionId, courseId } = normalize(ta);
+        if (!sectionId) return null;
+        const id = `${courseId || 'unknown-course'}-${sectionId}`;
+        const label = getLabel(courseId, sectionId);
+        const level = courses.find((c: any) => c.id === courseId)?.level as Level | undefined;
+        return { id, courseId: courseId || 'unknown-course', sectionId, label, level };
+      }).filter(Boolean) as Array<{ id: string; courseId: string; sectionId: string; label: string; level?: Level }>;
+      const seen = new Set<string>();
+      return list.filter(x => { if (seen.has(x.id)) return false; seen.add(x.id); return true; });
+    } catch { return [] as Array<{ id: string; courseId: string; sectionId: string; label: string; level?: Level }>; }
+  }, [user?.id, user?.username]);
+
+  const availableLevels = useMemo(() => {
+    const lv = new Set<Level>();
+    teacherCourses.forEach(tc => { if (tc.level === 'basica' || tc.level === 'media') lv.add(tc.level); });
+    return Array.from(lv);
+  }, [teacherCourses]);
+
   const exportPDF = async () => {
     try {
       const container = document.getElementById('teacher-stats-container');
       if (!container) return;
-      // Ajustar ancho A4 a 96 DPI aprox: 794 x 1123 px, margen pequeño
+      // Ajustar ancho de página y márgenes
       const pdf = new jsPDF('p', 'pt', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 24;
 
-      // Canvas por secciones visibles para evitar sobreflows
-      const sections = Array.from(container.querySelectorAll('[data-section]')) as HTMLElement[];
-      if (sections.length === 0) {
-        // fallback: captura total
-        const canvas = await html2canvas(container as HTMLElement, { scale: 2, backgroundColor: '#0b1220' });
-        const imgData = canvas.toDataURL('image/png');
-        const ratio = Math.min((pageWidth - margin * 2) / canvas.width, (pageHeight - margin * 2) / canvas.height);
-        const w = canvas.width * ratio; const h = canvas.height * ratio;
-        pdf.addImage(imgData, 'PNG', (pageWidth - w) / 2, margin, w, h, undefined, 'FAST');
-      } else {
-        for (let i = 0; i < sections.length; i++) {
-          const el = sections[i];
-          // Asegurar fondo consistente en modo dark
-          el.style.background = el.style.background || 'transparent';
-          const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#0b1220' });
-          const imgData = canvas.toDataURL('image/png');
-          const ratio = Math.min((pageWidth - margin * 2) / canvas.width, (pageHeight - margin * 2) / canvas.height);
-          const w = canvas.width * ratio; const h = canvas.height * ratio;
-          if (i > 0) pdf.addPage();
-          pdf.addImage(imgData, 'PNG', (pageWidth - w) / 2, margin, w, h, undefined, 'FAST');
+      // Captura ÚNICA de todo el contenedor para mantener flujo vertical continuo
+      const canvas = await html2canvas(container as HTMLElement, { scale: 2, backgroundColor: '#0b1220' });
+      const imgData = canvas.toDataURL('image/png');
+
+      // Escala para ajustar al ancho de la página manteniendo proporción
+      const ratio = (pageWidth - margin * 2) / canvas.width;
+      const pageContentHeight = pageHeight - margin * 2;
+      const sliceHeightPx = Math.floor(pageContentHeight / ratio); // alto en píxeles del canvas por página
+
+      const totalPages = Math.max(1, Math.ceil(canvas.height / sliceHeightPx));
+
+      // Crear slices verticales del canvas para cada página
+      for (let page = 0; page < totalPages; page++) {
+        if (page > 0) pdf.addPage();
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = Math.min(sliceHeightPx, canvas.height - page * sliceHeightPx);
+        const ctx = sliceCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#0b1220';
+          ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+          ctx.drawImage(
+            canvas,
+            0, page * sliceHeightPx, // origen Y en el canvas grande
+            canvas.width, sliceCanvas.height, // tamaño de recorte
+            0, 0, // destino
+            sliceCanvas.width, sliceCanvas.height
+          );
         }
+        const sliceData = sliceCanvas.toDataURL('image/png');
+        const w = canvas.width * ratio;
+        const h = sliceCanvas.height * ratio;
+        pdf.addImage(sliceData, 'PNG', (pageWidth - w) / 2, margin, w, h, undefined, 'FAST');
       }
       pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
     } catch (e) {
@@ -351,33 +654,74 @@ export default function TeacherStatisticsPage() {
 
       {/* Filtros: tarjetas cuadradas seleccionables */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-section>
-        {[
-          { key: 'grades', label: t('grades', 'Notas'), sub: '—' },
-          { key: 'course', label: t('course', 'Curso'), sub: '—' },
-          { key: 'levels', label: t('allLevels', 'Todos los niveles'), sub: '—' },
-          { key: 'period', label: t('period', 'Periodo'), sub: period === 'all' ? t('allTime', 'Todo') : period },
-        ].map(card => (
-          <Card key={card.key} className="cursor-pointer hover:shadow-md transition select-none">
-            <CardContent className="p-4 flex flex-col items-start gap-1">
-              <div className="text-sm text-muted-foreground">{card.label}</div>
-              <div className="text-lg font-semibold">{card.sub}</div>
-              {card.key === 'period' && (
-                <div className="mt-2 grid grid-cols-4 gap-1 w-full">
-                  {(['7d','30d','90d','all'] as Period[]).map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setPeriod(p)}
-                      className={`text-xs py-1 rounded border ${period === p ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
-                      title={p === 'all' ? t('allTime', 'Todo') : p}
-                    >
-                      {p === 'all' ? t('allTime', 'Todo') : p}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+        {/* Notas (placeholder por paridad visual) */}
+        <Card className="select-none">
+          <CardContent className="p-4 flex flex-col items-start gap-1">
+            <div className="text-sm text-muted-foreground">{t('grades', 'Notas')}</div>
+            <div className="text-lg font-semibold">—</div>
+          </CardContent>
+        </Card>
+
+        {/* Cursos del profesor */}
+        <Card className="select-none">
+          <CardContent className="p-4 flex flex-col items-start gap-2">
+            <div className="text-sm text-muted-foreground">{t('course', 'Curso')}</div>
+            <div className="w-full flex flex-wrap gap-2">
+              <button
+                className={`text-xs px-2 py-1 rounded border ${selectedCourse === 'all' ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                onClick={() => setSelectedCourse('all')}
+              >{t('all', 'Todos')}</button>
+              {teacherCourses.map(tc => (
+                <button
+                  key={tc.id}
+                  className={`text-xs px-2 py-1 rounded border truncate max-w-[10rem] ${selectedCourse === tc.id ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                  onClick={() => setSelectedCourse(tc.id)}
+                  title={tc.label}
+                >{tc.label}</button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Niveles (renombrado) */}
+        <Card className="select-none">
+          <CardContent className="p-4 flex flex-col items-start gap-2">
+            <div className="text-sm text-muted-foreground">{t('levels', 'Niveles')}</div>
+            <div className="w-full flex flex-wrap gap-2">
+              <button
+                className={`text-xs px-2 py-1 rounded border ${selectedLevel === 'all' ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                onClick={() => setSelectedLevel('all')}
+              >{t('all', 'Todos')}</button>
+              {availableLevels.map(lv => (
+                <button
+                  key={lv}
+                  className={`text-xs px-2 py-1 rounded border ${selectedLevel === lv ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                  onClick={() => setSelectedLevel(lv)}
+                >{lv === 'basica' ? 'Básica' : 'Media'}</button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Periodo */}
+        <Card className="select-none">
+          <CardContent className="p-4 flex flex-col items-start gap-1">
+            <div className="text-sm text-muted-foreground">{t('period', 'Periodo')}</div>
+            <div className="text-lg font-semibold">{period === 'all' ? t('allTime', 'Todo') : period}</div>
+            <div className="mt-2 grid grid-cols-4 gap-1 w-full">
+              {(['7d','30d','90d','all'] as Period[]).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className={`text-xs py-1 rounded border ${period === p ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                  title={p === 'all' ? t('allTime', 'Todo') : p}
+                >
+                  {p === 'all' ? t('allTime', 'Todo') : p}
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Top KPIs (según imagen) */}
@@ -420,28 +764,15 @@ export default function TeacherStatisticsPage() {
       </div>
 
       {/* Breakdown */}
-  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-section>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ClipboardList className="w-5 h-5" /> {t('statsEvaluationTasks', 'Evaluaciones asignadas')}
-              <Badge variant="secondary" className="ml-2">{stats.evaluationTasks}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-3">{t('evaluationTasksHelp', 'Cuenta las tareas de tipo evaluación creadas por ti en el periodo')}</p>
-            <div className="flex flex-wrap gap-2">
-              <Button className="home-card-button home-card-button-stats w-auto" variant="outline">
-                {t('viewTasks', 'Ver tareas')}
-              </Button>
-              <Button className="home-card-button home-card-button-stats w-auto" variant="outline" onClick={() => router.push('/dashboard/evaluacion')}>
-                {t('goToEvaluations', 'Ir a Evaluaciones')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-section>
+        {/* Gráfico temporal de asistencia con filtros */}
+        <AttendanceTrendCard
+          period={period}
+          teacherUsername={user?.username || ''}
+          teacherCourses={teacherCourses}
+        />
 
-        <Card>
+  <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5" /> {t('quickInsights', 'Insights rápidos')}
