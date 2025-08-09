@@ -193,7 +193,7 @@ const teacherCards = [
     btnKey: 'cardStatisticsBtn',
     targetPage: '/dashboard/estadisticas',
     icon: TrendingUp,
-    colorClass: 'emerald',
+  colorClass: 'rose',
     showBadge: false,
   },
 ];
@@ -1134,7 +1134,7 @@ export default function DashboardHomePage() {
       case 'red': return 'home-card-button-red';
       case 'indigo': return 'home-card-button-indigo';
       case 'teal': return 'home-card-button-teal';
-      case 'rose': return 'home-card-button-rose';
+  case 'rose': return 'home-card-button-stats';
       case 'emerald': return 'home-card-button-emerald';
       default: return '';
     }

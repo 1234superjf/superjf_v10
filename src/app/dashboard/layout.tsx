@@ -74,6 +74,9 @@ export default function DashboardLayout({
           newTheme = 'red';
         } else if (pathname.startsWith('/dashboard/solicitudes')) {
           newTheme = 'orange';
+        } else if (pathname.startsWith('/dashboard/estadisticas')) {
+          // Teacher Statistics section uses unique rose accent
+          newTheme = 'rose';
         }
       }
       setActiveAccentTheme(newTheme);
@@ -85,7 +88,7 @@ export default function DashboardLayout({
 
   useEffect(() => {
     // List of all possible theme classes
-    const themeClasses = ['theme-accent-default', 'theme-accent-blue', 'theme-accent-green', 'theme-accent-yellow', 'theme-accent-cyan', 'theme-accent-purple', 'theme-accent-red', 'theme-accent-orange', 'theme-accent-teal'];
+  const themeClasses = ['theme-accent-default', 'theme-accent-blue', 'theme-accent-green', 'theme-accent-yellow', 'theme-accent-cyan', 'theme-accent-purple', 'theme-accent-red', 'theme-accent-orange', 'theme-accent-teal', 'theme-accent-rose'];
     
     // Clean up previous theme classes from html element
     themeClasses.forEach(cls => document.documentElement.classList.remove(cls));

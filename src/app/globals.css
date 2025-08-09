@@ -260,6 +260,19 @@ html.theme-accent-purple {
   --primary: hsl(var(--custom-purple-100)); --primary-foreground: hsl(var(--custom-purple-800));
   --accent: hsl(var(--custom-purple-800)); --accent-foreground: hsl(var(--custom-purple-100));
 }
+html.theme-accent-teal {
+  /* Use emerald palette for Statistics */
+  --primary: hsl(var(--custom-emerald-100));
+  --primary-foreground: hsl(var(--custom-emerald-800));
+  --accent: hsl(var(--custom-emerald-800));
+  --accent-foreground: hsl(var(--custom-emerald-100));
+}
+html.theme-accent-rose {
+  --primary: hsl(var(--custom-rose-100));
+  --primary-foreground: hsl(var(--custom-rose-800));
+  --accent: hsl(var(--custom-rose-700));
+  --accent-foreground: hsl(var(--custom-rose-50));
+}
 
 /* Dark Mode Theme-specific primary, accent colors. */
 html.dark.theme-accent-default {
@@ -297,6 +310,19 @@ html.dark.theme-accent-purple {
   --primary-foreground: hsl(var(--custom-purple-100));
   --accent: hsl(var(--custom-purple-100));
   --accent-foreground: hsl(var(--custom-purple-800));
+}
+html.dark.theme-accent-teal {
+  /* Use emerald palette for Statistics */
+  --primary: hsl(var(--custom-emerald-800));
+  --primary-foreground: hsl(var(--custom-emerald-100));
+  --accent: hsl(var(--custom-emerald-100));
+  --accent-foreground: hsl(var(--custom-emerald-800));
+}
+html.dark.theme-accent-rose {
+  --primary: hsl(var(--custom-rose-700));
+  --primary-foreground: hsl(var(--custom-rose-50));
+  --accent: hsl(var(--custom-rose-100));
+  --accent-foreground: hsl(var(--custom-rose-800));
 }
 
 
@@ -736,6 +762,47 @@ html.dark.theme-accent-purple {
   background-color: hsl(var(--custom-rose-800)) !important;
   color: hsl(var(--custom-rose-100)) !important;
   border: none !important;
+}
+
+/* Rose button variant for statistics (alias) */
+.home-card-button-stats {
+  @apply home-card-button; /* base */
+}
+.home-card-button-stats { /* light-first (como otros botones de tarjetas) */
+  background-color: hsl(var(--custom-rose-100)) !important;
+  color: hsl(var(--custom-rose-800)) !important;
+  border: none !important;
+  transition: all 0.2s ease-in-out !important;
+}
+.home-card-button-stats:hover {
+  background-color: hsl(var(--custom-rose-700)) !important;
+  color: hsl(var(--custom-rose-50)) !important;
+}
+.home-card-button-stats:active {
+  background-color: hsl(var(--custom-rose-800)) !important;
+  color: hsl(var(--custom-rose-100)) !important;
+  transform: scale(1.05) !important;
+}
+.home-card-button-stats:focus {
+  background-color: hsl(var(--custom-rose-800)) !important;
+  color: hsl(var(--custom-rose-100)) !important;
+  border: none !important;
+}
+
+/* Dark mode para stats: también light-first (igual a otras tarjetas) */
+.dark .home-card-button-stats {
+  background-color: hsl(var(--custom-rose-100)) !important;
+  color: hsl(var(--custom-rose-800)) !important;
+  border: none !important;
+}
+.dark .home-card-button-stats:hover {
+  background-color: hsl(var(--custom-rose-700)) !important;
+  color: hsl(var(--custom-rose-50)) !important;
+}
+.dark .home-card-button-stats:active,
+.dark .home-card-button-stats:focus {
+  background-color: hsl(var(--custom-rose-800)) !important;
+  color: hsl(var(--custom-rose-100)) !important;
 }
 
 /* Emerald button styles */
