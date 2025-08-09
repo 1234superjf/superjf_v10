@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { BarChart3, ClipboardList, FileCheck2, Users, Activity, TrendingUp, Clock, Download, ChevronDown } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { ensureDemoTeacherData } from '@/lib/demo/teacher-stats-demo';
 import TrendChart from '@/components/charts/TrendChart';
 
@@ -291,8 +293,46 @@ export default function TeacherStatisticsPage() {
     });
   }, [user?.username]);
 
+  const exportPDF = async () => {
+    try {
+      const container = document.getElementById('teacher-stats-container');
+      if (!container) return;
+      // Ajustar ancho A4 a 96 DPI aprox: 794 x 1123 px, margen pequeño
+      const pdf = new jsPDF('p', 'pt', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 24;
+
+      // Canvas por secciones visibles para evitar sobreflows
+      const sections = Array.from(container.querySelectorAll('[data-section]')) as HTMLElement[];
+      if (sections.length === 0) {
+        // fallback: captura total
+        const canvas = await html2canvas(container as HTMLElement, { scale: 2, backgroundColor: '#0b1220' });
+        const imgData = canvas.toDataURL('image/png');
+        const ratio = Math.min((pageWidth - margin * 2) / canvas.width, (pageHeight - margin * 2) / canvas.height);
+        const w = canvas.width * ratio; const h = canvas.height * ratio;
+        pdf.addImage(imgData, 'PNG', (pageWidth - w) / 2, margin, w, h, undefined, 'FAST');
+      } else {
+        for (let i = 0; i < sections.length; i++) {
+          const el = sections[i];
+          // Asegurar fondo consistente en modo dark
+          el.style.background = el.style.background || 'transparent';
+          const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#0b1220' });
+          const imgData = canvas.toDataURL('image/png');
+          const ratio = Math.min((pageWidth - margin * 2) / canvas.width, (pageHeight - margin * 2) / canvas.height);
+          const w = canvas.width * ratio; const h = canvas.height * ratio;
+          if (i > 0) pdf.addPage();
+          pdf.addImage(imgData, 'PNG', (pageWidth - w) / 2, margin, w, h, undefined, 'FAST');
+        }
+      }
+      pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch (e) {
+      console.error('[TeacherStatisticsPage] Error exportando PDF:', e);
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div id="teacher-stats-container" className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -304,52 +344,44 @@ export default function TeacherStatisticsPage() {
             <p className="text-muted-foreground">{t('statisticsPageSub', 'Análisis y métricas de tu gestión como profesor')}</p>
           </div>
         </div>
-        <Button className="home-card-button-green w-auto flex items-center gap-2" onClick={() => {
-          // Exportación básica: descargar JSON con resumen visible
-          const payload = {
-            period,
-            approved: stats.approvedCount,
-            failed: stats.failedCount,
-            avg20: stats.avgScore20,
-            topStudentAvg20: stats.topStudentAvg20,
-          };
-          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url; a.download = `estadisticas-${new Date().toISOString().slice(0,10)}.json`;
-          a.click(); URL.revokeObjectURL(url);
-        }}>
+        <Button className="home-card-button-green w-auto flex items-center gap-2" onClick={exportPDF}>
           <Download className="w-4 h-4" /> {t('download', 'Descargar')}
         </Button>
       </div>
 
-      {/* Filtros (chips) */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" className="home-card-button-stats w-auto flex items-center gap-2">
-          {t('grades', 'Notas')} <ChevronDown className="w-4 h-4 opacity-70" />
-        </Button>
-        <Button variant="outline" className="home-card-button-stats w-auto flex items-center gap-2">
-          {t('course', 'Curso')} <ChevronDown className="w-4 h-4 opacity-70" />
-        </Button>
-        <Button variant="outline" className="home-card-button-stats w-auto flex items-center gap-2">
-          {t('allLevels', 'Todos los niveles')} <ChevronDown className="w-4 h-4 opacity-70" />
-        </Button>
-        <div className="flex items-center gap-2 bg-muted rounded-lg p-1 ml-auto">
-          {(['7d','30d','90d','all'] as Period[]).map(p => (
-            <Button
-              key={p}
-              onClick={() => setPeriod(p)}
-              variant={period === p ? 'default' : 'ghost'}
-              className={period === p ? 'home-card-button-rose' : 'home-card-button-stats'}
-            >
-              {p === 'all' ? t('allTime', 'Todo') : p}
-            </Button>
-          ))}
-        </div>
+      {/* Filtros: tarjetas cuadradas seleccionables */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-section>
+        {[
+          { key: 'grades', label: t('grades', 'Notas'), sub: '—' },
+          { key: 'course', label: t('course', 'Curso'), sub: '—' },
+          { key: 'levels', label: t('allLevels', 'Todos los niveles'), sub: '—' },
+          { key: 'period', label: t('period', 'Periodo'), sub: period === 'all' ? t('allTime', 'Todo') : period },
+        ].map(card => (
+          <Card key={card.key} className="cursor-pointer hover:shadow-md transition select-none">
+            <CardContent className="p-4 flex flex-col items-start gap-1">
+              <div className="text-sm text-muted-foreground">{card.label}</div>
+              <div className="text-lg font-semibold">{card.sub}</div>
+              {card.key === 'period' && (
+                <div className="mt-2 grid grid-cols-4 gap-1 w-full">
+                  {(['7d','30d','90d','all'] as Period[]).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setPeriod(p)}
+                      className={`text-xs py-1 rounded border ${period === p ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                      title={p === 'all' ? t('allTime', 'Todo') : p}
+                    >
+                      {p === 'all' ? t('allTime', 'Todo') : p}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       {/* Top KPIs (según imagen) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-section>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('approvedStudents', 'Estudiantes aprobados')}</CardTitle>
@@ -388,7 +420,7 @@ export default function TeacherStatisticsPage() {
       </div>
 
       {/* Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-section>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -426,7 +458,7 @@ export default function TeacherStatisticsPage() {
       </div>
 
       {/* Gráficos principales */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-section>
         {/* Comparación de Cursos (barras) */}
         <Card>
           <CardHeader>
