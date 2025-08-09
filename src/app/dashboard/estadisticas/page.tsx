@@ -8,9 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { BarChart3, ClipboardList, FileCheck2, Users, Activity, TrendingUp, Clock, Download, ChevronDown } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { BarChart3, ClipboardList, FileCheck2, Users, Activity, TrendingUp, Clock, ChevronDown } from 'lucide-react';
 import { ensureDemoTeacherData } from '@/lib/demo/teacher-stats-demo';
 import TrendChart from '@/components/charts/TrendChart';
 // Componente: Gráfico temporal de asistencia con filtros por curso y estudiante
@@ -358,7 +356,7 @@ function useTeacherStats(username?: string, period: Period = '30d', filters?: St
     const avgScore100 = gradedSubs.length > 0
       ? (gradedSubs.reduce((acc, s) => acc + norm100(s), 0) / gradedSubs.length)
       : undefined;
-    const avgScore20 = typeof avgScore100 === 'number' ? avgScore100 / 5 : undefined;
+    const avgScore20 = typeof avgScore100 === 'number' ? avgScore100 / 5 : undefined; // mantenemos 0-20 por compatibilidad
 
     // ASISTENCIA
     const attendance: any[] = read('smart-student-attendance');
@@ -409,21 +407,33 @@ function useTeacherStats(username?: string, period: Period = '30d', filters?: St
       if (!byStudent[key]) byStudent[key] = { sum: 0, n: 0 };
       byStudent[key].sum += sc; byStudent[key].n += 1;
     });
-    const topStudentAvg20 = Object.values(byStudent).length
-      ? Math.max(...Object.values(byStudent).map(x => (x.sum / x.n) / 5))
+    const topStudentAvg100 = Object.values(byStudent).length
+      ? Math.max(...Object.values(byStudent).map(x => (x.sum / x.n)))
       : undefined;
 
-    // Promedio por curso (0-20) para "Comparación de Cursos"
+    // Promedio por curso (0-100) y por asignatura para "Comparación"
     const byCourse: Record<string, { sum: number; n: number }> = {};
+    const bySubject: Record<string, { sum: number; n: number }> = {};
     gradedSubs.forEach(s => {
       const course = s.course || s.courseId || s.sectionId || '—';
       const sc = norm100(s);
       if (!byCourse[course]) byCourse[course] = { sum: 0, n: 0 };
       byCourse[course].sum += sc; byCourse[course].n += 1;
+
+      const subject = (s.subject || s.subjectName || s.taskSubject || s.task?.subject || s.task?.subjectName || s.meta?.subject || '—') as string;
+      if (!bySubject[subject]) bySubject[subject] = { sum: 0, n: 0 };
+      bySubject[subject].sum += sc; bySubject[subject].n += 1;
     });
-    const courseAvg20 = Object.entries(byCourse)
-      .map(([label, v]) => ({ label, avg20: (v.sum / Math.max(1, v.n)) / 5 }))
-      .sort((a, b) => b.avg20 - a.avg20)
+    const courseAvg100 = Object.entries(byCourse)
+      .map(([label, v]) => ({ label, avg100: (v.sum / Math.max(1, v.n)) }))
+      .sort((a, b) => b.avg100 - a.avg100)
+      .slice(0, 5);
+    // ordenar correctamente usando nueva clave
+    courseAvg100.sort((a, b) => b.avg100 - a.avg100);
+
+    const subjectAvg100 = Object.entries(bySubject)
+      .map(([label, v]) => ({ label, avg100: (v.sum / Math.max(1, v.n)) }))
+      .sort((a, b) => b.avg100 - a.avg100)
       .slice(0, 5);
 
     // Promedio mensual (últimos 5 meses) 0-20 para "Notas por Fecha"
@@ -446,8 +456,8 @@ function useTeacherStats(username?: string, period: Period = '30d', filters?: St
       monthlyAgg[key].sum += norm100(s);
       monthlyAgg[key].n += 1;
     });
-    const monthlyAvg20 = months.map(m => (
-      monthlyAgg[m.key].n > 0 ? (monthlyAgg[m.key].sum / monthlyAgg[m.key].n) / 5 : 0
+    const monthlyAvg100 = months.map(m => (
+      monthlyAgg[m.key].n > 0 ? (monthlyAgg[m.key].sum / monthlyAgg[m.key].n) : 0
     ));
     const monthlyLabels = months.map(m => m.label);
 
@@ -458,15 +468,17 @@ function useTeacherStats(username?: string, period: Period = '30d', filters?: St
       gradedSubmissions: gradedSubs.length,
       avgGrade,
   avgScore20: avgScore20,
+  avgScore100: avgScore100,
       attendance: { present, total },
       trendSeries: series,
       topCourses,
       gradeBins: bins,
   approvedCount,
   failedCount,
-  topStudentAvg20,
-  courseAvg20,
-  monthlyAvg20,
+  topStudentAvg100,
+  courseAvg100,
+  subjectAvg100,
+  monthlyAvg100,
   monthlyLabels,
       _debug: refreshTick,
     };
@@ -482,6 +494,7 @@ export default function TeacherStatisticsPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [selectedCourse, setSelectedCourse] = useState<string | 'all'>('all');
   const [selectedLevel, setSelectedLevel] = useState<'all' | Level>('all');
+  const [comparisonMode, setComparisonMode] = useState<'curso' | 'asignatura'>('curso');
   const router = useRouter();
 
   // Generar datos demo si el entorno está vacío (solo cliente)
@@ -584,89 +597,12 @@ export default function TeacherStatisticsPage() {
     return Array.from(lv);
   }, [teacherCourses]);
 
-  const exportPDF = async () => {
-    try {
-      const container = document.getElementById('teacher-stats-container');
-      if (!container) return;
-
-      // Config PDF y márgenes
-      const pdf = new jsPDF('p', 'pt', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 24;
-      const contentHeight = pageHeight - margin * 2;
-
-      // Recolectar secciones en orden: header + bloques marcados con data-section
-      const sections: HTMLElement[] = [];
-      const header = container.querySelector('[data-section="header"]') as HTMLElement | null;
-      if (header) sections.push(header);
-      sections.push(...Array.from(container.querySelectorAll('[data-section]:not([data-section="header"])')) as HTMLElement[]);
-
-      // Si no hay secciones marcadas, fallback: capturar todo como antes
-      if (sections.length === 0) {
-        const full = await html2canvas(container as HTMLElement, {
-          scale: 3,
-          backgroundColor: '#0b1220',
-          useCORS: true,
-          scrollY: -window.scrollY,
-          windowWidth: document.documentElement.clientWidth
-        });
-        const ratio = (pageWidth - margin * 2) / full.width;
-        const sliceH = Math.floor(contentHeight / ratio);
-        const total = Math.max(1, Math.ceil(full.height / sliceH));
-        for (let p = 0; p < total; p++) {
-          if (p > 0) pdf.addPage();
-          const c = document.createElement('canvas');
-          c.width = full.width; c.height = Math.min(sliceH, full.height - p * sliceH);
-          const ctx = c.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#0b1220'; ctx.fillRect(0,0,c.width,c.height);
-            ctx.drawImage(full, 0, p * sliceH, full.width, c.height, 0, 0, c.width, c.height);
-          }
-          const w = full.width * ratio; const h = c.height * ratio;
-              pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageWidth - w)/2, margin, w, h, undefined, 'MEDIUM');
-        }
-        pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
-        return;
-      }
-
-      // Capturar cada sección de manera independiente, ajustando a múltiples páginas si es necesario
-      let isFirstPage = true;
-      for (const el of sections) {
-        const canvas = await html2canvas(el, {
-          scale: 3,
-          backgroundColor: '#0b1220',
-          useCORS: true,
-          scrollY: -window.scrollY,
-          windowWidth: document.documentElement.clientWidth
-        });
-        const ratio = (pageWidth - margin * 2) / canvas.width;
-        const sliceH = Math.floor(contentHeight / ratio);
-        const pages = Math.max(1, Math.ceil(canvas.height / sliceH));
-        for (let i = 0; i < pages; i++) {
-          if (!isFirstPage) pdf.addPage();
-          isFirstPage = false;
-          const c = document.createElement('canvas');
-          c.width = canvas.width; c.height = Math.min(sliceH, canvas.height - i * sliceH);
-          const ctx = c.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#0b1220'; ctx.fillRect(0,0,c.width,c.height);
-            ctx.drawImage(canvas, 0, i * sliceH, canvas.width, c.height, 0, 0, c.width, c.height);
-          }
-          const w = canvas.width * ratio; const h = c.height * ratio;
-              pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageWidth - w)/2, margin, w, h, undefined, 'MEDIUM');
-        }
-      }
-      pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
-    } catch (e) {
-      console.error('[TeacherStatisticsPage] Error exportando PDF:', e);
-    }
-  };
+  // (Botón de descarga removido a solicitud. Lógica PDF eliminada.)
 
   return (
     <div id="teacher-stats-container" className="space-y-6">
       {/* Header */}
-  <div className="flex items-center justify-between" data-section="header">
+      <div className="flex items-center justify-between" data-section="header">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-[hsl(var(--custom-rose-100))] text-[hsl(var(--custom-rose-800))] dark:bg-[hsl(var(--custom-rose-700))] dark:text-white">
             <TrendingUp className="w-6 h-6" />
@@ -676,9 +612,7 @@ export default function TeacherStatisticsPage() {
             <p className="text-muted-foreground">{t('statisticsPageSub', 'Análisis y métricas de tu gestión como profesor')}</p>
           </div>
         </div>
-        <Button className="home-card-button-green w-auto flex items-center gap-2" onClick={exportPDF}>
-          <Download className="w-4 h-4" /> {t('download', 'Descargar')}
-        </Button>
+        {/* Botón Descargar removido */}
       </div>
 
       {/* Filtros: tarjetas cuadradas seleccionables */}
@@ -773,12 +707,13 @@ export default function TeacherStatisticsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+    <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('avgAllStudents', 'Promedio de todos los estudiantes')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-5xl font-extrabold text-blue-300">{typeof stats.avgScore20 === 'number' ? stats.avgScore20.toFixed(1) : '—'}</div>
+      <div className="text-5xl font-extrabold text-blue-300">{typeof stats.avgScore100 === 'number' ? stats.avgScore100.toFixed(1) : '—'}</div>
+      <div className="text-xs text-muted-foreground">Escala 0–100</div>
           </CardContent>
         </Card>
 
@@ -787,7 +722,8 @@ export default function TeacherStatisticsPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('topStudentAvg', 'Promedio de estudiante destacado')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-5xl font-extrabold text-fuchsia-300">{typeof stats.topStudentAvg20 === 'number' ? stats.topStudentAvg20.toFixed(1) : '—'}</div>
+      <div className="text-5xl font-extrabold text-fuchsia-300">{typeof stats.topStudentAvg100 === 'number' ? stats.topStudentAvg100.toFixed(1) : '—'}</div>
+      <div className="text-xs text-muted-foreground">Escala 0–100</div>
           </CardContent>
         </Card>
       </div>
@@ -819,25 +755,40 @@ export default function TeacherStatisticsPage() {
 
       {/* Gráficos principales */}
   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-section>
-        {/* Comparación de Cursos (barras) */}
+        {/* Comparación (barras) por Curso o Asignatura */}
         <Card>
           <CardHeader>
-            <CardTitle>{t('courseComparison', 'Comparación de Cursos')}</CardTitle>
+            <CardTitle className="flex items-center justify-between">
+              <span>{t('courseComparison', 'Comparación')}</span>
+              <div className="flex gap-2 text-xs">
+                <button
+                  className={`px-2 py-1 rounded border ${comparisonMode === 'curso' ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                  onClick={() => setComparisonMode('curso')}
+                >Por curso</button>
+                <button
+                  className={`px-2 py-1 rounded border ${comparisonMode === 'asignatura' ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
+                  onClick={() => setComparisonMode('asignatura')}
+                >Por asignatura</button>
+              </div>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-56 flex items-end gap-4 px-2">
-              {(() => { const data = stats.courseAvg20 ?? []; return data; })().map((c, idx, arr) => {
-                const max = Math.max(1, ...arr.map((x: any) => x.avg20));
-                const h = Math.round((c.avg20 / max) * 180);
-                const color = ['#60A5FA','#F9A8D4','#C4B5FD','#34D399'][idx % 4];
+              {(() => {
+                const data = (comparisonMode === 'curso' ? (stats.courseAvg100 ?? []) : (stats.subjectAvg100 ?? [])) as Array<{label: string; avg100: number}>;
+                return data;
+              })().map((c: {label: string; avg100: number}, idx: number) => {
+                const h = Math.round(Math.max(0, Math.min(100, c.avg100)) / 100 * 180);
+                const color = ['#60A5FA','#F9A8D4','#C4B5FD','#34D399','#FBBF24','#F87171'][idx % 6];
                 return (
-                  <div key={c.label} className="flex-1 flex flex-col items-center">
+                  <div key={`${comparisonMode}-${c.label}`} className="flex-1 flex flex-col items-center min-w-[4rem]">
+                    <div className="text-xs text-muted-foreground mb-1">{c.avg100.toFixed(1)}</div>
                     <div style={{ height: `${h}px`, backgroundColor: color }} className="w-10 rounded-t-md"></div>
-                    <div className="mt-2 text-sm text-center truncate w-16" title={c.label}>{c.label}</div>
+                    <div className="mt-2 text-xs text-center w-24 break-words whitespace-normal leading-tight" title={c.label}>{c.label}</div>
                   </div>
                 );
               })}
-              {(stats.courseAvg20?.length ?? 0) === 0 && (
+              {((comparisonMode === 'curso' ? (stats.courseAvg100?.length ?? 0) : (stats.subjectAvg100?.length ?? 0)) === 0) && (
                 <p className="text-sm text-muted-foreground">{t('noData', 'Sin datos')}</p>
               )}
             </div>
@@ -850,9 +801,9 @@ export default function TeacherStatisticsPage() {
             <CardTitle>{t('gradesOverTime', 'Notas por Fecha')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {stats.monthlyAvg20 && stats.monthlyAvg20.length ? (
+      {stats.monthlyAvg100 && stats.monthlyAvg100.length ? (
               <TrendChart
-                data={stats.monthlyAvg20}
+        data={stats.monthlyAvg100}
                 labels={stats.monthlyLabels || []}
                 color={'#60A5FA'}
                 height={200}
