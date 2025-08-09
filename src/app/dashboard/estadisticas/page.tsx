@@ -588,45 +588,74 @@ export default function TeacherStatisticsPage() {
     try {
       const container = document.getElementById('teacher-stats-container');
       if (!container) return;
-      // Ajustar ancho de página y márgenes
+
+      // Config PDF y márgenes
       const pdf = new jsPDF('p', 'pt', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 24;
+      const contentHeight = pageHeight - margin * 2;
 
-      // Captura ÚNICA de todo el contenedor para mantener flujo vertical continuo
-      const canvas = await html2canvas(container as HTMLElement, { scale: 2, backgroundColor: '#0b1220' });
-      const imgData = canvas.toDataURL('image/png');
+      // Recolectar secciones en orden: header + bloques marcados con data-section
+      const sections: HTMLElement[] = [];
+      const header = container.querySelector('[data-section="header"]') as HTMLElement | null;
+      if (header) sections.push(header);
+      sections.push(...Array.from(container.querySelectorAll('[data-section]:not([data-section="header"])')) as HTMLElement[]);
 
-      // Escala para ajustar al ancho de la página manteniendo proporción
-      const ratio = (pageWidth - margin * 2) / canvas.width;
-      const pageContentHeight = pageHeight - margin * 2;
-      const sliceHeightPx = Math.floor(pageContentHeight / ratio); // alto en píxeles del canvas por página
-
-      const totalPages = Math.max(1, Math.ceil(canvas.height / sliceHeightPx));
-
-      // Crear slices verticales del canvas para cada página
-      for (let page = 0; page < totalPages; page++) {
-        if (page > 0) pdf.addPage();
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = Math.min(sliceHeightPx, canvas.height - page * sliceHeightPx);
-        const ctx = sliceCanvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#0b1220';
-          ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-          ctx.drawImage(
-            canvas,
-            0, page * sliceHeightPx, // origen Y en el canvas grande
-            canvas.width, sliceCanvas.height, // tamaño de recorte
-            0, 0, // destino
-            sliceCanvas.width, sliceCanvas.height
-          );
+      // Si no hay secciones marcadas, fallback: capturar todo como antes
+      if (sections.length === 0) {
+        const full = await html2canvas(container as HTMLElement, {
+          scale: 3,
+          backgroundColor: '#0b1220',
+          useCORS: true,
+          scrollY: -window.scrollY,
+          windowWidth: document.documentElement.clientWidth
+        });
+        const ratio = (pageWidth - margin * 2) / full.width;
+        const sliceH = Math.floor(contentHeight / ratio);
+        const total = Math.max(1, Math.ceil(full.height / sliceH));
+        for (let p = 0; p < total; p++) {
+          if (p > 0) pdf.addPage();
+          const c = document.createElement('canvas');
+          c.width = full.width; c.height = Math.min(sliceH, full.height - p * sliceH);
+          const ctx = c.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#0b1220'; ctx.fillRect(0,0,c.width,c.height);
+            ctx.drawImage(full, 0, p * sliceH, full.width, c.height, 0, 0, c.width, c.height);
+          }
+          const w = full.width * ratio; const h = c.height * ratio;
+          pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageWidth - w)/2, margin, w, h, undefined, 'FAST');
         }
-        const sliceData = sliceCanvas.toDataURL('image/png');
-        const w = canvas.width * ratio;
-        const h = sliceCanvas.height * ratio;
-        pdf.addImage(sliceData, 'PNG', (pageWidth - w) / 2, margin, w, h, undefined, 'FAST');
+        pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
+        return;
+      }
+
+      // Capturar cada sección de manera independiente, ajustando a múltiples páginas si es necesario
+      let isFirstPage = true;
+      for (const el of sections) {
+        const canvas = await html2canvas(el, {
+          scale: 3,
+          backgroundColor: '#0b1220',
+          useCORS: true,
+          scrollY: -window.scrollY,
+          windowWidth: document.documentElement.clientWidth
+        });
+        const ratio = (pageWidth - margin * 2) / canvas.width;
+        const sliceH = Math.floor(contentHeight / ratio);
+        const pages = Math.max(1, Math.ceil(canvas.height / sliceH));
+        for (let i = 0; i < pages; i++) {
+          if (!isFirstPage) pdf.addPage();
+          isFirstPage = false;
+          const c = document.createElement('canvas');
+          c.width = canvas.width; c.height = Math.min(sliceH, canvas.height - i * sliceH);
+          const ctx = c.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#0b1220'; ctx.fillRect(0,0,c.width,c.height);
+            ctx.drawImage(canvas, 0, i * sliceH, canvas.width, c.height, 0, 0, c.width, c.height);
+          }
+          const w = canvas.width * ratio; const h = c.height * ratio;
+          pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageWidth - w)/2, margin, w, h, undefined, 'FAST');
+        }
       }
       pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
     } catch (e) {
@@ -637,7 +666,7 @@ export default function TeacherStatisticsPage() {
   return (
     <div id="teacher-stats-container" className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+  <div className="flex items-center justify-between" data-section="header">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-[hsl(var(--custom-rose-100))] text-[hsl(var(--custom-rose-800))] dark:bg-[hsl(var(--custom-rose-700))] dark:text-white">
             <TrendingUp className="w-6 h-6" />
@@ -835,8 +864,8 @@ export default function TeacherStatisticsPage() {
         </Card>
       </div>
 
-      {/* Top Courses and Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  {/* Top Courses and Recent Activity */}
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-section>
         <Card>
           <CardHeader>
             <CardTitle>{t('topCourses', 'Cursos/Secciones con más entregas')}</CardTitle>
