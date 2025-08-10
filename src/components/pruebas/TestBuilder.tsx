@@ -13,6 +13,7 @@ type Props = {
   value?: any
   onChange?: (v: any) => void
   onCreate?: () => void
+  mode?: 'create' | 'edit'
 }
 
 const COURSES_KEY = "smart-student-courses"
@@ -24,7 +25,7 @@ const ADMIN_COURSES_KEY = "smart-student-admin-courses"
 const ADMIN_SECTIONS_KEY = "smart-student-admin-sections"
 const TASKS_KEY = "smart-student-tasks"
 
-export default function TestBuilder({ value, onChange, onCreate }: Props) {
+export default function TestBuilder({ value, onChange, onCreate, mode = 'create' }: Props) {
   const { user } = useAuth() as any
   const { translate } = useLanguage()
   const [courses, setCourses] = useState<Course[]>([])
@@ -413,22 +414,24 @@ export default function TestBuilder({ value, onChange, onCreate }: Props) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm">{translate('testsTotal')}: <span className="font-semibold">{total}</span></p>
-        <button
-          type="button"
-          onClick={onCreate}
-          disabled={!isValid}
-          className={cn(
-            "px-4 py-2 rounded-md text-sm font-medium border transition-colors",
-            isValid
-              ? "border-fuchsia-200 bg-fuchsia-100 text-fuchsia-800 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-200"
-              : "bg-muted text-muted-foreground cursor-not-allowed"
-          )}
-        >
-          {translate('cardTestsBtn')}
-        </button>
-      </div>
+      {mode === 'create' && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm">{translate('testsTotal')}: <span className="font-semibold">{total}</span></p>
+          <button
+            type="button"
+            onClick={onCreate}
+            disabled={!isValid}
+            className={cn(
+              "px-4 py-2 rounded-md text-sm font-medium border transition-colors",
+              isValid
+                ? "border-fuchsia-200 bg-fuchsia-100 text-fuchsia-800 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-200"
+                : "bg-muted text-muted-foreground cursor-not-allowed"
+            )}
+          >
+            {translate('cardTestsBtn')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

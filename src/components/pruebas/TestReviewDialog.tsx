@@ -14,7 +14,19 @@ type AnyQuestion = QuestionTF | QuestionMC | QuestionMS | QuestionDES
 type Props = {
   open: boolean
   onOpenChange: (v: boolean) => void
-  test?: { id: string; title: string; description?: string; questions?: AnyQuestion[] }
+  // Aceptamos el TestItem completo tal como se pasa desde PruebasPage
+  test?: {
+    id: string
+    title: string
+    description?: string
+    questions?: AnyQuestion[]
+    courseId?: string
+    sectionId?: string
+    subjectId?: string
+    subjectName?: string
+    topic?: string
+    createdAt?: number
+  }
 }
 
 type OCRResult = {
@@ -31,6 +43,8 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
   const [studentName, setStudentName] = useState<string>("")
   const [error, setError] = useState<string>("")
   const workerRef = useRef<any>(null)
+  const [history, setHistory] = useState<ReviewRecord[]>([])
+  const [verification, setVerification] = useState<{ sameDocument: boolean; coverage: number; studentFound: boolean; studentId?: string | null }>({ sameDocument: false, coverage: 0, studentFound: false, studentId: null })
 
   useEffect(() => {
     if (!open) {
@@ -41,8 +55,23 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
       setScore(null)
       setStudentName("")
       setError("")
+      setVerification({ sameDocument: false, coverage: 0, studentFound: false, studentId: null })
     }
   }, [open])
+
+  // Cargar historial de la prueba seleccionada
+  useEffect(() => {
+    if (!test?.id) return
+    try {
+      const key = getReviewKey(test.id)
+      const raw = localStorage.getItem(key)
+      if (raw) setHistory(JSON.parse(raw))
+      else setHistory([])
+    } catch (e) {
+      console.warn('[TestReview] No se pudo cargar historial:', e)
+      setHistory([])
+    }
+  }, [test?.id, open])
 
   const ensureWorker = useCallback(async () => {
     if (workerRef.current) return workerRef.current
@@ -83,8 +112,33 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
       const guessedName = guessStudentName(text)
       setStudentName(guessedName)
       setOcr({ text })
-      const computed = autoGrade(text, test?.questions || [])
+      // 1) Verificar si corresponde a la misma prueba
+      const sameDoc = verifySameDocument(text, test?.questions || [])
+      // 2) Verificar si el estudiante existe en la sección del test
+      const studentInfo = findStudentInSection(guessedName, test?.courseId, test?.sectionId)
+      setVerification({ sameDocument: sameDoc.isMatch, coverage: sameDoc.coverage, studentFound: !!studentInfo, studentId: studentInfo?.id || null })
+      // 3) Si ambas verificaciones pasan, calificar
+      let computed: number | null = null
+      if (sameDoc.isMatch && studentInfo) {
+        computed = autoGrade(text, test?.questions || [])
+      }
       setScore(computed)
+      // 4) Guardar en historial
+      persistReview({
+        testId: test?.id || '',
+        uploadedAt: Date.now(),
+        studentName: guessedName || '',
+        studentId: studentInfo?.id || null,
+        courseId: test?.courseId || null,
+        sectionId: test?.sectionId || null,
+        subjectId: test?.subjectId || null,
+        subjectName: test?.subjectName || null,
+        topic: test?.topic || '',
+        score: typeof computed === 'number' ? computed : null,
+        sameDocument: sameDoc.isMatch,
+        coverage: sameDoc.coverage,
+        studentFound: !!studentInfo,
+      })
     } catch (e: any) {
       console.error(e)
       setError(e?.message || "Error al procesar OCR")
@@ -138,8 +192,14 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
               <div className="text-sm">
                 <span className="font-medium">{translate('testsReviewStudent')}</span> {studentName || translate('testsReviewNotDetected')}
               </div>
+              <div className="text-xs text-muted-foreground">
+                {verification.sameDocument ? `✅ ${translate('testsReviewDocMatches')}` : `⚠️ ${translate('testsReviewDocNotMatch')}`} {verification.coverage ? `(${Math.round(verification.coverage * 100)}% ${translate('testsReviewCoverage')})` : ''}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {verification.studentFound ? `✅ ${translate('testsReviewStudentInSection')}` : `⚠️ ${translate('testsReviewStudentNotInSection')}`}
+              </div>
               <div className="text-sm">
-                <span className="font-medium">{translate('testsReviewScore')}</span> {score ?? "-"}
+                <span className="font-medium">{translate('testsReviewScore')}</span> {typeof score === 'number' ? score : '-'}
               </div>
               <details className="text-xs text-muted-foreground">
                 <summary>{translate('testsReviewOcrText')}</summary>
@@ -147,6 +207,45 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
               </details>
             </div>
           )}
+
+          {/* Historial de revisión */}
+          <div className="border rounded-md p-3 space-y-2">
+            <div className="text-sm font-medium">{translate('testsReviewHistoryTitle') || 'Historial de revisión'}</div>
+            {history.length === 0 ? (
+              <div className="text-xs text-muted-foreground">{translate('testsReviewHistoryEmpty') || 'Sin registros'}</div>
+            ) : (
+              <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+      <thead className="text-muted-foreground">
+                    <tr>
+    <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColStudent')}</th>
+    <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColCourseSection')}</th>
+    <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColSubject')}</th>
+    <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColTopic')}</th>
+    <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColUploadedAt')}</th>
+    <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColScore')}</th>
+    <th className="text-left py-1 pr-2" title={translate('testsReviewHistoryColDocHelp')}>{translate('testsReviewHistoryColDoc')}</th>
+    <th className="text-left py-1 pr-2" title={translate('testsReviewHistoryColSectionOkHelp')}>{translate('testsReviewHistoryColSectionOk')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((h, idx) => (
+                      <tr key={`${h.uploadedAt}-${idx}`} className="border-t">
+                        <td className="py-1 pr-2">{h.studentName}</td>
+                        <td className="py-1 pr-2">{resolveCourseSectionLabel(h.courseId, h.sectionId)}</td>
+                        <td className="py-1 pr-2">{resolveSubjectName(h.subjectId, h.subjectName)}</td>
+                        <td className="py-1 pr-2">{h.topic || '-'}</td>
+                        <td className="py-1 pr-2">{formatDateTime(h.uploadedAt)}</td>
+                        <td className="py-1 pr-2">{typeof h.score === 'number' ? h.score : '-'}</td>
+                        <td className="py-1 pr-2">{h.sameDocument ? '✔' : '✖'}</td>
+                        <td className="py-1 pr-2">{h.studentFound ? '✔' : '✖'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -208,4 +307,128 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
   }
   // retorno como porcentaje 0-100
   return Math.round((correct / questions.length) * 100)
+}
+
+// ===== Utilidades nuevas =====
+
+type ReviewRecord = {
+  testId: string
+  uploadedAt: number
+  studentName: string
+  studentId: string | null
+  courseId: string | null
+  sectionId: string | null
+  subjectId: string | null
+  subjectName: string | null
+  topic: string
+  score: number | null
+  sameDocument: boolean
+  coverage: number
+  studentFound: boolean
+}
+
+function getReviewKey(testId: string) {
+  return `smart-student-test-reviews_${testId}`
+}
+
+function persistReview(r: ReviewRecord) {
+  try {
+    const key = getReviewKey(r.testId)
+    const prev: ReviewRecord[] = JSON.parse(localStorage.getItem(key) || '[]')
+    const next = [r, ...prev].slice(0, 200)
+    localStorage.setItem(key, JSON.stringify(next))
+    // Intentar notificar si hay listeners
+    window.dispatchEvent(new StorageEvent('storage', { key, newValue: JSON.stringify(next) }))
+  } catch (e) {
+    console.warn('[TestReview] No se pudo guardar historial:', e)
+  }
+}
+
+function normalize(s: string) {
+  try {
+    return s
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  } catch {
+    return s || ''
+  }
+}
+
+function verifySameDocument(ocrText: string, questions: AnyQuestion[]) {
+  if (!questions?.length) return { isMatch: false, coverage: 0 }
+  const text = normalize(ocrText)
+  let matched = 0
+  let checked = 0
+  for (const q of questions) {
+    let stem = ''
+    if ((q as any).type === 'tf' || (q as any).type === 'mc' || (q as any).type === 'ms') {
+      stem = normalize((q as any).text || '')
+    } else if ((q as any).type === 'des') {
+      stem = normalize((q as any).prompt || '')
+    }
+    if (!stem || stem.length < 8) continue // ignorar stems muy cortos
+    checked++
+    if (text.includes(stem.slice(0, Math.min(40, stem.length)))) matched++
+  }
+  const coverage = checked > 0 ? matched / checked : 0
+  const isMatch = coverage >= 0.5
+  return { isMatch, coverage }
+}
+
+function findStudentInSection(guessedName: string, courseId?: string | null, sectionId?: string | null) {
+  try {
+    if (!sectionId) return null
+    const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]') as any[]
+    const target = normalize(guessedName)
+    const list = users.filter(u => (u.role === 'student' || u.role === 'estudiante') && String(u.sectionId) === String(sectionId))
+    for (const u of list) {
+      const dn = normalize(u.displayName || '')
+      const un = normalize(u.username || '')
+      if (!target) continue
+      if (dn.includes(target) || target.includes(dn) || un === target) return u
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function resolveCourseSectionLabel(courseId?: string | null, sectionId?: string | null) {
+  try {
+    const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]')
+    const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]')
+    const sec = sections.find((s: any) => String(s.id) === String(sectionId))
+    const course = courses.find((c: any) => String(c.id) === String(courseId || sec?.courseId))
+    const courseLabel = course?.name ? String(course.name) : ''
+    const sectionLabel = sec?.name ? String(sec.name) : ''
+    return [courseLabel, sectionLabel].filter(Boolean).join(' ')
+  } catch {
+    return ''
+  }
+}
+
+function resolveSubjectName(subjectId?: string | null, subjectName?: string | null) {
+  try {
+    const subjects = JSON.parse(localStorage.getItem('smart-student-subjects') || '[]')
+    const subj = subjects.find((s: any) => String(s.id) === String(subjectId)) || subjects.find((s: any) => String(s.name) === String(subjectId))
+    return subj?.name || subjectName || ''
+  } catch {
+    return subjectName || ''
+  }
+}
+
+function formatDateTime(ts?: number) {
+  try {
+    if (!ts) return '-'
+    const d = new Date(ts)
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mi = String(d.getMinutes()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+  } catch { return '-' }
 }
