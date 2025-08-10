@@ -79,6 +79,16 @@ body {
       background: rgb(100 116 139);
     }
   }
+
+  /* Clean native select arrows (for custom chevron) */
+  .select-clean {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: none !important;
+  }
+
+  .select-clean::-ms-expand { display: none; }
 }
 
 @layer base {
@@ -773,14 +783,16 @@ html.dark.theme-accent-rose {
   @apply home-card-button; /* base */
 }
 .home-card-button-stats { /* light-first (como otros botones de tarjetas) */
+  @apply border-transparent hover:border-transparent hover:shadow-2xl hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;
   background-color: hsl(var(--custom-rose-100)) !important;
   color: hsl(var(--custom-rose-800)) !important;
   border: none !important;
-  transition: all 0.2s ease-in-out !important;
+  box-shadow: 0 0 0 0 rgba(244, 63, 94, 0) !important; /* base sin sombra */
 }
 .home-card-button-stats:hover {
   background-color: hsl(var(--custom-rose-700)) !important;
   color: hsl(var(--custom-rose-50)) !important;
+  box-shadow: 0 25px 50px -12px rgba(244, 63, 94, 0.5) !important; /* glow como libros */
 }
 .home-card-button-stats:active {
   background-color: hsl(var(--custom-rose-800)) !important;
@@ -790,11 +802,14 @@ html.dark.theme-accent-rose {
 .home-card-button-stats:focus {
   background-color: hsl(var(--custom-rose-800)) !important;
   color: hsl(var(--custom-rose-100)) !important;
+  box-shadow: 0 25px 50px -12px rgba(244, 63, 94, 0.5) !important; /* similar a hover:shadow-2xl */
+  transform: scale(1.10) translateY(-4px) !important; /* hover:scale-110 hover:-translate-y-1 */
   border: none !important;
 }
 
 /* Dark mode para stats: también light-first (igual a otras tarjetas) */
 .dark .home-card-button-stats {
+  @apply border-transparent hover:border-transparent hover:shadow-2xl hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;
   background-color: hsl(var(--custom-rose-100)) !important;
   color: hsl(var(--custom-rose-800)) !important;
   border: none !important;
@@ -802,6 +817,7 @@ html.dark.theme-accent-rose {
 .dark .home-card-button-stats:hover {
   background-color: hsl(var(--custom-rose-700)) !important;
   color: hsl(var(--custom-rose-50)) !important;
+  box-shadow: 0 25px 50px -12px rgba(244, 63, 94, 0.5) !important;
 }
 .dark .home-card-button-stats:active,
 .dark .home-card-button-stats:focus {
@@ -816,6 +832,45 @@ html.dark.theme-accent-rose {
   border: none !important;
   transition: all 0.3s ease-out !important;
   box-shadow: 0 0 0 0 rgba(16, 185, 129, 0) !important;
+}
+
+/* GRAY button (Calendar/Admin) - efecto similar a Libros pero gris */
+.home-card-button-gray {
+  @apply border-transparent bg-gray-100 text-gray-800 hover:border-transparent hover:bg-gray-800 hover:text-gray-100 hover:shadow-2xl hover:shadow-gray-500/30 hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;
+  background-color: rgb(243 244 246) !important; /* gray-100 */
+  color: rgb(31 41 55) !important; /* gray-800 */
+  border: none !important;
+}
+.home-card-button-gray:hover {
+  background-color: rgb(31 41 55) !important;
+  color: rgb(243 244 246) !important;
+}
+.home-card-button-gray:active {
+  background-color: rgb(31 41 55) !important;
+  color: rgb(243 244 246) !important;
+  transform: scale(1.05) !important;
+}
+.dark .home-card-button-gray {
+  @apply border-transparent hover:shadow-2xl hover:shadow-gray-400/40 hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;
+}
+
+/* SILVER button (Calendar/Admin) */
+.home-card-button-silver {
+  @apply border-transparent hover:border-transparent hover:shadow-2xl hover:shadow-zinc-400/40 hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;
+  background-color: rgb(244 244 245) !important; /* zinc-100 */
+  color: rgb(39 39 42) !important; /* zinc-800 */
+  border: 1px solid rgb(212 212 216) !important; /* zinc-300 */
+}
+.home-card-button-silver:hover {
+  background-color: rgb(39 39 42) !important; /* zinc-800 */
+  color: rgb(244 244 245) !important; /* zinc-100 */
+  border-color: rgb(82 82 91) !important; /* zinc-600 */
+}
+.home-card-button-silver:active {
+  transform: scale(1.05) !important;
+}
+.dark .home-card-button-silver {
+  @apply border-transparent hover:shadow-2xl hover:shadow-zinc-500/40 hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;
 }
 .home-card-button-emerald:hover {
   background-color: rgb(6 95 70) !important;

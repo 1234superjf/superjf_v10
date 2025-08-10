@@ -291,6 +291,30 @@ export default function Configuration() {
     }
   };
 
+  // ✅ Helper: obtener todas las configuraciones del Calendario Admin desde localStorage
+  const getAllAdminCalendarConfigs = () => {
+    const configs: Record<string, any> = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('admin-calendar-')) {
+          const year = key.replace('admin-calendar-', '');
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          try {
+            configs[year] = JSON.parse(raw);
+          } catch {
+            // Si no es JSON válido, guardar como string crudo
+            configs[year] = raw;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('No se pudieron leer configuraciones del calendario admin:', e);
+    }
+    return configs;
+  };
+
   const exportSystemData = () => {
     try {
       console.log('🚀 [EXPORTACIÓN MEJORADA] Iniciando exportación con corrección de asignaciones...');
@@ -355,6 +379,10 @@ export default function Configuration() {
 
       console.log('📦 [EXPORTACIÓN] Usuarios preparados con campos completos:', exportUsers.length);
 
+  // ✅ Incluir configuraciones del Calendario Admin por año
+  const calendarConfigs = getAllAdminCalendarConfigs();
+  const calendarYears = Object.keys(calendarConfigs);
+
       const data = {
         courses: LocalStorageManager.getCourses(),
         sections: LocalStorageManager.getSections(),
@@ -376,6 +404,8 @@ export default function Configuration() {
         evaluations: JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]'),
         evaluationResults: JSON.parse(localStorage.getItem('smart-student-evaluation-results') || '[]'),
         attendance: JSON.parse(localStorage.getItem('smart-student-attendance') || '[]'),
+        // ✅ NUEVO: Incluir configuraciones del calendario admin por año
+        calendarConfigs,
         // ✅ USUARIOS PRINCIPALES CON CAMPOS COMPLETOS PARA LOGIN
         users: exportUsers,
         // ✅ METADATOS DE CORRECCIÓN DINÁMICA
@@ -384,7 +414,10 @@ export default function Configuration() {
           tipoExportacion: 'completa-con-asignaciones',
           fechaExportacion: new Date().toISOString(),
           includeAsignaciones: true,
-          sistemaCorreccionDinamica: typeof window.regenerarAsignacionesDinamicas === 'function'
+          sistemaCorreccionDinamica: typeof window.regenerarAsignacionesDinamicas === 'function',
+          // ✅ Calendarios incluidos
+          calendarYears,
+          calendarConfigsCount: calendarYears.length
         },
         exportDate: new Date().toISOString(),
         version: '2.1' // Incrementar versión por inclusión de tareas/evaluaciones/asistencia
@@ -461,6 +494,29 @@ export default function Configuration() {
           if (importedData.config) {
             LocalStorageManager.setConfig(importedData.config);
             setConfig({ ...config, ...importedData.config });
+          }
+
+          // ✅ NUEVO: Importar configuraciones del Calendario Admin
+      if (importedData.calendarConfigs && typeof importedData.calendarConfigs === 'object') {
+            console.log('📅 [CALENDARIO] Restaurando configuraciones de calendario admin por año...');
+            try {
+        let restoredCount = 0;
+              Object.entries(importedData.calendarConfigs).forEach(([year, cfg]) => {
+                try {
+          const y = String(year).trim();
+          if (!/^[0-9]{4}$/.test(y)) return;
+          const key = `admin-calendar-${y}`;
+                  const value = typeof cfg === 'string' ? cfg : JSON.stringify(cfg);
+                  localStorage.setItem(key, value);
+          restoredCount++;
+                } catch (e) {
+                  console.warn('No se pudo restaurar configuración de calendario para año', year, e);
+                }
+              });
+        console.log(`📅 [CALENDARIO] Años restaurados: ${restoredCount}`);
+            } catch (e) {
+              console.warn('Error restaurando configuraciones de calendario admin:', e);
+            }
           }
 
           // Import administrators (nuevo)
@@ -826,6 +882,20 @@ export default function Configuration() {
   localStorage.removeItem('smart-student-evaluations');
   localStorage.removeItem('smart-student-evaluation-results');
   localStorage.removeItem('smart-student-attendance');
+
+      // ✅ NUEVO: Eliminar todas las configuraciones de calendario admin
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('admin-calendar-')) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+      } catch (e) {
+        console.warn('No se pudieron limpiar las configuraciones del calendario admin:', e);
+      }
 
       toast({
         title: translate('systemReset') || 'System reset',

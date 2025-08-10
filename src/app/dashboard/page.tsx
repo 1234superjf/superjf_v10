@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/language-context';
 import { useAuth } from '@/contexts/auth-context';
-import { Library, Newspaper, Network, FileQuestion, ClipboardList, Home, Users, Settings, ClipboardCheck, MessageSquare, GraduationCap, Crown, Shield, UserCheck, TrendingUp, Megaphone } from 'lucide-react';
+import { Library, Newspaper, Network, FileQuestion, ClipboardList, Home, Users, Settings, ClipboardCheck, MessageSquare, GraduationCap, Crown, Shield, UserCheck, TrendingUp, Megaphone, CalendarDays } from 'lucide-react';
 import NotificationsPanel from '@/components/common/notifications-panel';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -190,6 +190,16 @@ const adminCards = [
     icon: ClipboardCheck,
     colorClass: 'red',
     showBadge: true, // Para mostrar la burbuja de notificación de solicitudes de contraseña
+  },
+  // Nueva tarjeta Calendario (solo admin)
+  {
+    titleKey: 'cardCalendarTitle',
+    descKey: 'cardCalendarDesc',
+    btnKey: 'cardCalendarBtn',
+    targetPage: '/dashboard/calendario',
+    icon: CalendarDays,
+    colorClass: 'silver',
+    showBadge: false,
   },
 ];
 
@@ -1221,6 +1231,8 @@ export default function DashboardHomePage() {
   case 'rose': return 'home-card-button-stats';
   case 'fuchsia': return 'home-card-button-fuchsia';
       case 'emerald': return 'home-card-button-emerald';
+  case 'gray': return 'home-card-button-gray';
+  case 'silver': return 'home-card-button-silver';
       default: return '';
     }
   };
@@ -1239,6 +1251,8 @@ export default function DashboardHomePage() {
       case 'rose': return 'text-rose-500 dark:text-rose-400';
   case 'fuchsia': return 'text-fuchsia-500 dark:text-fuchsia-400';
       case 'emerald': return 'text-emerald-500 dark:text-emerald-400';
+  case 'gray': return 'text-gray-600 dark:text-gray-300';
+  case 'silver': return 'text-zinc-400 dark:text-zinc-300';
       default: return 'text-muted-foreground';
     }
   };
@@ -1257,8 +1271,138 @@ export default function DashboardHomePage() {
       case 'rose': return 'border-rose-200 dark:border-rose-800';
   case 'fuchsia': return 'border-fuchsia-200 dark:border-fuchsia-800';
       case 'emerald': return 'border-emerald-200 dark:border-emerald-800';
+  case 'gray': return 'border-gray-200 dark:border-gray-800';
+  case 'silver': return 'border-zinc-300 dark:border-zinc-600';
       default: return 'border-gray-200 dark:border-gray-800';
     }
+  };
+
+  // Helper para renderizar una tarjeta de feature reutilizando el mismo contenido/badges
+  const renderFeatureCard = (card: any) => {
+    if (!card) return null;
+    return (
+      <Card key={card.titleKey} className={`flex flex-col text-center shadow-sm hover:shadow-lg transition-shadow duration-300 ${getBorderColorClass(card.colorClass)}`}>
+        <CardHeader className="items-center relative">
+          {card.showBadge && card.titleKey === 'cardTasksTitle' && (
+            (() => {
+              let totalTaskCount;
+
+              if (user?.role === 'student') {
+                totalTaskCount = pendingTasksCount + unreadCommentsCount + taskNotificationsCount;
+              } else {
+                const notifications = JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]');
+                const teacherNotificationsExcludingSubmissions = notifications.filter((notif: any) =>
+                  notif.targetUserRole === 'teacher' &&
+                  user && (notif.targetUsernames?.includes(user.username) || notif.targetUsernames?.includes(user.id)) &&
+                  user && (!notif.readBy?.includes(user.username) && !notif.readBy?.includes(user.id)) &&
+                  notif.type !== 'task_submission'
+                ).length;
+
+                totalTaskCount = pendingTaskSubmissionsCount + unreadStudentCommentsCount + teacherNotificationsExcludingSubmissions;
+              }
+
+              return totalTaskCount > 0 && (
+                user?.role === 'student' ? (
+                  <Badge 
+                    className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
+                    title={translate('pendingTasksAndNotifications', { count: String(totalTaskCount) }) || `${totalTaskCount} tareas/notificaciones pendientes`}
+                  >
+                    {totalTaskCount > 99 ? '99+' : totalTaskCount}
+                  </Badge>
+                ) : (
+                  <Badge 
+                    className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
+                    title={translate('pendingGradingAndNotifications', { count: String(totalTaskCount) }) || `${totalTaskCount} calificaciones/notificaciones pendientes`}
+                  >
+                    {totalTaskCount > 99 ? '99+' : totalTaskCount}
+                  </Badge>
+                )
+              );
+            })()
+          )}
+          {user?.role === 'student' && card.titleKey === 'cardCommunicationsStudentTitle' && unreadCommunicationsCount > 0 && (
+            <Badge 
+              className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
+              title={translate('unreadCommunicationsBadge', { count: String(unreadCommunicationsCount) }) || `${unreadCommunicationsCount} comunicaciones sin leer`}
+            >
+              {unreadCommunicationsCount > 99 ? '99+' : unreadCommunicationsCount}
+            </Badge>
+          )}
+          <card.icon className={`w-10 h-10 mb-3 ${getIconColorClass(card.colorClass)}`} />
+          <CardTitle className="text-lg font-semibold font-headline">{translate(card.titleKey)}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col flex-grow">
+          <CardDescription className="text-sm mb-4 flex-grow">
+            {translate(card.descKey)}
+          </CardDescription>
+          <Button
+            variant="outline"
+            asChild
+            className={cn(
+              "home-card-button",
+              getButtonColorClass(card.colorClass),
+              "hover:shadow-lg transition-shadow duration-200"
+            )}
+          >
+            <Link href={card.targetPage}>
+              {card.titleKey === 'cardCommunicationsStudentTitle' && user?.role === 'teacher' 
+                ? 'Crear Comunicados' 
+                : translate(card.btnKey)
+              }
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Helper para renderizar tarjetas específicas del profesor (asistencia/estadísticas)
+  const renderTeacherCard = (card: any) => {
+    if (!card) return null;
+    return (
+      <Card 
+        key={card.titleKey} 
+        className={`flex flex-col text-center shadow-sm hover:shadow-lg transition-shadow duration-300 ${
+          card.colorClass === 'rose' 
+            ? 'border-rose-200 dark:border-rose-800' 
+            : card.colorClass === 'indigo' 
+              ? 'border-indigo-200 dark:border-indigo-800'
+              : card.colorClass === 'emerald'
+                ? 'border-emerald-200 dark:border-emerald-800'
+                : 'border-gray-200 dark:border-gray-800'
+        }`}
+      >
+        <CardHeader className="items-center relative">
+          {card.showBadge && card.titleKey === 'cardAttendanceTitle' && pendingAttendanceCount > 0 && (
+            <Badge 
+              className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
+              title={`${pendingAttendanceCount} pendientes de asistencia hoy`}
+            >
+              {pendingAttendanceCount > 99 ? '99+' : pendingAttendanceCount}
+            </Badge>
+          )}
+          <card.icon className={`w-10 h-10 mb-3 ${getIconColorClass(card.colorClass)}`} />
+          <CardTitle className="text-lg font-semibold font-headline">{translate(card.titleKey)}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col flex-grow">
+          <CardDescription className="text-sm mb-4 flex-grow">
+            {translate(card.descKey)}
+          </CardDescription>
+      <Button
+            variant="outline"
+            asChild
+            className={cn(
+              "home-card-button",
+        // Mantener color característico; el efecto (sombra/escala) se replica en CSS de la clase stats
+        getButtonColorClass(card.colorClass),
+              "hover:shadow-lg transition-shadow duration-200"
+            )}
+          >
+            <Link href={card.targetPage}>{translate(card.btnKey)}</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
   };
 
   return (
@@ -1359,206 +1503,86 @@ export default function DashboardHomePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-        {featureCards
-          .filter(card => {
-            // Filtrar la tarjeta de comunicaciones solo para administradores
-            if (card.titleKey === 'cardCommunicationsStudentTitle' && user?.role === 'admin') {
-              return false;
-            }
-            // Mostrar 'Pruebas' y 'Slides' solo a profesores
-            if ((card.titleKey === 'cardTestsTitle' || card.titleKey === 'cardSlidesTitle') && user?.role !== 'teacher') {
-              return false;
-            }
-            return true;
-          })
-          .map((card) => (
-          <Card key={card.titleKey} className={`flex flex-col text-center shadow-sm hover:shadow-lg transition-shadow duration-300 ${getBorderColorClass(card.colorClass)}`}>
-            <CardHeader className="items-center relative">
-              {card.showBadge && card.titleKey === 'cardTasksTitle' && (
-                (() => {
-                  let totalTaskCount;
-                  
-                  if (user?.role === 'student') {
-                    // Para estudiantes: mantener lógica original
-                    totalTaskCount = pendingTasksCount + unreadCommentsCount + taskNotificationsCount;
-                  } else {
-                    // Para profesores: evitar duplicación de entregas 
-                    // Calcular taskNotificationsCount sin incluir task_submission
-                    const notifications = JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]');
-                    const teacherNotificationsExcludingSubmissions = notifications.filter((notif: any) => 
-                      notif.targetUserRole === 'teacher' &&
-                      user && (notif.targetUsernames?.includes(user.username) || notif.targetUsernames?.includes(user.id)) &&
-                      user && (!notif.readBy?.includes(user.username) && !notif.readBy?.includes(user.id)) &&
-                      notif.type !== 'task_submission' // 🔧 EXCLUIR task_submission para evitar duplicación
-                    ).length;
-                    
-                    totalTaskCount = pendingTaskSubmissionsCount + unreadStudentCommentsCount + teacherNotificationsExcludingSubmissions;
-                  }
+      {/* Layout: si es profesor, agrupar en filas específicas sin cambiar tamaño de tarjetas */}
+      {user?.role === 'teacher' ? (
+        <>
+          {/* Fila 1: Libros, Resúmenes, Mapa, Cuestionario, Evaluación */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+            {['cardBooksTitle','cardSummaryTitle','cardMapTitle','cardQuizTitle','cardEvalTitle']
+              .map(key => featureCards.find(c => c.titleKey === key))
+              .map(card => renderFeatureCard(card))}
+          </div>
 
-                  
-                  // ✅ LOGS DE DEBUG PARA TARJETA DE TAREAS
-                  console.log(`📋 [Dashboard] TASK CARD CALCULATION FOR ${user?.username} (${user?.role}):`);
-                  if (user?.role === 'student') {
-                    console.log(`  • pendingTasksCount: ${pendingTasksCount}`);
-                    console.log(`  • unreadCommentsCount: ${unreadCommentsCount}`);
-                    console.log(`  • taskNotificationsCount: ${taskNotificationsCount}`);
-                  } else {
-                    console.log(`  • pendingTaskSubmissionsCount: ${pendingTaskSubmissionsCount}`);
-                    console.log(`  • unreadStudentCommentsCount: ${unreadStudentCommentsCount}`);
-                    const teacherNotificationsExcludingSubmissions = JSON.parse(localStorage.getItem('smart-student-task-notifications') || '[]')
-                      .filter((notif: any) => 
-                        notif.targetUserRole === 'teacher' &&
-                        user && (notif.targetUsernames?.includes(user.username) || notif.targetUsernames?.includes(user.id)) &&
-                        user && (!notif.readBy?.includes(user.username) && !notif.readBy?.includes(user.id)) &&
-                        notif.type !== 'task_submission'
-                      ).length;
-                    console.log(`  • taskNotificationsCount (excluding task_submission): ${teacherNotificationsExcludingSubmissions} ⭐ (FIXED: no duplicates)`);
-                    console.log(`  • taskNotificationsCount (original): ${taskNotificationsCount} ⚠️ (included duplicates)`);
-                  }
-                  console.log(`  🎯 TOTAL TASK CARD COUNT: ${totalTaskCount}`);                  return totalTaskCount > 0 && (
-                    user?.role === 'student' ? (
-                      <Badge 
-                        className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
-                        title={translate('pendingTasksAndNotifications', { count: String(totalTaskCount) }) || `${totalTaskCount} tareas/notificaciones pendientes`}
-                      >
-                        {totalTaskCount > 99 ? '99+' : totalTaskCount}
-                      </Badge>
-                    ) : (
-                      <Badge 
-                        className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
-                        title={translate('pendingGradingAndNotifications', { count: String(totalTaskCount) }) || `${totalTaskCount} calificaciones/notificaciones pendientes`}
-                      >
-                        {totalTaskCount > 99 ? '99+' : totalTaskCount}
-                      </Badge>
-                    )
-                  );
-                })()
-              )}
-              {/* Burbuja para Comunicaciones (estudiante) */}
-              {user?.role === 'student' && card.titleKey === 'cardCommunicationsStudentTitle' && unreadCommunicationsCount > 0 && (
-                <Badge 
-                  className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
-                  title={translate('unreadCommunicationsBadge', { count: String(unreadCommunicationsCount) }) || `${unreadCommunicationsCount} comunicaciones sin leer`}
-                >
-                  {unreadCommunicationsCount > 99 ? '99+' : unreadCommunicationsCount}
-                </Badge>
-              )}
-              <card.icon className={`w-10 h-10 mb-3 ${getIconColorClass(card.colorClass)}`} />
-              <CardTitle className="text-lg font-semibold font-headline">{translate(card.titleKey)}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col flex-grow">
-              <CardDescription className="text-sm mb-4 flex-grow">
-                {translate(card.descKey)}
-              </CardDescription>
-              <Button
-                variant="outline"
-                asChild
-                className={cn(
-                  "home-card-button",
-                  getButtonColorClass(card.colorClass),
-                  "hover:shadow-lg transition-shadow duration-200"
-                )}
-              >
-                <Link href={card.targetPage}>
-                  {card.titleKey === 'cardCommunicationsStudentTitle' && user?.role === 'teacher' 
-                    ? 'Crear Comunicados' 
-                    : translate(card.btnKey)
-                  }
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-        
-        {/* Admin specific cards */}
-        {user?.role === 'admin' && adminCards.map((card) => (
-          <Card 
-            key={card.titleKey} 
-            className={`flex flex-col text-center shadow-sm hover:shadow-lg transition-shadow duration-300 ${
-              card.colorClass === 'teal' 
-                ? 'border-teal-200 dark:border-teal-800' 
-                : card.colorClass === 'red' 
-                  ? 'border-red-200 dark:border-red-800'
-                  : 'border-yellow-200 dark:border-yellow-800'
-            }`}
-          >
-            <CardHeader className="items-center relative">
-              {card.showBadge && card.titleKey === 'cardPasswordRequestsTitle' && pendingPasswordRequestsCount > 0 && (
-                <Badge 
-                  className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
-                  title={translate('pendingPasswordRequests', { count: String(pendingPasswordRequestsCount) })}
-                >
-                  {pendingPasswordRequestsCount > 99 ? '99+' : pendingPasswordRequestsCount}
-                </Badge>
-              )}
-              <card.icon className={`w-10 h-10 mb-3 ${getIconColorClass(card.colorClass)}`} />
-              <CardTitle className="text-lg font-semibold font-headline">{translate(card.titleKey)}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col flex-grow">
-              <CardDescription className="text-sm mb-4 flex-grow">
-                {translate(card.descKey)}
-              </CardDescription>
-              <Button
-                variant="outline"
-                asChild
-                className={cn(
-                  "home-card-button",
-                  getButtonColorClass(card.colorClass),
-                  "hover:shadow-lg transition-shadow duration-200"
-                )}
-              >
-                <Link href={card.targetPage}>{translate(card.btnKey)}</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
+          {/* Fila 2: Tareas, Pruebas, Slides (mismas dimensiones que Libros) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+            {['cardTasksTitle','cardTestsTitle','cardSlidesTitle']
+              .map(key => featureCards.find(c => c.titleKey === key))
+              .map(card => renderFeatureCard(card))}
+          </div>
 
-        {/* Teacher specific cards */}
-        {user?.role === 'teacher' && teacherCards.map((card) => (
-          <Card 
-            key={card.titleKey} 
-            className={`flex flex-col text-center shadow-sm hover:shadow-lg transition-shadow duration-300 ${
-              card.colorClass === 'rose' 
-                ? 'border-rose-200 dark:border-rose-800' 
-                : card.colorClass === 'indigo' 
-                  ? 'border-indigo-200 dark:border-indigo-800'
-                  : card.colorClass === 'emerald'
-                    ? 'border-emerald-200 dark:border-emerald-800'
-                    : 'border-gray-200 dark:border-gray-800'
-            }`}
-          >
-            <CardHeader className="items-center relative">
-              {card.showBadge && card.titleKey === 'cardAttendanceTitle' && pendingAttendanceCount > 0 && (
-                <Badge 
-                  className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
-                  title={`${pendingAttendanceCount} pendientes de asistencia hoy`}
-                >
-                  {pendingAttendanceCount > 99 ? '99+' : pendingAttendanceCount}
-                </Badge>
-              )}
-              <card.icon className={`w-10 h-10 mb-3 ${getIconColorClass(card.colorClass)}`} />
-              <CardTitle className="text-lg font-semibold font-headline">{translate(card.titleKey)}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col flex-grow">
-              <CardDescription className="text-sm mb-4 flex-grow">
-                {translate(card.descKey)}
-              </CardDescription>
-              <Button
-                variant="outline"
-                asChild
-                className={cn(
-                  "home-card-button",
-                  getButtonColorClass(card.colorClass),
-                  "hover:shadow-lg transition-shadow duration-200"
+          {/* Fila 3: Comunicaciones, Asistencia, Estadística (mismas dimensiones que Libros) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+            {/* Comunicaciones (desde featureCards) */}
+            {renderFeatureCard(featureCards.find(c => c.titleKey === 'cardCommunicationsStudentTitle'))}
+            {/* Asistencia y Estadísticas (desde teacherCards) */}
+            {renderTeacherCard(teacherCards.find(c => c.titleKey === 'cardAttendanceTitle'))}
+            {renderTeacherCard(teacherCards.find(c => c.titleKey === 'cardStatisticsTitle'))}
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+          {featureCards
+            .filter(card => {
+              if (card.titleKey === 'cardCommunicationsStudentTitle' && user?.role === 'admin') {
+                return false;
+              }
+              if ((card.titleKey === 'cardTestsTitle' || card.titleKey === 'cardSlidesTitle') && user?.role !== 'teacher') {
+                return false;
+              }
+              return true;
+            })
+            .map((card) => renderFeatureCard(card))}
+
+          {/* Admin specific cards */}
+          {user?.role === 'admin' && adminCards.map((card) => (
+            <Card 
+              key={card.titleKey} 
+              className={`flex flex-col text-center shadow-sm hover:shadow-lg transition-shadow duration-300 ${getBorderColorClass(card.colorClass)}`}
+            >
+              <CardHeader className="items-center relative">
+                {card.showBadge && card.titleKey === 'cardPasswordRequestsTitle' && pendingPasswordRequestsCount > 0 && (
+                  <Badge 
+                    className="absolute -top-2 -right-2 bg-red-500 text-white hover:bg-red-600 text-xs px-2 rounded-full"
+                    title={translate('pendingPasswordRequests', { count: String(pendingPasswordRequestsCount) })}
+                  >
+                    {pendingPasswordRequestsCount > 99 ? '99+' : pendingPasswordRequestsCount}
+                  </Badge>
                 )}
-              >
-                <Link href={card.targetPage}>{translate(card.btnKey)}</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <card.icon className={`w-10 h-10 mb-3 ${getIconColorClass(card.colorClass)}`} />
+                <CardTitle className="text-lg font-semibold font-headline">{translate(card.titleKey)}</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col flex-grow">
+                <CardDescription className="text-sm mb-4 flex-grow">
+                  {translate(card.descKey)}
+                </CardDescription>
+                <Button
+                  variant="outline"
+                  asChild
+                  className={cn(
+                    "home-card-button",
+                    getButtonColorClass(card.colorClass),
+                    "hover:shadow-lg transition-shadow duration-200"
+                  )}
+                >
+                  <Link href={card.targetPage}>{translate(card.btnKey)}</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+
+          {/* Nota: tarjetas específicas de profesor se renderizan solo en el layout de profesor */}
+        </div>
+      )}
     </div>
   );
 }
