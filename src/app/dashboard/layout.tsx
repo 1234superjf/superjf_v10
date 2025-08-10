@@ -10,7 +10,7 @@ import ThemeToggle from '@/components/shared/theme-toggle';
 import { AIStatusIndicator } from '@/components/shared/ai-status-indicator';
 import { UserRoleBadge } from '@/components/shared/user-role-badge';
 import { Button } from '@/components/ui/button';
-import { LogOut, Home, Library, FileText, Network, FileQuestion, ClipboardList, UserCircle2, HelpCircle, Users, Mail, ClipboardCheck } from 'lucide-react';
+import { LogOut, Home, Library, FileText, Network, FileQuestion, ClipboardList, UserCircle2, HelpCircle, Users, Mail } from 'lucide-react';
 import { useLanguage } from '@/contexts/language-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';

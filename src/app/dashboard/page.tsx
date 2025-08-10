@@ -135,6 +135,7 @@ const featureCards = [
     icon: ClipboardList,
     colorClass: 'purple',
   },
+  // Nueva tarjeta: Pruebas (entre Evaluaciones y Tareas)
   {
     titleKey: 'cardTasksTitle',
     descKey: 'cardTasksDesc',
@@ -143,6 +144,14 @@ const featureCards = [
     icon: ClipboardCheck,
     colorClass: 'orange',
     showBadge: true, // Para mostrar la burbuja de notificación
+  },
+  {
+    titleKey: 'cardTestsTitle',
+    descKey: 'cardTestsDesc',
+    btnKey: 'cardTestsBtn',
+    targetPage: '/dashboard/pruebas',
+    icon: ClipboardCheck,
+  colorClass: 'fuchsia',
   },
   {
     titleKey: 'cardCommunicationsStudentTitle',
@@ -1202,6 +1211,7 @@ export default function DashboardHomePage() {
       case 'indigo': return 'home-card-button-indigo';
       case 'teal': return 'home-card-button-teal';
   case 'rose': return 'home-card-button-stats';
+  case 'fuchsia': return 'home-card-button-fuchsia';
       case 'emerald': return 'home-card-button-emerald';
       default: return '';
     }
@@ -1219,6 +1229,7 @@ export default function DashboardHomePage() {
       case 'indigo': return 'text-indigo-500 dark:text-indigo-400';
       case 'teal': return 'text-teal-500 dark:text-teal-400';
       case 'rose': return 'text-rose-500 dark:text-rose-400';
+  case 'fuchsia': return 'text-fuchsia-500 dark:text-fuchsia-400';
       case 'emerald': return 'text-emerald-500 dark:text-emerald-400';
       default: return 'text-muted-foreground';
     }
@@ -1236,6 +1247,7 @@ export default function DashboardHomePage() {
       case 'indigo': return 'border-indigo-200 dark:border-indigo-800';
       case 'teal': return 'border-teal-200 dark:border-teal-800';
       case 'rose': return 'border-rose-200 dark:border-rose-800';
+  case 'fuchsia': return 'border-fuchsia-200 dark:border-fuchsia-800';
       case 'emerald': return 'border-emerald-200 dark:border-emerald-800';
       default: return 'border-gray-200 dark:border-gray-800';
     }

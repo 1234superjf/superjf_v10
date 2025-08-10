@@ -8,7 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { BarChart3, ClipboardList, FileCheck2, Users, Activity, TrendingUp, Clock, ChevronDown } from 'lucide-react';
+import { BarChart3, ClipboardList, FileCheck2, Users, Activity, TrendingUp, Clock, Download, ChevronDown } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { ensureDemoTeacherData } from '@/lib/demo/teacher-stats-demo';
 import TrendChart from '@/components/charts/TrendChart';
 // Componente: Gráfico temporal de asistencia con filtros por curso y estudiante
@@ -356,7 +358,7 @@ function useTeacherStats(username?: string, period: Period = '30d', filters?: St
     const avgScore100 = gradedSubs.length > 0
       ? (gradedSubs.reduce((acc, s) => acc + norm100(s), 0) / gradedSubs.length)
       : undefined;
-    const avgScore20 = typeof avgScore100 === 'number' ? avgScore100 / 5 : undefined; // mantenemos 0-20 por compatibilidad
+    const avgScore20 = typeof avgScore100 === 'number' ? avgScore100 / 5 : undefined;
 
     // ASISTENCIA
     const attendance: any[] = read('smart-student-attendance');
@@ -407,33 +409,21 @@ function useTeacherStats(username?: string, period: Period = '30d', filters?: St
       if (!byStudent[key]) byStudent[key] = { sum: 0, n: 0 };
       byStudent[key].sum += sc; byStudent[key].n += 1;
     });
-    const topStudentAvg100 = Object.values(byStudent).length
-      ? Math.max(...Object.values(byStudent).map(x => (x.sum / x.n)))
+    const topStudentAvg20 = Object.values(byStudent).length
+      ? Math.max(...Object.values(byStudent).map(x => (x.sum / x.n) / 5))
       : undefined;
 
-    // Promedio por curso (0-100) y por asignatura para "Comparación"
+    // Promedio por curso (0-20) para "Comparación de Cursos"
     const byCourse: Record<string, { sum: number; n: number }> = {};
-    const bySubject: Record<string, { sum: number; n: number }> = {};
     gradedSubs.forEach(s => {
       const course = s.course || s.courseId || s.sectionId || '—';
       const sc = norm100(s);
       if (!byCourse[course]) byCourse[course] = { sum: 0, n: 0 };
       byCourse[course].sum += sc; byCourse[course].n += 1;
-
-      const subject = (s.subject || s.subjectName || s.taskSubject || s.task?.subject || s.task?.subjectName || s.meta?.subject || '—') as string;
-      if (!bySubject[subject]) bySubject[subject] = { sum: 0, n: 0 };
-      bySubject[subject].sum += sc; bySubject[subject].n += 1;
     });
-    const courseAvg100 = Object.entries(byCourse)
-      .map(([label, v]) => ({ label, avg100: (v.sum / Math.max(1, v.n)) }))
-      .sort((a, b) => b.avg100 - a.avg100)
-      .slice(0, 5);
-    // ordenar correctamente usando nueva clave
-    courseAvg100.sort((a, b) => b.avg100 - a.avg100);
-
-    const subjectAvg100 = Object.entries(bySubject)
-      .map(([label, v]) => ({ label, avg100: (v.sum / Math.max(1, v.n)) }))
-      .sort((a, b) => b.avg100 - a.avg100)
+    const courseAvg20 = Object.entries(byCourse)
+      .map(([label, v]) => ({ label, avg20: (v.sum / Math.max(1, v.n)) / 5 }))
+      .sort((a, b) => b.avg20 - a.avg20)
       .slice(0, 5);
 
     // Promedio mensual (últimos 5 meses) 0-20 para "Notas por Fecha"
@@ -456,8 +446,8 @@ function useTeacherStats(username?: string, period: Period = '30d', filters?: St
       monthlyAgg[key].sum += norm100(s);
       monthlyAgg[key].n += 1;
     });
-    const monthlyAvg100 = months.map(m => (
-      monthlyAgg[m.key].n > 0 ? (monthlyAgg[m.key].sum / monthlyAgg[m.key].n) : 0
+    const monthlyAvg20 = months.map(m => (
+      monthlyAgg[m.key].n > 0 ? (monthlyAgg[m.key].sum / monthlyAgg[m.key].n) / 5 : 0
     ));
     const monthlyLabels = months.map(m => m.label);
 
@@ -468,17 +458,15 @@ function useTeacherStats(username?: string, period: Period = '30d', filters?: St
       gradedSubmissions: gradedSubs.length,
       avgGrade,
   avgScore20: avgScore20,
-  avgScore100: avgScore100,
       attendance: { present, total },
       trendSeries: series,
       topCourses,
       gradeBins: bins,
   approvedCount,
   failedCount,
-  topStudentAvg100,
-  courseAvg100,
-  subjectAvg100,
-  monthlyAvg100,
+  topStudentAvg20,
+  courseAvg20,
+  monthlyAvg20,
   monthlyLabels,
       _debug: refreshTick,
     };
@@ -494,7 +482,6 @@ export default function TeacherStatisticsPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [selectedCourse, setSelectedCourse] = useState<string | 'all'>('all');
   const [selectedLevel, setSelectedLevel] = useState<'all' | Level>('all');
-  const [comparisonMode, setComparisonMode] = useState<'curso' | 'asignatura'>('curso');
   const router = useRouter();
 
   // Generar datos demo si el entorno está vacío (solo cliente)
@@ -597,12 +584,60 @@ export default function TeacherStatisticsPage() {
     return Array.from(lv);
   }, [teacherCourses]);
 
-  // (Botón de descarga removido a solicitud. Lógica PDF eliminada.)
+  const exportPDF = async () => {
+    try {
+      const container = document.getElementById('teacher-stats-container');
+      if (!container) return;
+      // Ajustar ancho de página y márgenes
+      const pdf = new jsPDF('p', 'pt', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 24;
+
+      // Captura ÚNICA de todo el contenedor para mantener flujo vertical continuo
+      const canvas = await html2canvas(container as HTMLElement, { scale: 2, backgroundColor: '#0b1220' });
+      const imgData = canvas.toDataURL('image/png');
+
+      // Escala para ajustar al ancho de la página manteniendo proporción
+      const ratio = (pageWidth - margin * 2) / canvas.width;
+      const pageContentHeight = pageHeight - margin * 2;
+      const sliceHeightPx = Math.floor(pageContentHeight / ratio); // alto en píxeles del canvas por página
+
+      const totalPages = Math.max(1, Math.ceil(canvas.height / sliceHeightPx));
+
+      // Crear slices verticales del canvas para cada página
+      for (let page = 0; page < totalPages; page++) {
+        if (page > 0) pdf.addPage();
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = Math.min(sliceHeightPx, canvas.height - page * sliceHeightPx);
+        const ctx = sliceCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#0b1220';
+          ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+          ctx.drawImage(
+            canvas,
+            0, page * sliceHeightPx, // origen Y en el canvas grande
+            canvas.width, sliceCanvas.height, // tamaño de recorte
+            0, 0, // destino
+            sliceCanvas.width, sliceCanvas.height
+          );
+        }
+        const sliceData = sliceCanvas.toDataURL('image/png');
+        const w = canvas.width * ratio;
+        const h = sliceCanvas.height * ratio;
+        pdf.addImage(sliceData, 'PNG', (pageWidth - w) / 2, margin, w, h, undefined, 'FAST');
+      }
+      pdf.save(`estadisticas-${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch (e) {
+      console.error('[TeacherStatisticsPage] Error exportando PDF:', e);
+    }
+  };
 
   return (
     <div id="teacher-stats-container" className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between" data-section="header">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-[hsl(var(--custom-rose-100))] text-[hsl(var(--custom-rose-800))] dark:bg-[hsl(var(--custom-rose-700))] dark:text-white">
             <TrendingUp className="w-6 h-6" />
@@ -612,7 +647,9 @@ export default function TeacherStatisticsPage() {
             <p className="text-muted-foreground">{t('statisticsPageSub', 'Análisis y métricas de tu gestión como profesor')}</p>
           </div>
         </div>
-        {/* Botón Descargar removido */}
+        <Button className="home-card-button-green w-auto flex items-center gap-2" onClick={exportPDF}>
+          <Download className="w-4 h-4" /> {t('download', 'Descargar')}
+        </Button>
       </div>
 
       {/* Filtros: tarjetas cuadradas seleccionables */}
@@ -707,13 +744,12 @@ export default function TeacherStatisticsPage() {
           </CardContent>
         </Card>
 
-    <Card>
+        <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('avgAllStudents', 'Promedio de todos los estudiantes')}</CardTitle>
           </CardHeader>
           <CardContent>
-      <div className="text-5xl font-extrabold text-blue-300">{typeof stats.avgScore100 === 'number' ? stats.avgScore100.toFixed(1) : '—'}</div>
-      <div className="text-xs text-muted-foreground">Escala 0–100</div>
+            <div className="text-5xl font-extrabold text-blue-300">{typeof stats.avgScore20 === 'number' ? stats.avgScore20.toFixed(1) : '—'}</div>
           </CardContent>
         </Card>
 
@@ -722,8 +758,7 @@ export default function TeacherStatisticsPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('topStudentAvg', 'Promedio de estudiante destacado')}</CardTitle>
           </CardHeader>
           <CardContent>
-      <div className="text-5xl font-extrabold text-fuchsia-300">{typeof stats.topStudentAvg100 === 'number' ? stats.topStudentAvg100.toFixed(1) : '—'}</div>
-      <div className="text-xs text-muted-foreground">Escala 0–100</div>
+            <div className="text-5xl font-extrabold text-fuchsia-300">{typeof stats.topStudentAvg20 === 'number' ? stats.topStudentAvg20.toFixed(1) : '—'}</div>
           </CardContent>
         </Card>
       </div>
@@ -755,40 +790,25 @@ export default function TeacherStatisticsPage() {
 
       {/* Gráficos principales */}
   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-section>
-        {/* Comparación (barras) por Curso o Asignatura */}
+        {/* Comparación de Cursos (barras) */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span>{t('courseComparison', 'Comparación')}</span>
-              <div className="flex gap-2 text-xs">
-                <button
-                  className={`px-2 py-1 rounded border ${comparisonMode === 'curso' ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
-                  onClick={() => setComparisonMode('curso')}
-                >Por curso</button>
-                <button
-                  className={`px-2 py-1 rounded border ${comparisonMode === 'asignatura' ? 'bg-[hsl(var(--custom-rose-700))] text-white border-transparent' : 'bg-transparent text-muted-foreground border-muted'}`}
-                  onClick={() => setComparisonMode('asignatura')}
-                >Por asignatura</button>
-              </div>
-            </CardTitle>
+            <CardTitle>{t('courseComparison', 'Comparación de Cursos')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-56 flex items-end gap-4 px-2">
-              {(() => {
-                const data = (comparisonMode === 'curso' ? (stats.courseAvg100 ?? []) : (stats.subjectAvg100 ?? [])) as Array<{label: string; avg100: number}>;
-                return data;
-              })().map((c: {label: string; avg100: number}, idx: number) => {
-                const h = Math.round(Math.max(0, Math.min(100, c.avg100)) / 100 * 180);
-                const color = ['#60A5FA','#F9A8D4','#C4B5FD','#34D399','#FBBF24','#F87171'][idx % 6];
+              {(() => { const data = stats.courseAvg20 ?? []; return data; })().map((c, idx, arr) => {
+                const max = Math.max(1, ...arr.map((x: any) => x.avg20));
+                const h = Math.round((c.avg20 / max) * 180);
+                const color = ['#60A5FA','#F9A8D4','#C4B5FD','#34D399'][idx % 4];
                 return (
-                  <div key={`${comparisonMode}-${c.label}`} className="flex-1 flex flex-col items-center min-w-[4rem]">
-                    <div className="text-xs text-muted-foreground mb-1">{c.avg100.toFixed(1)}</div>
+                  <div key={c.label} className="flex-1 flex flex-col items-center">
                     <div style={{ height: `${h}px`, backgroundColor: color }} className="w-10 rounded-t-md"></div>
-                    <div className="mt-2 text-xs text-center w-24 break-words whitespace-normal leading-tight" title={c.label}>{c.label}</div>
+                    <div className="mt-2 text-sm text-center truncate w-16" title={c.label}>{c.label}</div>
                   </div>
                 );
               })}
-              {((comparisonMode === 'curso' ? (stats.courseAvg100?.length ?? 0) : (stats.subjectAvg100?.length ?? 0)) === 0) && (
+              {(stats.courseAvg20?.length ?? 0) === 0 && (
                 <p className="text-sm text-muted-foreground">{t('noData', 'Sin datos')}</p>
               )}
             </div>
@@ -801,9 +821,9 @@ export default function TeacherStatisticsPage() {
             <CardTitle>{t('gradesOverTime', 'Notas por Fecha')}</CardTitle>
           </CardHeader>
           <CardContent>
-      {stats.monthlyAvg100 && stats.monthlyAvg100.length ? (
+            {stats.monthlyAvg20 && stats.monthlyAvg20.length ? (
               <TrendChart
-        data={stats.monthlyAvg100}
+                data={stats.monthlyAvg20}
                 labels={stats.monthlyLabels || []}
                 color={'#60A5FA'}
                 height={200}
@@ -815,8 +835,8 @@ export default function TeacherStatisticsPage() {
         </Card>
       </div>
 
-  {/* Top Courses and Recent Activity */}
-  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-section>
+      {/* Top Courses and Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
             <CardTitle>{t('topCourses', 'Cursos/Secciones con más entregas')}</CardTitle>
