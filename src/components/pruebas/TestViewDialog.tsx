@@ -142,80 +142,309 @@ export default function TestViewDialog({ open, onOpenChange, test, onReview }: P
   }, [test?.questions, test?.counts, test?.topic])
 
   const handleExportPDF = async () => {
-    const node = contentRef.current
-    if (!node) return
-    const canvas = await html2canvas(node, { scale: 2, useCORS: true })
-    const imgData = canvas.toDataURL("image/png")
-    const pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" })
+    try {
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 15
+      const maxWidth = pageWidth - margin * 2
+      const lineH = 6
+      let y = margin
 
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
+      // Estética base
+      pdf.setTextColor(0)
+      pdf.setDrawColor(30)
+      pdf.setLineWidth(0.4)
 
-    const imgWidth = pageWidth
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
+      const ensureSpace = (h: number) => {
+        if (y + h > pageHeight - margin) {
+          addFooter()
+          pdf.addPage()
+          y = margin
+          drawHeader(true)
+        }
+      }
 
-    let position = 0
-    let remaining = imgHeight
+      const text = (str: string, opts?: { size?: number; bold?: boolean; add?: number }) => {
+        const size = opts?.size ?? 12
+        const bold = opts?.bold ?? false
+        const add = opts?.add ?? 0
+        pdf.setFont('helvetica', bold ? 'bold' : 'normal')
+        pdf.setFontSize(size)
+        const lines = pdf.splitTextToSize(str, maxWidth)
+        ensureSpace(lines.length * lineH + add)
+  lines.forEach((l: string) => { pdf.text(l, margin, y); y += lineH })
+        y += add
+      }
 
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-    remaining -= pageHeight
-    while (remaining > 0) {
-      pdf.addPage()
-      position = - (imgHeight - remaining)
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-      remaining -= pageHeight
+      // Encabezado y pie
+      const drawHeader = (compact = false) => {
+        pdf.setFont('helvetica', 'bold')
+        if (!compact) {
+          // Título centrado grande
+          pdf.setFontSize(18)
+          const title = (test?.title || 'PRUEBA').toUpperCase()
+          const tW = pdf.getTextWidth(title)
+          pdf.text(title, (pageWidth - tW) / 2, y)
+          y += 8
+          // Línea decorativa
+          pdf.setDrawColor(50)
+          pdf.setLineWidth(0.8)
+          pdf.line(margin, y, pageWidth - margin, y)
+          pdf.setLineWidth(0.4)
+          y += 6
+          // Datos
+          text(`TEMA: ${test?.topic || '-'}`, { bold: true })
+          const courseSec = courseName ? `${courseName} ${courseSectionName}` : (courseSectionName || '-')
+          text(`CURSO/SECCIÓN: ${courseSec}`, { bold: true })
+          text(`ASIGNATURA: ${subjectName || 'Ciencias Naturales'}`, { bold: true })
+          y += 2
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12)
+          const label = 'NOMBRE DEL ESTUDIANTE:'
+          pdf.text(label, margin, y)
+          const xLine = margin + pdf.getTextWidth(label) + 2
+          pdf.line(xLine, y, pageWidth - margin, y)
+          y += 8
+          pdf.setDrawColor(30)
+          pdf.line(margin, y, pageWidth - margin, y)
+          y += 6
+        } else {
+          // Encabezado compacto para páginas siguientes
+          pdf.setFontSize(12)
+          const title = (test?.title || 'PRUEBA').toUpperCase()
+          pdf.text(title, margin, y)
+          const courseSec = courseName ? `${courseName} ${courseSectionName}` : (courseSectionName || '-')
+          pdf.setFont('helvetica','normal')
+          pdf.text(courseSec, pageWidth - margin - pdf.getTextWidth(courseSec), y)
+          y += 4
+          pdf.setDrawColor(30)
+          pdf.line(margin, y, pageWidth - margin, y)
+          y += 4
+        }
+      }
+
+      const addFooter = () => {
+        const page = (pdf as any).internal?.getNumberOfPages?.() || (pdf as any).internal?.pages?.length || 1
+        pdf.setFont('helvetica','normal'); pdf.setFontSize(9)
+        pdf.text(`Página ${page}`, pageWidth - margin - 20, pageHeight - 6)
+      }
+
+      // Pinta el primer encabezado
+      drawHeader(false)
+
+      const questions = (test?.questions || []) as AnyQuestion[]
+      const letters = ['A','B','C','D','E','F']
+
+      const boxPaddingX = 4
+      const boxPaddingY = 4
+
+      const calcTextHeight = (s: string, width: number) => {
+        const lines = pdf.splitTextToSize(s, width)
+        return lines.length * lineH
+      }
+
+      const drawBox = (height: number) => {
+        // Caja con bordes redondeados y banda lateral clara
+        const x = margin
+        const w = pageWidth - margin * 2
+        const h = height
+        pdf.setDrawColor(60)
+        pdf.roundedRect(x, y, w, h, 2, 2)
+        // Banda lateral
+        pdf.setFillColor(235, 232, 246) // lila muy suave
+        pdf.rect(x + 1.5, y + 1.5, 3, h - 3, 'F')
+      }
+
+      for (let i = 0; i < questions.length; i++) {
+        const q: any = questions[i]
+        const num = i + 1
+
+        if (q.type === 'tf') {
+          const title = `${num}. ${q.text}`
+          const titleH = calcTextHeight(title, maxWidth - boxPaddingX * 2)
+          const totalH = boxPaddingY * 2 + titleH + 10
+          ensureSpace(totalH + 2)
+          drawBox(totalH)
+          // contenido dentro de la caja
+          let innerY = y + boxPaddingY + 2
+          pdf.setFont('helvetica','bold'); pdf.setFontSize(12)
+          const lines = pdf.splitTextToSize(title, maxWidth - boxPaddingX * 2)
+          lines.forEach((l: string) => { pdf.text(l, margin + boxPaddingX + 6, innerY); innerY += lineH })
+          pdf.setFont('helvetica','normal')
+          pdf.text('V (    )', margin + boxPaddingX + 10, innerY + 2)
+          pdf.text('F (    )', margin + boxPaddingX + 40, innerY + 2)
+          y += totalH + 4
+          continue
+        }
+
+        if (q.type === 'mc') {
+          const header = `${num}. ${q.text}`
+          const headerH = calcTextHeight(header, maxWidth - boxPaddingX * 2)
+          const optionHeights = q.options.map((opt: string, idx: number) => calcTextHeight(`(${letters[idx] || String(idx+1)}) ${opt}`, maxWidth - boxPaddingX * 2 - 4))
+          const optionsH = optionHeights.reduce((a: number, b: number) => a + b + 2, 0)
+          const totalH = boxPaddingY * 2 + headerH + 2 + optionsH
+          ensureSpace(totalH + 2)
+          drawBox(totalH)
+          let innerY = y + boxPaddingY + 2
+          pdf.setFont('helvetica','bold')
+          pdf.setFontSize(12)
+          pdf.splitTextToSize(header, maxWidth - boxPaddingX * 2).forEach((l: string) => { pdf.text(l, margin + boxPaddingX + 6, innerY); innerY += lineH })
+          innerY += 1
+          pdf.setFont('helvetica','normal')
+          q.options.forEach((opt: string, idx: number) => {
+            const linesOpt = pdf.splitTextToSize(`(${letters[idx] || String(idx+1)}) ${opt}`, maxWidth - boxPaddingX * 2 - 4)
+            linesOpt.forEach((l: string) => { pdf.text(l, margin + boxPaddingX + 8, innerY); innerY += lineH })
+            innerY += 2
+          })
+          y += totalH + 4
+          continue
+        }
+
+        if (q.type === 'ms') {
+          const header = `${num}. ${q.text}`
+          const headerH = calcTextHeight(header, maxWidth - boxPaddingX * 2)
+          let optionsH = 0
+          const linesPerOpt: Array<string[]> = []
+          q.options.forEach((opt: any, idx: number) => {
+            const linesOpt = pdf.splitTextToSize(`(${letters[idx] || String(idx+1)}) ${opt.text}`, maxWidth - boxPaddingX * 2 - 12)
+            linesPerOpt.push(linesOpt as unknown as string[])
+            optionsH += linesOpt.length * lineH + 4
+          })
+          const totalH = boxPaddingY * 2 + headerH + 2 + optionsH
+          ensureSpace(totalH + 2)
+          drawBox(totalH)
+          let innerY = y + boxPaddingY + 2
+          pdf.setFont('helvetica','bold'); pdf.setFontSize(12)
+          pdf.splitTextToSize(header, maxWidth - boxPaddingX * 2).forEach((l: string) => { pdf.text(l, margin + boxPaddingX + 6, innerY); innerY += lineH })
+          innerY += 2
+          pdf.setFont('helvetica','normal')
+          q.options.forEach((_opt: any, idx: number) => {
+            // checkbox
+            pdf.rect(margin + boxPaddingX + 6, innerY - 3.5, 3.5, 3.5)
+            const linesOpt = linesPerOpt[idx]
+            linesOpt.forEach((l: string) => { pdf.text(l, margin + boxPaddingX + 12, innerY); innerY += lineH })
+            innerY += 2
+          })
+          y += totalH + 4
+          continue
+        }
+
+        // Desarrollo
+        const header = `${num}. ${q.prompt}`
+        const headerH = calcTextHeight(header, maxWidth - boxPaddingX * 2)
+        const linesCount = 7
+        const linesArea = linesCount * (lineH + 2) + 2
+        const totalH = boxPaddingY * 2 + headerH + 6 + linesArea
+        ensureSpace(totalH + 2)
+        drawBox(totalH)
+        let innerY = y + boxPaddingY + 2
+        pdf.setFont('helvetica','bold'); pdf.setFontSize(12)
+        pdf.splitTextToSize(header, maxWidth - boxPaddingX * 2).forEach((l: string) => { pdf.text(l, margin + boxPaddingX + 6, innerY); innerY += lineH })
+        innerY += 4
+        // Líneas para desarrollo
+        for (let k = 0; k < linesCount; k++) {
+          pdf.line(margin + boxPaddingX + 6, innerY, pageWidth - margin - boxPaddingX, innerY)
+          innerY += lineH + 2
+        }
+        y += totalH + 4
+      }
+
+      addFooter()
+      const filename = `${test?.title?.replace(/[^a-zA-Z0-9]/g, '_') || 'prueba'}-${courseSectionName?.replace(/[^a-zA-Z0-9]/g, '_') || 'curso'}.pdf`
+      pdf.save(filename)
+    } catch (error) {
+      console.error('[TestViewDialog] Error al generar PDF:', error)
+      alert('Error al generar el PDF. Por favor, inténtelo de nuevo.')
     }
-    const filename = `${test?.title || "prueba"}-${courseSectionName || "curso"}.pdf`
-    pdf.save(filename)
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Limitar alto y permitir desplazamiento para pruebas largas */}
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Vista: {test?.title || "Prueba"}</DialogTitle>
+          <DialogTitle className="text-xl">Vista: {test?.title || "Prueba"}</DialogTitle>
         </DialogHeader>
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-sm text-muted-foreground">{courseName ? `${courseName} ${courseSectionName}` : courseSectionName}</div>
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="text-sm text-muted-foreground font-medium">
+            {courseName ? `${courseName} ${courseSectionName}` : courseSectionName}
+          </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
               onClick={handleExportPDF}
-              className="border-fuchsia-200 text-fuchsia-800 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800"
+              className="border-fuchsia-200 text-fuchsia-800 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800 font-medium"
             >
-              Descargar
+              📄 Descargar PDF
             </Button>
           </div>
         </div>
 
+        {/* Estilos de impresión personalizados */}
+        <style jsx>{`
+          @media print {
+            .print-break-inside-avoid {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+            .print-break-after {
+              break-after: page;
+              page-break-after: always;
+            }
+            .print-margin {
+              margin: 20mm;
+            }
+          }
+        `}</style>
+
         {/* Contenido imprimible de la prueba */}
-        <div ref={contentRef} className="mt-3 border rounded-md p-6 space-y-4">
+        <div
+          ref={contentRef}
+          className="mt-3 border rounded-md p-8 space-y-8 bg-white text-black dark:bg-white dark:text-black border-gray-200 dark:border-gray-300 print:bg-white print:text-black print-margin print:shadow-none"
+        >
           {/* Encabezado de la prueba */}
-          <div className="space-y-1">
-            <div className="text-center">
-              <h2 className="text-lg font-semibold">{test?.title || "Prueba"}</h2>
+          <div className="space-y-6 print-break-inside-avoid" data-pdf-block>
+            <div className="text-center mb-8">
+              <h1 className="text-2xl font-bold uppercase tracking-wide print:text-3xl">{test?.title || "PRUEBA"}</h1>
             </div>
-            {/* Orden: Tema, Fecha y hora, Curso, Asignatura */}
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div><span className="font-medium">{translate('testsLabelTopic')}:</span> {test?.topic || "-"}</div>
-              <div><span className="font-medium">{translate('testsLabelDateTime')}:</span> {test?.createdAt ? new Date(test.createdAt).toLocaleString() : new Date().toLocaleString()}</div>
-              <div><span className="font-medium">{translate('testsLabelCourseSection')}:</span> {courseName ? `${courseName} ${courseSectionName}` : courseSectionName}</div>
-              <div><span className="font-medium">{translate('testsLabelSubject')}:</span> {subjectName || "-"}</div>
+            
+            {/* Información organizada con mejor espaciado */}
+            <div className="space-y-4 text-base leading-relaxed print:text-lg">
+              <div className="border-b pb-2 print:border-black">
+                <span className="font-semibold uppercase tracking-wide">Tema:</span> 
+                <span className="ml-3">{test?.topic || "-"}</span>
+              </div>
+              <div className="border-b pb-2 print:border-black">
+                <span className="font-semibold uppercase tracking-wide">Curso/Sección:</span> 
+                <span className="ml-3">{courseName ? `${courseName} ${courseSectionName}` : courseSectionName}</span>
+              </div>
+              <div className="border-b pb-2 print:border-black">
+                <span className="font-semibold uppercase tracking-wide">Asignatura:</span> 
+                <span className="ml-3">{subjectName || "Ciencias Naturales"}</span>
+              </div>
+              <div className="mt-6 pt-4">
+                <span className="font-semibold uppercase tracking-wide">Nombre del estudiante:</span> 
+                <span className="ml-3 border-b-2 border-dotted border-gray-400 print:border-black inline-block w-80 pb-1"></span>
+              </div>
             </div>
-            <div className="mt-2 text-sm"><span className="font-medium">{translate('testsLabelStudentName')}:</span> ________________________________</div>
           </div>
 
-          {/* Preguntas */}
-          <div className="space-y-4">
+          {/* Separador entre información inicial y preguntas */}
+          <div className="border-t-2 border-gray-300 dark:border-gray-300 print:border-black my-8"></div>
+
+          {/* Preguntas con mayor separación */}
+          <div className="space-y-8">
             {(test?.questions || []).map((q, idx) => {
               const num = idx + 1
               if ((q as any).type === "tf") {
                 const qt = q as QuestionTF
                 return (
-                  <div key={q.id} className="text-sm">
-                    <div className="font-medium">{num}. {qt.text}</div>
-                    <div className="mt-1">V (  )   F (  )</div>
+                  <div key={q.id} data-pdf-block className="text-base leading-relaxed p-4 border-l-4 border-blue-200 bg-blue-50/30 print:border-l-2 print:border-black print:bg-white print-break-inside-avoid">
+                    <div className="font-semibold mb-3 text-lg print:text-xl">{num}. {qt.text}</div>
+                    <div className="ml-4 text-lg space-x-8 print:text-xl">
+                      <span>V (     )</span>
+                      <span>F (     )</span>
+                    </div>
                   </div>
                 )
               }
@@ -223,12 +452,12 @@ export default function TestViewDialog({ open, onOpenChange, test, onReview }: P
                 const qm = q as QuestionMC
                 const letters = ["A", "B", "C", "D", "E", "F"]
                 return (
-                  <div key={q.id} className="text-sm">
-                    <div className="font-medium">{num}. {qm.text}</div>
-                    <ul className="mt-1 space-y-1">
+                  <div key={q.id} data-pdf-block className="text-base leading-relaxed p-4 border-l-4 border-green-200 bg-green-50/30 print:border-l-2 print:border-black print:bg-white print-break-inside-avoid">
+                    <div className="font-semibold mb-4 text-lg print:text-xl">{num}. {qm.text}</div>
+                    <ul className="ml-4 space-y-3">
                       {qm.options.map((opt, i) => (
-                        <li key={i}>
-                          ({letters[i] || String(i + 1)}) {opt}
+                        <li key={i} className="text-base leading-relaxed print:text-lg">
+                          <span className="font-medium">({letters[i] || String(i + 1)})</span> {opt}
                         </li>
                       ))}
                     </ul>
@@ -239,12 +468,14 @@ export default function TestViewDialog({ open, onOpenChange, test, onReview }: P
                 const qs = q as QuestionMS
                 const letters = ["A", "B", "C", "D", "E", "F"]
                 return (
-                  <div key={q.id} className="text-sm">
-                    <div className="font-medium">{num}. {qs.text}</div>
-                    <ul className="mt-1 space-y-1">
+                  <div key={q.id} data-pdf-block className="text-base leading-relaxed p-4 border-l-4 border-purple-200 bg-purple-50/30 print:border-l-2 print:border-black print:bg-white print-break-inside-avoid">
+                    <div className="font-semibold mb-4 text-lg print:text-xl">{num}. {qs.text}</div>
+                    <ul className="ml-4 space-y-3">
                       {qs.options.map((opt, i) => (
-                        <li key={i}>
-                          <input type="checkbox" className="mr-2" />({letters[i] || String(i + 1)}) {opt.text}
+                        <li key={i} className="text-base leading-relaxed print:text-lg flex items-center">
+                          <span className="inline-block w-6 h-6 border-2 border-gray-400 dark:border-gray-500 mr-3 print:border-black print:border-2"></span>
+                          <span className="font-medium">({letters[i] || String(i + 1)})</span>
+                          <span className="ml-2">{opt.text}</span>
                         </li>
                       ))}
                     </ul>
@@ -254,9 +485,12 @@ export default function TestViewDialog({ open, onOpenChange, test, onReview }: P
               // Desarrollo
               const qd = q as QuestionDES
               return (
-                <div key={q.id} className="text-sm">
-                  <div className="font-medium">{num}. {qd.prompt}</div>
-                  <div className="mt-2 h-24 border rounded" />
+                <div key={q.id} data-pdf-block className="text-base leading-relaxed p-4 border-l-4 border-orange-200 bg-orange-50/30 print:border-l-2 print:border-black print:bg-white print-break-inside-avoid">
+                  <div className="font-semibold mb-4 text-lg print:text-xl">{num}. {qd.prompt}</div>
+                  <div className="ml-4 mt-4 h-32 border-2 border-gray-300 rounded-lg bg-white/50 print:border-black print:bg-white print:h-40" />
+                  <div className="ml-4 mt-2 text-xs text-gray-500 dark:text-gray-700 italic print:text-sm print:text-black">
+                    Espacio para desarrollo de la respuesta
+                  </div>
                 </div>
               )
             })}

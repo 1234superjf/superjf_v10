@@ -1358,6 +1358,10 @@ export default function DashboardHomePage() {
             if (card.titleKey === 'cardCommunicationsStudentTitle' && user?.role === 'admin') {
               return false;
             }
+            // Ocultar la tarjeta 'Pruebas' sólo para el rol administrador
+            if (card.titleKey === 'cardTestsTitle' && user?.role === 'admin') {
+              return false;
+            }
             return true;
           })
           .map((card) => (

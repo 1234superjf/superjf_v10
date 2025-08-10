@@ -41,14 +41,14 @@ Versión v10 consolidada con asistencia unificada, notificaciones dinámicas, IA
   - Incluye comunicaciones a estudiantes y conteo de asistencia pendiente
 - Regla asistencia pendiente en campana: por cada curso-sección, la alerta existe si al menos un estudiante no tiene marcaje en el día.
 
-## �️ Asistencia unificada
+## 🗓️ Asistencia unificada
 - Vista: `src/app/dashboard/asistencia/page.tsx`
 - ID de curso compuesto: `courseId-sectionId` (dos UUID concatenados)
 - Criterio de “pendiente”: todos los estudiantes asignados a la sección deben estar marcados hoy para que desaparezca.
 - Dispara eventos personalizados para refrescar dashboard/campana:
   - `updateDashboardCounts`, `notificationsUpdated` y evento `storage` sobre `smart-student-attendance`.
 
-## � Sistema de colores
+## 🎨 Sistema de colores
 - Archivo fuente: `src/lib/ui-colors.ts`
 - Token único para asistencia: `ATTENDANCE_COLOR = 'indigo'`
 - Clases Tailwind predefinidas (no dinámicas) para evitar purga inesperada.
@@ -111,81 +111,9 @@ npm run dev
 3) Importa backup desde Gestión de Usuarios
 4) Verifica claves compuestas curso-sección en asistencia y tareas
 
-## � Créditos y alcance
+## 📌 Créditos y alcance
 - Autoría original: Felipe (superjf)
 - Uso interno/educativo; ajusta licencia si publicarás.
 
 ---
 Este documento sustituye README_v10.md de plantilla y referencia las rutas reales del código para operar y depurar v10.
-  - **Evaluaciones Completadas**: Morado claro 💜
-
-### 🔍 Análisis Inteligente
-- **IA Gemini**: Análisis y optimización automática de datos
-- **Recomendaciones personalizadas**: Sugerencias durante la reparación
-- **Indicador visual**: Estado de la IA en tiempo real con animaciones
-- **Modo demo**: Funciona sin API key para pruebas
-
-### 🛠️ Reparación Automática
-- **Elimina notificaciones fantasma**: Remueve notificaciones de tareas inexistentes
-- **Limpia comentarios huérfanos**: Elimina comentarios de tareas borradas
-- **Preserva datos válidos**: Mantiene información importante intacta
-- **Sincronización**: Actualiza el estado del sistema automáticamente
-
-### 🎨 Experiencia de Usuario
-- **Interfaz moderna**: Diseño responsive con gradientes y efectos visuales
-- **Progreso en tiempo real**: Barra de progreso animada
-- **Log detallado**: Registro completo de todas las operaciones
-- **Cuenta regresiva**: Redirección automática al dashboard
-- **Animaciones suaves**: Transiciones y efectos visuales atractivos
-
-## 🔧 Instalación y Configuración
-
-### 1. Clonar el repositorio
-```bash
-git clone https://github.com/superjf71234/SMART_STUDENT_WEB_v7.git
-cd SMART_STUDENT_WEB_v7
-```
-
-### 2. Instalar dependencias
-```bash
-npm install
-```
-
-### 3. Configurar variables de entorno (Opcional)
-```bash
-# Crear archivo .env en la raíz del proyecto
-echo "GEMINI_API_KEY=tu_api_key_aqui" > .env
-```
-
-### 4. Ejecutar la aplicación
-```bash
-npm run dev
-# La aplicación se ejecutará en: http://localhost:9002
-```
-
-## 🤖 Integración con IA
-
-### Gemini AI
-- **Análisis inteligente**: Evaluación automática del estado del sistema
-- **Recomendaciones**: Sugerencias personalizadas durante la reparación
-- **Respuestas contextuales**: Diferentes respuestas según el tipo de consulta
-- **Modo local**: Funciona con respuestas simuladas sin conexión
-
-## 🛠️ Desarrollo
-
-### Tecnologías Utilizadas
-- **Next.js 15**: Framework de React
-- **TypeScript**: Tipado estático
-- **Tailwind CSS**: Estilos utilitarios
-- **Radix UI**: Componentes accesibles
-- **Firebase**: Base de datos y autenticación
-- **Gemini AI API**: Integración de inteligencia artificial
-- **Cloudinary**: Gestión de imágenes
-
-## 🤝 Contribución
-
-Creado por Felipe para optimizar el sistema Smart Student Web.
-
----
-
-**🎯 Objetivo**: Proporcionar una herramienta automática y eficiente para mantener la integridad de datos en el sistema Smart Student Web, con la potencia de la inteligencia artificial para optimizar el proceso y una jerarquía visual clara para una mejor experiencia de usuario.

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { useLanguage } from "@/contexts/language-context"
 
 type QuestionTF = { id: string; type: "tf"; text: string; answer: boolean; explanation?: string }
 type QuestionMC = { id: string; type: "mc"; text: string; options: string[]; correctIndex: number }
@@ -23,6 +23,7 @@ type OCRResult = {
 }
 
 export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
+  const { translate } = useLanguage()
   const [file, setFile] = useState<File | null>(null)
   const [ocr, setOcr] = useState<OCRResult | null>(null)
   const [processing, setProcessing] = useState(false)
@@ -102,13 +103,31 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Revisar: {test?.title || "Prueba"}</DialogTitle>
+          <DialogTitle>{translate('testsReviewTitlePrefix')} {test?.title || translate('testsPageTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <Input type="file" accept="image/*,application/pdf" onChange={handleFile} />
+          <div className="flex items-center gap-3">
+            <input
+              id="review-file-input"
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={handleFile}
+              className="hidden"
+              aria-label={translate('testsReviewSelectFileAria')}
+            />
+            <label
+              htmlFor="review-file-input"
+              className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium bg-fuchsia-600 text-white hover:bg-fuchsia-700 cursor-pointer"
+            >
+              {translate('testsReviewSelectFile')}
+            </label>
+            <span className="text-sm text-muted-foreground truncate">
+              {file?.name || translate('testsReviewNoFile')}
+            </span>
+          </div>
           <div className="flex gap-2">
             <Button onClick={runOCR} disabled={!file || processing}>
-              {processing ? "Procesando..." : "Ejecutar OCR"}
+              {processing ? translate('testsReviewProcessing') : translate('testsReviewRunOCR')}
             </Button>
           </div>
 
@@ -117,13 +136,13 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
           {ocr && (
             <div className="border rounded-md p-3 space-y-2">
               <div className="text-sm">
-                <span className="font-medium">Estudiante:</span> {studentName || "No detectado"}
+                <span className="font-medium">{translate('testsReviewStudent')}</span> {studentName || translate('testsReviewNotDetected')}
               </div>
               <div className="text-sm">
-                <span className="font-medium">Puntaje:</span> {score ?? "-"}
+                <span className="font-medium">{translate('testsReviewScore')}</span> {score ?? "-"}
               </div>
               <details className="text-xs text-muted-foreground">
-                <summary>Texto OCR</summary>
+                <summary>{translate('testsReviewOcrText')}</summary>
                 <pre className="whitespace-pre-wrap">{ocr.text}</pre>
               </details>
             </div>

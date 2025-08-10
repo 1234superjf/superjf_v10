@@ -1,7 +1,7 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react"
-import { Plus, Eye, ClipboardCheck, FileSearch, Pencil, Trash2 } from "lucide-react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
+import { Plus, Eye, ClipboardCheck, FileSearch, Pencil, Trash2, CheckCircle } from "lucide-react"
 import { useLanguage } from "@/contexts/language-context"
 
 import { Button } from "@/components/ui/button"
@@ -29,18 +29,23 @@ type TestItem = {
 	counts?: { tf: number; mc: number; ms: number; des?: number }
 	total?: number
 	questions?: AnyQuestion[]
+	// Estado de generación (simulado mientras la IA prepara la prueba)
+	status?: 'generating' | 'ready'
+	progress?: number // 0-100
 }
 
 const TESTS_KEY = "smart-student-tests"
 
 export default function PruebasPage() {
-	const { translate } = useLanguage()
+	const { translate, language } = useLanguage()
 	const [tests, setTests] = useState<TestItem[]>([])
 		const [newTitle, setNewTitle] = useState("")
 		const [builder, setBuilder] = useState<any>({})
 	const [selected, setSelected] = useState<TestItem | null>(null)
 	const [openView, setOpenView] = useState(false)
 	const [openReview, setOpenReview] = useState(false)
+	// Intervalo para progresos simulados
+	const progressIntervalRef = useRef<number | null>(null)
 	// Datos base para rotular curso/sección y asignatura en el historial y en la vista
 	const [courses, setCourses] = useState<any[]>([])
 	const [sections, setSections] = useState<any[]>([])
@@ -74,6 +79,55 @@ export default function PruebasPage() {
 			new StorageEvent("storage", { key: TESTS_KEY, newValue: JSON.stringify(items) })
 		)
 	}
+
+	// Helper: actualiza progreso/estado de una prueba por id
+	const patchTest = (id: string, patch: Partial<TestItem>) => {
+		setTests(prev => {
+			const updated = prev.map(t => t.id === id ? { ...t, ...patch } : t)
+			localStorage.setItem(TESTS_KEY, JSON.stringify(updated))
+			window.dispatchEvent(new StorageEvent('storage', { key: TESTS_KEY, newValue: JSON.stringify(updated) }))
+			return updated
+		})
+	}
+
+	// Simular progreso de generación hasta 100% para pruebas con status 'generating'
+	useEffect(() => {
+		const hasGenerating = tests.some(t => t.status === 'generating')
+		if (hasGenerating && !progressIntervalRef.current) {
+			progressIntervalRef.current = window.setInterval(() => {
+				setTests(prev => {
+					let anyGenerating = false
+					const updated: TestItem[] = prev.map((t): TestItem => {
+						if (t.status === 'generating') {
+							anyGenerating = true
+							const inc = Math.floor(Math.random() * 8) + 3 // +3..+10
+							const next = Math.min(100, (t.progress || 0) + inc)
+							return { ...t, progress: next, status: (next >= 100 ? 'ready' : 'generating') as 'ready' | 'generating' }
+						}
+						return t
+					})
+					localStorage.setItem(TESTS_KEY, JSON.stringify(updated))
+					window.dispatchEvent(new StorageEvent('storage', { key: TESTS_KEY, newValue: JSON.stringify(updated) }))
+					// Si ya no queda ninguna generando, paramos el intervalo
+					if (!updated.some(x => x.status === 'generating') && progressIntervalRef.current) {
+						window.clearInterval(progressIntervalRef.current)
+						progressIntervalRef.current = null
+					}
+					return updated
+				})
+			}, 600) as unknown as number
+		}
+		if (!hasGenerating && progressIntervalRef.current) {
+			window.clearInterval(progressIntervalRef.current)
+			progressIntervalRef.current = null
+		}
+		return () => {
+			if (progressIntervalRef.current) {
+				window.clearInterval(progressIntervalRef.current)
+				progressIntervalRef.current = null
+			}
+		}
+	}, [tests])
 
 	// Generador local de preguntas basado en el tema y los contadores
 	const generateQuestions = (topic: string, counts?: { tf: number; mc: number; ms: number; des?: number }): AnyQuestion[] => {
@@ -141,7 +195,7 @@ export default function PruebasPage() {
 			return
 		}
 		const now = Date.now()
-		const questions = generateQuestions(builder?.topic || "", builder?.counts)
+		// Creamos inicialmente el registro en estado "generating"
 		// Resolver nombre de la asignatura para guardarlo junto con la prueba (fallback de visualización)
 		const subjName = (() => {
 			try {
@@ -156,7 +210,7 @@ export default function PruebasPage() {
 				return builder?.subjectName || (builder?.subjectId ? String(builder.subjectId) : '')
 			} catch { return builder?.subjectName || (builder?.subjectId ? String(builder.subjectId) : '') }
 		})()
-		const item: TestItem = {
+				const item: TestItem = {
 			id: `test_${now}`,
 			title,
 			description: "",
@@ -168,12 +222,80 @@ export default function PruebasPage() {
 			topic: builder.topic,
 			counts: builder.counts,
 			total: builder.total,
-			questions,
+					questions: [],
+		  status: 'generating',
+		  progress: 0,
 		}
 		const next = [item, ...tests]
 		saveTests(next)
 		setNewTitle("")
 		setBuilder({})
+
+		// Lanzar generación con IA en segundo plano, reflejando progreso por fases
+		// Conexión SSE para progreso en vivo desde servidor
+		try {
+			const id = item.id
+			const countTF = Number(builder?.counts?.tf || 0)
+			const countMC = Number(builder?.counts?.mc || 0)
+			const countMS = Number(builder?.counts?.ms || 0)
+			const questionCount = Math.max(1, countTF + countMC + countMS)
+			const bookTitle = subjName || 'General'
+			const topic = String(builder?.topic || title)
+			const params = new URLSearchParams({
+				topic,
+				bookTitle,
+				language: language === 'en' ? 'en' : 'es',
+				questionCount: String(questionCount),
+				timeLimit: '120',
+			})
+			const es = new EventSource(`/api/tests/generate/stream?${params.toString()}`)
+			es.addEventListener('progress', (evt: MessageEvent) => {
+				try {
+					const data = JSON.parse(evt.data)
+					const p = Math.min(100, Number(data?.percent ?? 0))
+					patchTest(id, { progress: p })
+				} catch {}
+			})
+			es.addEventListener('done', (evt: MessageEvent) => {
+				try {
+					const payload = JSON.parse(evt.data)
+					const aiOut = payload?.data
+					const mapped: AnyQuestion[] = (aiOut?.questions || []).map((q: any, idx: number) => {
+						const makeId = (p: string) => `${p}_${now}_${idx}`
+						if (q.type === 'TRUE_FALSE') return { id: makeId('tf'), type: 'tf', text: q.questionText || q.text || '', answer: !!q.correctAnswer }
+						if (q.type === 'MULTIPLE_CHOICE') {
+							const options: string[] = q.options || q.choices || []
+							const correctIndex = typeof q.correctAnswerIndex === 'number' ? q.correctAnswerIndex : 0
+							return { id: makeId('mc'), type: 'mc', text: q.questionText || q.text || '', options, correctIndex }
+						}
+						if (q.type === 'MULTIPLE_SELECTION') {
+							const options: string[] = q.options || []
+							const corrects: number[] = Array.isArray(q.correctAnswerIndices) ? q.correctAnswerIndices : []
+							return { id: makeId('ms'), type: 'ms', text: q.questionText || q.text || '', options: options.map((t, i) => ({ text: String(t), correct: corrects.includes(i) })) }
+						}
+						return { id: makeId('des'), type: 'des', prompt: q.questionText || q.text || '' }
+					})
+					const desCount = Number(builder?.counts?.des || 0)
+					if (desCount > 0) {
+						const extra = generateQuestions(topic, { tf: 0, mc: 0, ms: 0, des: desCount })
+						mapped.push(...extra)
+					}
+					patchTest(id, { questions: mapped, status: 'ready', progress: 100 })
+				} finally {
+					es.close()
+				}
+			})
+			es.addEventListener('error', () => {
+				// Fallback en caso de error del stream
+				es.close()
+				const fallback = generateQuestions(builder?.topic || '', builder?.counts)
+				patchTest(id, { questions: fallback, status: 'ready', progress: 100 })
+			})
+		} catch (e) {
+			console.error('[Pruebas] SSE error, usando generador local:', e)
+			const fallback = generateQuestions(builder?.topic || '', builder?.counts)
+			patchTest(item.id, { questions: fallback, status: 'ready', progress: 100 })
+		}
 	}
 
 	const handleOpenView = (t: TestItem) => {
@@ -238,8 +360,6 @@ export default function PruebasPage() {
 								<div className="min-w-0">
 									{/* Título */}
 									<p className="font-medium truncate">{t.title}</p>
-									{/* Fecha y hora */}
-									<p className="text-xs text-muted-foreground">{`${translate('testsLabelDateTime')}: ${new Date(t.createdAt).toLocaleString()}`}</p>
 									{/* Curso + Sección */}
 									<p className="text-xs text-muted-foreground truncate">
 										{(() => {
@@ -267,6 +387,25 @@ export default function PruebasPage() {
 									)}
 								</div>
 								<div className="flex items-center gap-2">
+												{/* Indicador de progreso / listo */}
+												{t.status === 'generating' ? (
+													<div className="flex items-center gap-2 mr-1 min-w-[100px]" title={(() => {
+														const p = Math.min(100, t.progress || 0)
+														if (p < 25) return translate('testsProgressPhase1')
+														if (p < 60) return translate('testsProgressPhase2')
+														if (p < 85) return translate('testsProgressPhase3')
+														return translate('testsProgressPhase4')
+													})()}>
+														<div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded" aria-label={`${Math.min(100, t.progress || 0)}%`}>
+															<div className="h-2 bg-fuchsia-600 rounded" style={{ width: `${Math.min(100, t.progress || 0)}%` }} />
+														</div>
+														<span className="text-xs text-muted-foreground w-8 text-right">{Math.min(100, t.progress || 0)}%</span>
+													</div>
+												) : (
+													<span className="inline-flex items-center text-green-600 dark:text-green-400 mr-1" title={translate('testsReady')} aria-label={translate('testsReady')}>
+														<CheckCircle className="size-4" />
+													</span>
+												)}
 									<Button
 										variant="outline"
 										onClick={() => handleOpenView(t)}
