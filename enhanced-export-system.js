@@ -23,8 +23,8 @@
     
     // ==================== CONFIGURACIÓN DE VERSIONES ====================
     
-    const VERSION_EXPORTACION = '2.1.0';
-    const VERSIONES_COMPATIBLES = ['1.0.0', '2.0.0', '2.1.0'];
+    const VERSION_EXPORTACION = '2.2.0';
+    const VERSIONES_COMPATIBLES = ['1.0.0', '2.0.0', '2.1.0', '2.2.0'];
     
     /**
      * Genera metadatos completos para la exportación
@@ -80,6 +80,10 @@
             const evaluaciones = JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]');
             const resultadosEvaluacion = JSON.parse(localStorage.getItem('smart-student-evaluation-results') || '[]');
             const asistencia = JSON.parse(localStorage.getItem('smart-student-attendance') || '[]');
+
+            // NUEVO: Pruebas creadas por profesores (almacenadas por usuario)
+            const pruebasPorUsuario = recolectarPruebasPorUsuario();
+            const totalPruebas = Object.values(pruebasPorUsuario).reduce((acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0), 0);
             
             return {
                 usuarios,
@@ -99,12 +103,57 @@
                 notificacionesTarea,
                 evaluaciones,
                 resultadosEvaluacion,
-                asistencia
+                asistencia,
+                // Nueva colección exportable
+                pruebasPorUsuario,
+                totalPruebas
             };
         } catch (error) {
             console.error('❌ [ERROR] Error al obtener configuración completa:', error);
             return {};
         }
+    }
+
+    /**
+     * Recolecta todas las pruebas de profesores guardadas por usuario.
+     * Busca en localStorage claves con prefijo 'smart-student-tests' y arma un diccionario { username: TestItem[] }.
+     */
+    function recolectarPruebasPorUsuario() {
+        const PREFIJO = 'smart-student-tests';
+        const mapa = {};
+        try {
+            // 1) Recorremos todas las claves y tomamos las que correspondan
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (!key) continue;
+                if (key === PREFIJO || key.startsWith(PREFIJO + '_')) {
+                    const data = JSON.parse(localStorage.getItem(key) || '[]');
+                    // Caso: clave global sin sufijo → intentar inferir username por owner
+                    if (key === PREFIJO) {
+                        if (Array.isArray(data)) {
+                            data.forEach(item => {
+                                const userKey = normalizarUsername(item?.ownerUsername) || 'global';
+                                if (!mapa[userKey]) mapa[userKey] = [];
+                                mapa[userKey].push(item);
+                            });
+                        }
+                    } else {
+                        // Clave por usuario: smart-student-tests_username
+                        const username = key.substring(PREFIJO.length + 1);
+                        const userKey = normalizarUsername(username) || 'global';
+                        mapa[userKey] = Array.isArray(data) ? data : [];
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('⚠️ [EXPORT] No se pudo recolectar pruebas por usuario:', e);
+        }
+        return mapa;
+    }
+
+    function normalizarUsername(u) {
+        if (!u) return '';
+        try { return String(u).trim().toLowerCase(); } catch { return ''; }
     }
     
     /**
@@ -126,7 +175,8 @@
             usuariosCount: configuracion.usuarios.length,
             cursosCount: configuracion.cursos.length,
             seccionesCount: configuracion.secciones.length,
-            asignacionesCount: configuracion.asignacionesEstudiantes.length
+            asignacionesCount: configuracion.asignacionesEstudiantes.length,
+            pruebasProfesores: configuracion.totalPruebas || 0
         };
         
         // Hash simple basado en counts y timestamp
@@ -183,6 +233,9 @@
                 'smart-student-evaluations': configuracionActualizada.evaluaciones,
                 'smart-student-evaluation-results': configuracionActualizada.resultadosEvaluacion,
                 'smart-student-attendance': configuracionActualizada.asistencia,
+                
+                // NUEVO: Pruebas por profesor (diccionario username -> TestItem[])
+                'smart-student-tests-by-user': configuracionActualizada.pruebasPorUsuario,
                 
                 // Configuración de mapeo dinámico
                 configuracionAsignaciones: {
@@ -445,7 +498,7 @@
     function aplicarDatosImportacion(datosImportacion) {
         console.log('💾 [APLICACIÓN] Aplicando datos importados al localStorage...');
         
-        const claves = [
+    const claves = [
             'smart-student-users',
             'smart-student-courses',
             'smart-student-sections',
@@ -470,6 +523,22 @@
                 console.log(`   ✅ ${clave}: ${datosImportacion[clave].length || 'aplicado'}`);
             }
         });
+
+        // Restaurar pruebas por usuario
+        try {
+            const testsByUser = datosImportacion['smart-student-tests-by-user'];
+            if (testsByUser && typeof testsByUser === 'object') {
+                const PREFIJO = 'smart-student-tests';
+                Object.keys(testsByUser).forEach(username => {
+                    const userKey = (username && username !== 'global') ? `${PREFIJO}_${username}` : PREFIJO;
+                    const arr = Array.isArray(testsByUser[username]) ? testsByUser[username] : [];
+                    localStorage.setItem(userKey, JSON.stringify(arr));
+                    console.log(`   ✅ ${userKey}: ${arr.length}`);
+                });
+            }
+        } catch (e) {
+            console.warn('⚠️ [IMPORT] No se pudieron restaurar las pruebas por usuario:', e);
+        }
     }
     
     /**
