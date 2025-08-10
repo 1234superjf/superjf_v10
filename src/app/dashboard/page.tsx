@@ -154,6 +154,14 @@ const featureCards = [
   colorClass: 'fuchsia',
   },
   {
+    titleKey: 'cardSlidesTitle',
+    descKey: 'cardSlidesDesc',
+    btnKey: 'cardSlidesBtn',
+    targetPage: '/dashboard/slides',
+    icon: GraduationCap,
+    colorClass: 'emerald',
+  },
+  {
     titleKey: 'cardCommunicationsStudentTitle',
     descKey: 'cardCommunicationsStudentDesc',
     btnKey: 'cardCommunicationsStudentBtn',
@@ -1358,8 +1366,8 @@ export default function DashboardHomePage() {
             if (card.titleKey === 'cardCommunicationsStudentTitle' && user?.role === 'admin') {
               return false;
             }
-            // Ocultar la tarjeta 'Pruebas' sólo para el rol administrador
-            if (card.titleKey === 'cardTestsTitle' && user?.role === 'admin') {
+            // Mostrar 'Pruebas' y 'Slides' solo a profesores
+            if ((card.titleKey === 'cardTestsTitle' || card.titleKey === 'cardSlidesTitle') && user?.role !== 'teacher') {
               return false;
             }
             return true;
