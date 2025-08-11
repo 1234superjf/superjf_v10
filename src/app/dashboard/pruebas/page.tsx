@@ -28,6 +28,9 @@ type TestItem = {
 	subjectName?: string
 	topic?: string
 	counts?: { tf: number; mc: number; ms: number; des?: number }
+	// Nuevos campos: ponderación por tipo (%) y puntaje total
+	weights?: { tf: number; mc: number; ms: number; des: number }
+	totalPoints?: number
 	total?: number
 	questions?: AnyQuestion[]
 	// Estado de generación (simulado mientras la IA prepara la prueba)
@@ -218,11 +221,97 @@ export default function PruebasPage() {
 			out.push({ id: makeId("ms"), type: "ms", text: stem, options: shuffled })
 		}
 
-		// Desarrollo
+		// Desarrollo con variedad
+		const desPromptTemplates = [
+			`Desarrolle un análisis crítico sobre ${cleanTopic}. Explique los aspectos más relevantes y proporcione ejemplos específicos.`,
+			`Analice y justifique la importancia de ${cleanTopic} en el contexto actual. Sustente su respuesta con argumentos sólidos.`,
+			`Examine detalladamente ${cleanTopic}. Explique sus características principales y su aplicación práctica.`,
+			`Evalúe críticamente ${cleanTopic}. Proporcione una explicación fundamentada con ejemplos concretos.`,
+			`Reflexione sobre ${cleanTopic}. Desarrolle una argumentación coherente que incluya análisis y conclusiones.`,
+			`Describa y analice ${cleanTopic}. Justifique su respuesta con razonamientos lógicos y ejemplos relevantes.`,
+			`Explique de manera fundamentada ${cleanTopic}. Incluya análisis crítico y ejemplos que sustenten su posición.`,
+			`Elabore un análisis comprehensivo sobre ${cleanTopic}. Desarrolle argumentos bien estructurados y conclusiones válidas.`,
+			`Discuta los aspectos fundamentales de ${cleanTopic}. Proporcione una explicación detallada y bien justificada.`,
+			`Interprete y analice ${cleanTopic}. Desarrolle una respuesta argumentada con ejemplos y reflexiones personales.`,
+			`Examine críticamente ${cleanTopic}. Elabore una explicación coherente que demuestre comprensión profunda del tema.`,
+			`Desarrolle una disertación sobre ${cleanTopic}. Incluya análisis, ejemplos y conclusiones bien fundamentadas.`
+		]
+
+		const desSampleTemplates = [
+			`Se espera un análisis crítico que demuestre comprensión profunda de ${cleanTopic}, incluyendo ejemplos específicos y conclusiones bien fundamentadas.`,
+			`Respuesta debe incluir justificación teórica sobre ${cleanTopic}, aplicación práctica y reflexión personal del estudiante.`,
+			`Se requiere explicación detallada de ${cleanTopic} con argumentos sólidos, ejemplos concretos y análisis coherente.`,
+			`Debe evidenciar dominio conceptual de ${cleanTopic} mediante explicación fundamentada, ejemplos relevantes y conclusiones válidas.`,
+			`Se evalúa capacidad de análisis sobre ${cleanTopic}, incluyendo argumentación lógica, ejemplos apropiados y síntesis personal.`,
+			`Respuesta esperada: análisis comprehensivo de ${cleanTopic} con sustento teórico, aplicación práctica y reflexión crítica.`,
+			`Debe demostrar comprensión integral de ${cleanTopic} a través de explicación fundamentada, ejemplos y conclusiones coherentes.`,
+			`Se requiere desarrollo argumentativo sobre ${cleanTopic} que incluya análisis, justificación y ejemplos específicos del tema.`,
+			`Respuesta debe reflejar pensamiento crítico sobre ${cleanTopic} con explicación detallada, ejemplos y conclusiones sustentadas.`,
+			`Se espera disertación sobre ${cleanTopic} que demuestre análisis profundo, ejemplos relevantes y síntesis personal del estudiante.`
+		]
+
+		// Función para detectar similitud entre textos
+		const getSimilarity = (text1: string, text2: string) => {
+			const normalize = (text: string) => text.toLowerCase()
+				.replace(/[^\w\s]/g, ' ')
+				.split(/\s+/)
+				.filter((word: string) => word.length > 3 && !['sobre', 'para', 'desde', 'hasta', 'como', 'entre', 'durante', 'mediante', 'según'].includes(word))
+			
+			const tokens1 = normalize(text1)
+			const tokens2 = normalize(text2)
+			const intersection = tokens1.filter((token: string) => tokens2.includes(token)).length
+			const union = new Set([...tokens1, ...tokens2]).size
+			return union > 0 ? intersection / union : 0
+		}
+
+		const usedPrompts: string[] = []
+		const usedSamples: string[] = []
+
 		for (let i = 0; i < (counts.des || 0); i++) {
-			const prompt = `Desarrolle y justifique con sus palabras un análisis sobre ${cleanTopic} (ítem ${i + 1}).`
-			const sampleAnswer = `Respuesta esperada: se espera que el estudiante explique los conceptos centrales de ${cleanTopic}, dé ejemplos y establezca conclusiones bien fundamentadas.`
-			out.push({ id: makeId("des"), type: "des", prompt, sampleAnswer })
+			// Buscar prompt único
+			let selectedPrompt = null
+			let attempts = 0
+			const maxAttempts = 20
+
+			while (!selectedPrompt && attempts < maxAttempts) {
+				const candidate = desPromptTemplates[Math.floor(Math.random() * desPromptTemplates.length)]
+				const isSimilarToUsed = usedPrompts.some((used: string) => getSimilarity(candidate, used) > 0.4)
+				
+				if (!isSimilarToUsed) {
+					selectedPrompt = candidate
+					usedPrompts.push(candidate)
+				}
+				attempts++
+			}
+
+			// Fallback si no se encuentra prompt único
+			if (!selectedPrompt) {
+				selectedPrompt = `Desarrolle una reflexión crítica sobre ${cleanTopic}. Proporcione análisis detallado con ejemplos específicos (ítem ${i + 1}).`
+				usedPrompts.push(selectedPrompt)
+			}
+
+			// Buscar respuesta muestra única
+			let selectedSample = null
+			attempts = 0
+
+			while (!selectedSample && attempts < maxAttempts) {
+				const candidate = desSampleTemplates[Math.floor(Math.random() * desSampleTemplates.length)]
+				const isSimilarToUsed = usedSamples.some((used: string) => getSimilarity(candidate, used) > 0.4)
+				
+				if (!isSimilarToUsed) {
+					selectedSample = candidate
+					usedSamples.push(candidate)
+				}
+				attempts++
+			}
+
+			// Fallback si no se encuentra muestra única
+			if (!selectedSample) {
+				selectedSample = `Se espera análisis integral de ${cleanTopic} con argumentación sólida, ejemplos concretos y conclusiones fundamentadas (ítem ${i + 1}).`
+				usedSamples.push(selectedSample)
+			}
+
+			out.push({ id: makeId("des"), type: "des", prompt: selectedPrompt, sampleAnswer: selectedSample })
 		}
 
 		return out
@@ -268,6 +357,8 @@ export default function PruebasPage() {
 			subjectName: subjName,
 			topic: builder.topic,
 			counts: builder.counts,
+				weights: builder.weights,
+				totalPoints: builder.totalPoints,
 			total: builder.total,
 			questions: [] as AnyQuestion[],
 			status: 'generating',
@@ -376,6 +467,8 @@ export default function PruebasPage() {
 			subjectId: t.subjectId || t.subjectName,
 			topic: t.topic || '',
 			counts: t.counts || { tf: 0, mc: 0, ms: 0, des: 0 },
+			weights: t.weights || { tf: 25, mc: 25, ms: 25, des: 25 },
+			totalPoints: typeof t.totalPoints === 'number' ? t.totalPoints : 100,
 			total: t.total || 0,
 		})
 		setOpenEdit(true)
@@ -567,9 +660,11 @@ export default function PruebasPage() {
 											sectionId: editDraft.sectionId,
 											subjectId: editDraft.subjectId,
 											subjectName: subjName,
-											topic: editDraft.topic,
-											counts: editDraft.counts,
-											total: editDraft.total,
+												topic: editDraft.topic,
+												counts: editDraft.counts,
+												weights: editDraft.weights,
+												totalPoints: editDraft.totalPoints,
+												total: editDraft.total,
 											// Reiniciar documento
 											questions: [] as AnyQuestion[],
 											status: 'generating',

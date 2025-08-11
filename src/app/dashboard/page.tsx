@@ -159,7 +159,7 @@ const featureCards = [
     btnKey: 'cardSlidesBtn',
     targetPage: '/dashboard/slides',
     icon: GraduationCap,
-    colorClass: 'emerald',
+  colorClass: 'lime',
   },
   {
     titleKey: 'cardCommunicationsStudentTitle',
@@ -1256,6 +1256,7 @@ export default function DashboardHomePage() {
       case 'green': return 'home-card-button-green';
       case 'blue': return 'home-card-button-blue';
       case 'yellow': return 'home-card-button-yellow';
+  case 'lime': return 'home-card-button-lime';
       case 'cyan': return 'home-card-button-cyan';
       case 'purple': return 'home-card-button-purple';
       case 'orange': return 'home-card-button-orange';
@@ -1276,6 +1277,7 @@ export default function DashboardHomePage() {
       case 'green': return 'text-green-500 dark:text-green-400';
       case 'blue': return 'text-blue-500 dark:text-blue-400';
       case 'yellow': return 'text-yellow-500 dark:text-yellow-400';
+  case 'lime': return 'text-lime-500 dark:text-lime-400';
       case 'cyan': return 'text-cyan-500 dark:text-cyan-400';
       case 'purple': return 'text-purple-500 dark:text-purple-400';
       case 'orange': return 'text-orange-500 dark:text-orange-400';
@@ -1296,6 +1298,7 @@ export default function DashboardHomePage() {
       case 'green': return 'border-green-200 dark:border-green-800';
       case 'blue': return 'border-blue-200 dark:border-blue-800';
       case 'yellow': return 'border-yellow-200 dark:border-yellow-800';
+  case 'lime': return 'border-lime-200 dark:border-lime-800';
       case 'cyan': return 'border-cyan-200 dark:border-cyan-800';
       case 'purple': return 'border-purple-200 dark:border-purple-800';
       case 'orange': return 'border-orange-200 dark:border-orange-800';

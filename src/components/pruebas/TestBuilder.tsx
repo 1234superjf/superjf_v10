@@ -42,6 +42,12 @@ export default function TestBuilder({ value, onChange, onCreate, mode = 'create'
   const [counts, setCounts] = useState<{ tf: number; mc: number; ms: number; des: number }>(
     value?.counts || { tf: 5, mc: 5, ms: 5, des: 1 }
   )
+  const [weights, setWeights] = useState<{ tf: number; mc: number; ms: number; des: number }>(
+    value?.weights || { tf: 25, mc: 25, ms: 25, des: 25 }
+  )
+  const [totalPoints, setTotalPoints] = useState<number>(
+    typeof value?.totalPoints === 'number' ? value.totalPoints : 100
+  )
 
   useEffect(() => {
     try {
@@ -288,9 +294,9 @@ export default function TestBuilder({ value, onChange, onCreate, mode = 'create'
 
   useEffect(() => {
     // Propagar cambios al padre cuando cambian campos del builder
-    onChange?.({ courseId, sectionId, subjectId, topic, counts, total })
+    onChange?.({ courseId, sectionId, subjectId, topic, counts, total, weights, totalPoints })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseId, sectionId, subjectId, topic, counts, total])
+  }, [courseId, sectionId, subjectId, topic, counts, total, weights, totalPoints])
 
   // Reset suave cuando el padre manda un objeto vacío (tras crear prueba)
   useEffect(() => {
@@ -300,17 +306,60 @@ export default function TestBuilder({ value, onChange, onCreate, mode = 'create'
       setSubjectId("")
       setTopic("")
       setCounts({ tf: 5, mc: 5, ms: 5, des: 1 })
+  setWeights({ tf: 25, mc: 25, ms: 25, des: 25 })
+  setTotalPoints(100)
     }
   }, [value])
 
   const inc = (k: keyof typeof counts) => setCounts((c) => ({ ...c, [k]: c[k] + 1 }))
-  const dec = (k: keyof typeof counts) => setCounts((c) => ({ ...c, [k]: Math.max(0, c[k] - 1) }))
+  const dec = (k: keyof typeof counts) => setCounts((c) => {
+    const next = Math.max(0, c[k] - 1)
+    const updated = { ...c, [k]: next }
+    if (next === 0) {
+      setWeights((w) => ({ ...w, [k]: 0 }))
+    }
+    return updated
+  })
 
-  const isValid = !!sectionId && !!subjectId && !!topic.trim() && total > 0
+  const isValidBase = !!sectionId && !!subjectId && !!topic.trim() && total > 0
+  const active = {
+    tf: counts.tf > 0,
+    mc: counts.mc > 0,
+    ms: counts.ms > 0,
+    des: counts.des > 0,
+  }
+  const sumWeightsAll = weights.tf + weights.mc + weights.ms + weights.des
+  const sumWeightsActive = (active.tf ? weights.tf : 0) + (active.mc ? weights.mc : 0) + (active.ms ? weights.ms : 0) + (active.des ? weights.des : 0)
+  const weightsDen = Math.max(1, sumWeightsActive)
+  const perTypePoints = {
+    tf: Math.round(((active.tf ? weights.tf : 0) / weightsDen) * totalPoints),
+    mc: Math.round(((active.mc ? weights.mc : 0) / weightsDen) * totalPoints),
+    ms: Math.round(((active.ms ? weights.ms : 0) / weightsDen) * totalPoints),
+    des: Math.round(((active.des ? weights.des : 0) / weightsDen) * totalPoints),
+  }
+  const perQuestion = {
+    tf: counts.tf > 0 ? +(perTypePoints.tf / counts.tf).toFixed(2) : 0,
+    mc: counts.mc > 0 ? +(perTypePoints.mc / counts.mc).toFixed(2) : 0,
+    ms: counts.ms > 0 ? +(perTypePoints.ms / counts.ms).toFixed(2) : 0,
+    des: counts.des > 0 ? +(perTypePoints.des / counts.des).toFixed(2) : 0,
+  }
+  const isWeightsOk = sumWeightsActive === 100
+  const isValid = isValidBase && isWeightsOk
 
   return (
     <div className="space-y-4">
       {/* Curso (Sección): badges por curso-sección asignado */}
+      {/* Distribución estimada de puntaje */}
+      <div className="rounded border p-3 text-xs">
+        <div className="font-medium mb-1">{translate('testsPointsDistribution') || 'Distribución de puntaje (estimada)'}</div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+          <div>TF: {perTypePoints.tf} pts {counts.tf > 0 ? `(≈ ${perQuestion.tf} c/u)` : ''}</div>
+          <div>MC: {perTypePoints.mc} pts {counts.mc > 0 ? `(≈ ${perQuestion.mc} c/u)` : ''}</div>
+          <div>MS: {perTypePoints.ms} pts {counts.ms > 0 ? `(≈ ${perQuestion.ms} c/u)` : ''}</div>
+          <div>DES: {perTypePoints.des} pts {counts.des > 0 ? `(≈ ${perQuestion.des} c/u)` : ''}</div>
+        </div>
+      </div>
+
       <div className="space-y-2">
         <label className="block text-xs font-medium">{translate('testsCourseLabel')}</label>
         <div className="flex flex-wrap gap-2">
@@ -409,8 +458,48 @@ export default function TestBuilder({ value, onChange, onCreate, mode = 'create'
                   +
                 </button>
               </div>
+              {/* Ponderación por tipo (%) */}
+        <div className="mt-3 space-y-1">
+                <label className="block text-xs text-muted-foreground">% {translate('testsWeightPercent') || 'Porcentaje'}</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+          value={weights[key]}
+          onChange={(e) => setWeights((w) => ({ ...w, [key]: Math.max(0, Math.min(100, Number(e.target.value || 0))) }))}
+          className="w-20 rounded border bg-background p-1 text-center text-xs"
+          disabled={counts[key] === 0}
+                />
+              </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Resumen de ponderaciones y puntaje total */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="text-xs text-muted-foreground">
+          <div className="font-medium">{translate('testsWeightsLabel') || 'Ponderación por tipo (%)'}</div>
+          <div>
+            TF {(active.tf ? weights.tf : 0)}% · MC {(active.mc ? weights.mc : 0)}% · MS {(active.ms ? weights.ms : 0)}% · DES {(active.des ? weights.des : 0)}%
+          </div>
+          <div>
+            <span className={isWeightsOk ? '' : 'text-red-500'}>
+              {translate('testsWeightsSum', { sum: String(sumWeightsActive) }) || `Suma: ${sumWeightsActive}%`}
+              {!isWeightsOk && ' - Debe ser 100%'}
+            </span>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-1">{translate('testsTotalPointsLabel') || 'Puntaje total'}</label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            className="w-28 rounded border bg-background p-2 text-sm"
+            value={totalPoints}
+            onChange={(e) => setTotalPoints(Math.max(1, Number(e.target.value || 0)))}
+          />
         </div>
       </div>
 

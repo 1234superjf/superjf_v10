@@ -834,6 +834,44 @@ html.dark.theme-accent-rose {
   box-shadow: 0 0 0 0 rgba(16, 185, 129, 0) !important;
 }
 
+/* Lime button styles (lima limón) */
+.home-card-button-lime {
+  background-color: rgb(236 252 203) !important; /* lime-100 */
+  color: rgb(77 124 15) !important; /* lime-700 */
+  border: none !important;
+  transition: all 0.3s ease-out !important;
+  box-shadow: 0 0 0 0 rgba(132, 204, 22, 0) !important; /* lime-500 shadow base */
+}
+.home-card-button-lime:hover {
+  background-color: rgb(63 98 18) !important; /* lime-800 */
+  color: rgb(236 252 203) !important; /* lime-100 */
+  transform: scale(1.1) translateY(-4px) !important;
+  box-shadow: 0 25px 50px -12px rgba(132, 204, 22, 0.5) !important; /* lime-500 */
+}
+.home-card-button-lime:active,
+.home-card-button-lime:focus {
+  background-color: rgb(63 98 18) !important; /* lime-800 */
+  color: rgb(236 252 203) !important; /* lime-100 */
+  transform: scale(1.05) !important;
+}
+.dark .home-card-button-lime {
+  background-color: rgb(236 252 203) !important; /* lime-100 */
+  color: rgb(63 98 18) !important; /* lime-800 */
+  border: none !important;
+  transition: all 0.3s ease-out !important;
+}
+.dark .home-card-button-lime:hover {
+  background-color: rgb(63 98 18) !important; /* lime-800 */
+  color: rgb(236 252 203) !important; /* lime-100 */
+  transform: scale(1.1) translateY(-4px) !important;
+  box-shadow: 0 25px 50px -12px rgba(190, 242, 100, 0.4) !important; /* lime-300 */
+}
+.dark .home-card-button-lime:active,
+.dark .home-card-button-lime:focus {
+  background-color: rgb(63 98 18) !important; /* lime-800 */
+  color: rgb(236 252 203) !important; /* lime-100 */
+}
+
 /* GRAY button (Calendar/Admin) - efecto similar a Libros pero gris */
 .home-card-button-gray {
   @apply border-transparent bg-gray-100 text-gray-800 hover:border-transparent hover:bg-gray-800 hover:text-gray-100 hover:shadow-2xl hover:shadow-gray-500/30 hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;

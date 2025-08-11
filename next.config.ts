@@ -8,6 +8,21 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  webpack: (config, { isServer }) => {
+    // Evita que Webpack intente resolver 'canvas' (dependencia Node-only) requerida indirectamente por pdfjs-dist
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      canvas: false as any,
+    } as any;
+    // En algunos setups, agregar también en fallback ayuda
+    // @ts-ignore - webpack typing opcional
+    config.resolve.fallback = {
+      ...(config.resolve as any).fallback,
+      canvas: false,
+    };
+    return config;
+  },
   experimental: {
     serverActions: {
       allowedOrigins: [

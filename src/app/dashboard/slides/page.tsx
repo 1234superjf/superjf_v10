@@ -242,7 +242,7 @@ export default function SlidesPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <span className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200 p-1">
+          <span className="inline-flex items-center justify-center rounded-md border border-lime-200 bg-lime-100 text-lime-800 dark:border-lime-800 dark:bg-lime-900/30 dark:text-lime-200 p-1">
             <FileSpreadsheet className="size-5" />
           </span>
           <span>{translate('slidesPageTitle') || 'Presentaciones'}</span>
@@ -264,7 +264,7 @@ export default function SlidesPage() {
                     key={c.id}
                     type="button"
                     onClick={() => setDraft((d:any)=> ({ ...d, courseId: c.id, subjectId: '' }))}
-                    className={`px-3 py-1 rounded-full border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${active ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700' : 'bg-background text-foreground border-gray-300 dark:border-gray-700'} hover:border-emerald-400 hover:text-emerald-700 focus-visible:ring-emerald-500`}
+                    className={`px-3 py-1 rounded-full border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${active ? 'bg-lime-100 text-lime-800 border-lime-300 dark:bg-lime-900/30 dark:text-lime-200 dark:border-lime-700' : 'bg-background text-foreground border-gray-300 dark:border-gray-700'} hover:border-lime-400 hover:text-lime-700 focus-visible:ring-lime-500`}
                     aria-pressed={active}
                   >
                     {c.name}
@@ -291,7 +291,7 @@ export default function SlidesPage() {
                       key={sid}
                       type="button"
                       onClick={() => setDraft((d:any)=> ({ ...d, subjectId: sid }))}
-                      className={`px-3 py-1 rounded-full border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${active ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700' : 'bg-background text-foreground border-gray-300 dark:border-gray-700'} hover:border-emerald-400 hover:text-emerald-700 focus-visible:ring-emerald-500`}
+                      className={`px-3 py-1 rounded-full border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${active ? 'bg-lime-100 text-lime-800 border-lime-300 dark:bg-lime-900/30 dark:text-lime-200 dark:border-lime-700' : 'bg-background text-foreground border-gray-300 dark:border-gray-700'} hover:border-lime-400 hover:text-lime-700 focus-visible:ring-lime-500`}
                       aria-pressed={active}
                     >
                       {s.name || s.id}
@@ -319,7 +319,7 @@ export default function SlidesPage() {
               <Button
                 onClick={handleCreate}
                 disabled={!canGenerate}
-                className={`px-4 py-2 text-sm font-medium rounded-md focus-visible:outline-none focus-visible:ring-2 ${canGenerate ? 'bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-500' : 'bg-gray-200 text-gray-500 cursor-not-allowed focus-visible:ring-gray-300'}`}
+                className={`px-4 py-2 text-sm font-medium rounded-md focus-visible:outline-none focus-visible:ring-2 ${canGenerate ? 'bg-lime-600 text-white hover:bg-lime-700 focus-visible:ring-lime-500' : 'bg-gray-200 text-gray-500 cursor-not-allowed focus-visible:ring-gray-300'}`}
               >
                 {translate('slidesGenerateBtn') || 'Generar'}
               </Button>
@@ -345,7 +345,7 @@ export default function SlidesPage() {
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
-                    className="p-2 text-emerald-600 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500 border-emerald-300 hover:border-emerald-400"
+                    className="p-2 text-lime-600 hover:text-lime-700 focus-visible:ring-2 focus-visible:ring-lime-500 border-lime-300 hover:border-lime-400"
                     onClick={() => { setDraft({
                       courseId: it.courseId, subjectId: it.subjectId, topic: it.topic, slideCount: it.slideCount,
                     }); setEditingId(it.id); }}
@@ -354,9 +354,9 @@ export default function SlidesPage() {
                   >
                     <Pencil className="size-4" />
                   </Button>
-                  <Button variant="outline" className="p-2 text-emerald-600 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500 border-emerald-300 hover:border-emerald-400" onClick={() => handleDownload(it)} title={translate('slidesBtnDownload') || 'Descargar'} aria-label={translate('slidesBtnDownload') || 'Descargar'}><Download className="size-4" /></Button>
-                  <Button variant="outline" className="p-2 text-emerald-600 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500 border-emerald-300 hover:border-emerald-400" onClick={() => handleShare(it)} title={translate('slidesBtnShare') || 'Compartir'} aria-label={translate('slidesBtnShare') || 'Compartir'}><Share2 className="size-4" /></Button>
-                  <Button variant="outline" className="p-2 text-emerald-600 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500 border-emerald-300 hover:border-emerald-400" onClick={() => handleDelete(it.id)} title={translate('slidesBtnDelete') || 'Eliminar'} aria-label={translate('slidesBtnDelete') || 'Eliminar'}><Trash2 className="size-4" /></Button>
+                  <Button variant="outline" className="p-2 text-lime-600 hover:text-lime-700 focus-visible:ring-2 focus-visible:ring-lime-500 border-lime-300 hover:border-lime-400" onClick={() => handleDownload(it)} title={translate('slidesBtnDownload') || 'Descargar'} aria-label={translate('slidesBtnDownload') || 'Descargar'}><Download className="size-4" /></Button>
+                  <Button variant="outline" className="p-2 text-lime-600 hover:text-lime-700 focus-visible:ring-2 focus-visible:ring-lime-500 border-lime-300 hover:border-lime-400" onClick={() => handleShare(it)} title={translate('slidesBtnShare') || 'Compartir'} aria-label={translate('slidesBtnShare') || 'Compartir'}><Share2 className="size-4" /></Button>
+                  <Button variant="outline" className="p-2 text-lime-600 hover:text-lime-700 focus-visible:ring-2 focus-visible:ring-lime-500 border-lime-300 hover:border-lime-400" onClick={() => handleDelete(it.id)} title={translate('slidesBtnDelete') || 'Eliminar'} aria-label={translate('slidesBtnDelete') || 'Eliminar'}><Trash2 className="size-4" /></Button>
                 </div>
               </div>
             ))}
@@ -383,7 +383,7 @@ export default function SlidesPage() {
                         key={c.id}
                         type="button"
                         onClick={() => setDraft((d:any)=> ({ ...d, courseId: c.id, subjectId: '' }))}
-                        className={`px-3 py-1 rounded-full border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${active ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700' : 'bg-background text-foreground border-gray-300 dark:border-gray-700'} hover:border-emerald-400 hover:text-emerald-700 focus-visible:ring-emerald-500`}
+                        className={`px-3 py-1 rounded-full border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${active ? 'bg-lime-100 text-lime-800 border-lime-300 dark:bg-lime-900/30 dark:text-lime-200 dark:border-lime-700' : 'bg-background text-foreground border-gray-300 dark:border-gray-700'} hover:border-lime-400 hover:text-lime-700 focus-visible:ring-lime-500`}
                         aria-pressed={active}
                       >
                         {c.name}
@@ -404,7 +404,7 @@ export default function SlidesPage() {
                           key={sid}
                           type="button"
                           onClick={() => setDraft((d:any)=> ({ ...d, subjectId: sid }))}
-                          className={`px-3 py-1 rounded-full border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${active ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700' : 'bg-background text-foreground border-gray-300 dark:border-gray-700'} hover:border-emerald-400 hover:text-emerald-700 focus-visible:ring-emerald-500`}
+                          className={`px-3 py-1 rounded-full border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${active ? 'bg-lime-100 text-lime-800 border-lime-300 dark:bg-lime-900/30 dark:text-lime-200 dark:border-lime-700' : 'bg-background text-foreground border-gray-300 dark:border-gray-700'} hover:border-lime-400 hover:text-lime-700 focus-visible:ring-lime-500`}
                           aria-pressed={active}
                         >
                           {s.name || s.id}
@@ -426,7 +426,7 @@ export default function SlidesPage() {
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
-                className="p-2 text-emerald-600 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500 border-emerald-300 hover:border-emerald-400"
+                className="p-2 text-lime-600 hover:text-lime-700 focus-visible:ring-2 focus-visible:ring-lime-500 border-lime-300 hover:border-lime-400"
                 onClick={()=> setEditingId(null)}
                 title={translate('cancelButton') || 'Cancelar'}
                 aria-label={translate('cancelButton') || 'Cancelar'}
@@ -435,7 +435,7 @@ export default function SlidesPage() {
               </Button>
               <Button
                 variant="outline"
-                className="p-2 text-emerald-600 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500 border-emerald-300 hover:border-emerald-400"
+                className="p-2 text-lime-600 hover:text-lime-700 focus-visible:ring-2 focus-visible:ring-lime-500 border-lime-300 hover:border-lime-400"
                 onClick={() => {
                 if (!draft.courseId || !draft.subjectId) { alert(translate('slidesSelectAllBeforeCreate') || 'Complete los campos'); return; }
                 const subjName = resolveSubjectName(draft.subjectId);
