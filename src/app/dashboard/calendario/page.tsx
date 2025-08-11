@@ -12,6 +12,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import type { Locale } from 'date-fns';
 import { es as esLocale, enGB } from 'date-fns/locale';
+import { useToast } from '@/hooks/use-toast';
 
 type VacationRange = { start?: string; end?: string };
 type CalendarYearConfig = {
@@ -40,6 +41,7 @@ const inRange = (date: Date, range?: VacationRange) => {
 export default function AdminCalendarPage() {
   const { translate, language } = useLanguage();
   const { user } = useAuth();
+  const { toast } = useToast();
   const today = new Date();
   const [year, setYear] = useState<number>(today.getFullYear());
   const storageKey = (y: number) => `admin-calendar-${y}`;
@@ -50,7 +52,7 @@ export default function AdminCalendarPage() {
     holidays: [],
   }), []);
   const [config, setConfig] = useState<CalendarYearConfig>(defaultConfig);
-  const [justSaved, setJustSaved] = useState(false);
+  // Eliminado el indicador de texto "Guardado" en favor de popup/toast
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [syncing, setSyncing] = useState<'idle'|'saving'|'synced'|'error'>('idle');
   // Año para el cual ya cargamos la configuración desde localStorage
@@ -113,8 +115,7 @@ export default function AdminCalendarPage() {
     try {
       localStorage.setItem(storageKey(year), JSON.stringify(config));
       setSavedAt(new Date());
-      setJustSaved(true);
-      setTimeout(() => setJustSaved(false), 1500);
+      // El popup/confirmación se mostrará al completar la sincronización con el servidor
     } catch {}
   };
 
@@ -129,6 +130,11 @@ export default function AdminCalendarPage() {
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || 'Sync failed');
       setSyncing('synced');
+      // Mostrar popup de confirmación
+      toast({
+        title: translate('changedSavedTitle') || 'Cambios guardados',
+        description: translate('changedSavedDesc') || '¡Perfecto! Los cambios han sido guardados y aplicados correctamente en todo el sistema.',
+      });
       setTimeout(()=> setSyncing('idle'), 1500);
     } catch {
       setSyncing('error');
@@ -305,9 +311,7 @@ export default function AdminCalendarPage() {
                 <Button className="home-card-button-silver w-auto" onClick={() => { saveManually(); syncToServer(); }}>
                   {syncing === 'saving' ? (translate('saving') || 'Guardando...') : (translate('save') || 'Guardar')}
                 </Button>
-                {justSaved && (
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{translate('saved') || 'Guardado'}</span>
-                )}
+                {/* Texto "Guardado" reemplazado por popup/Toast; no se muestra etiqueta aquí */}
                 {/* Export moved to User Management > Configuración. Button removed from here as requested. */}
                 <Button variant="outline" className="home-card-button-red w-auto" onClick={clearAll}>{translate('clearAll') || 'Limpiar todo'}</Button>
               </div>

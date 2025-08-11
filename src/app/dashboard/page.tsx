@@ -1491,8 +1491,14 @@ export default function DashboardHomePage() {
                       notif.type !== 'task_submission' && // 🔧 EXCLUIR task_submission para evitar duplicación
                       notif.type !== 'task_completed' // 🔧 EXCLUIR task_completed para evitar duplicación
                     ).length;
-                    
-                    totalCount = pendingTaskSubmissionsCount + unreadStudentCommentsCount + teacherNotificationsExcludingDuplicates + pendingAttendanceCount; // ➕ incluir asistencia pendiente en la campana
+                    // Leer total de asistencia pendiente agregado por curso desde panel (almacenado en local para sincronía)
+                    let attendanceTotal = 0;
+                    try {
+                      const raw = localStorage.getItem('smart-student-attendance-pending-total');
+                      if (raw) attendanceTotal = Number(raw) || 0;
+                    } catch {}
+
+                    totalCount = pendingTaskSubmissionsCount + unreadStudentCommentsCount + teacherNotificationsExcludingDuplicates + (attendanceTotal || pendingAttendanceCount); // ➕ incluir días pendientes acumulados
                   } else {
                     // Para estudiantes: sumar comunicaciones no leídas
                     totalCount = pendingTasksCount + unreadCommentsCount + taskNotificationsCount + unreadCommunicationsCount;
@@ -1513,7 +1519,9 @@ export default function DashboardHomePage() {
                       ).length;
                     console.log(`  • taskNotificationsCount (excluding task_submission & task_completed): ${teacherNotificationsExcludingDuplicates} ⭐ (FIXED: no duplicates)`);
                     console.log(`  • taskNotificationsCount (original): ${taskNotificationsCount} ⚠️ (included duplicates)`);
-                    console.log(`  • pendingAttendanceCount (today): ${pendingAttendanceCount} ➕ (included in bell)`);
+                    const attendanceTotal = Number(localStorage.getItem('smart-student-attendance-pending-total') || '0');
+                    console.log(`  • pendingAttendanceCount (today): ${pendingAttendanceCount} ➕`);
+                    console.log(`  • pendingAttendanceTotal (year-to-date working days): ${attendanceTotal} ➕ (included in bell)`);
                   } else {
                     console.log(`  • taskNotificationsCount: ${taskNotificationsCount} ⭐ (includes evaluation_completed)`);
                   }

@@ -45,6 +45,7 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
   const workerRef = useRef<any>(null)
   const [history, setHistory] = useState<ReviewRecord[]>([])
   const [verification, setVerification] = useState<{ sameDocument: boolean; coverage: number; studentFound: boolean; studentId?: string | null }>({ sameDocument: false, coverage: 0, studentFound: false, studentId: null })
+  const [students, setStudents] = useState<any[]>([])
 
   useEffect(() => {
     if (!open) {
@@ -72,6 +73,24 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
       setHistory([])
     }
   }, [test?.id, open])
+
+  // Cargar estudiantes del curso/sección de la prueba
+  useEffect(() => {
+    try {
+      if (!open) return
+      if (!test?.sectionId) {
+        setStudents([])
+        return
+      }
+      const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]') as any[]
+      const list = users.filter(u => (u.role === 'student' || u.role === 'estudiante') && String(u.sectionId) === String(test.sectionId))
+      list.sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')))
+      setStudents(list)
+    } catch (e) {
+      console.warn('[TestReview] No se pudo cargar estudiantes:', e)
+      setStudents([])
+    }
+  }, [open, test?.sectionId])
 
   const ensureWorker = useCallback(async () => {
     if (workerRef.current) return workerRef.current
@@ -211,7 +230,7 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
           {/* Historial de revisión */}
           <div className="border rounded-md p-3 space-y-2">
             <div className="text-sm font-medium">{translate('testsReviewHistoryTitle') || 'Historial de revisión'}</div>
-            {history.length === 0 ? (
+            {(history.length === 0 && (!test?.sectionId || students.length === 0)) ? (
               <div className="text-xs text-muted-foreground">{translate('testsReviewHistoryEmpty') || 'Sin registros'}</div>
             ) : (
               <div className="overflow-x-auto">
@@ -229,18 +248,40 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {history.map((h, idx) => (
-                      <tr key={`${h.uploadedAt}-${idx}`} className="border-t">
-                        <td className="py-1 pr-2">{h.studentName}</td>
-                        <td className="py-1 pr-2">{resolveCourseSectionLabel(h.courseId, h.sectionId)}</td>
-                        <td className="py-1 pr-2">{resolveSubjectName(h.subjectId, h.subjectName)}</td>
-                        <td className="py-1 pr-2">{h.topic || '-'}</td>
-                        <td className="py-1 pr-2">{formatDateTime(h.uploadedAt)}</td>
-                        <td className="py-1 pr-2">{typeof h.score === 'number' ? h.score : '-'}</td>
-                        <td className="py-1 pr-2">{h.sameDocument ? '✔' : '✖'}</td>
-                        <td className="py-1 pr-2">{h.studentFound ? '✔' : '✖'}</td>
-                      </tr>
-                    ))}
+                    {test?.sectionId && students.length > 0 ? (
+                      // Mostrar una fila por estudiante de la sección, usando su última revisión si existe
+                      students.map((s) => {
+                        const latest = getLatestReviewForStudent(history, s)
+                        const courseLabel = resolveCourseSectionLabel(latest?.courseId ?? (test?.courseId || null), latest?.sectionId ?? (test?.sectionId || null))
+                        const subjectLabel = resolveSubjectName(latest?.subjectId ?? (test?.subjectId || null), latest?.subjectName ?? (test?.subjectName || null))
+                        const topic = (latest?.topic || test?.topic || '-')
+                        return (
+                          <tr key={String(s.id)} className="border-t">
+                            <td className="py-1 pr-2">{s.displayName || s.username || '-'}</td>
+                            <td className="py-1 pr-2">{courseLabel}</td>
+                            <td className="py-1 pr-2">{subjectLabel}</td>
+                            <td className="py-1 pr-2">{topic}</td>
+                            <td className="py-1 pr-2">{latest ? formatDateTime(latest.uploadedAt) : '-'}</td>
+                            <td className="py-1 pr-2">{latest && typeof latest.score === 'number' ? latest.score : '-'}</td>
+                            <td className="py-1 pr-2">{latest ? (latest.sameDocument ? '✔' : '✖') : '-'}</td>
+                            <td className="py-1 pr-2">{latest ? (latest.studentFound ? '✔' : '✖') : '-'}</td>
+                          </tr>
+                        )
+                      })
+                    ) : (
+                      history.map((h, idx) => (
+                        <tr key={`${h.uploadedAt}-${idx}`} className="border-t">
+                          <td className="py-1 pr-2">{h.studentName}</td>
+                          <td className="py-1 pr-2">{resolveCourseSectionLabel(h.courseId, h.sectionId)}</td>
+                          <td className="py-1 pr-2">{resolveSubjectName(h.subjectId, h.subjectName)}</td>
+                          <td className="py-1 pr-2">{h.topic || '-'}</td>
+                          <td className="py-1 pr-2">{formatDateTime(h.uploadedAt)}</td>
+                          <td className="py-1 pr-2">{typeof h.score === 'number' ? h.score : '-'}</td>
+                          <td className="py-1 pr-2">{h.sameDocument ? '✔' : '✖'}</td>
+                          <td className="py-1 pr-2">{h.studentFound ? '✔' : '✖'}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -431,4 +472,21 @@ function formatDateTime(ts?: number) {
     const mi = String(d.getMinutes()).padStart(2, '0')
     return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
   } catch { return '-' }
+}
+
+function getLatestReviewForStudent(history: ReviewRecord[], student: any): ReviewRecord | null {
+  try {
+    if (!history?.length) return null
+    // buscamos por nombre o id si existiera
+    const dn = normalize(student.displayName || '')
+    const un = normalize(student.username || '')
+    const matches = history.filter(h => {
+      const hs = normalize(h.studentName || '')
+      return (dn && (hs.includes(dn) || dn.includes(hs))) || (un && hs === un)
+    })
+    if (!matches.length) return null
+    return matches.sort((a, b) => (b.uploadedAt || 0) - (a.uploadedAt || 0))[0]
+  } catch {
+    return null
+  }
 }

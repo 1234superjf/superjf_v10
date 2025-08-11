@@ -108,8 +108,9 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
   const [count, setCount] = useState(propCount);
   const [isMarking, setIsMarking] = useState(false);
   const [studentCommunications, setStudentCommunications] = useState<any[]>([]);
-  // Elementos de asistencia pendiente por curso-sección: { id: `${courseId}-${sectionId}`, label: `${courseName} ${sectionName}` }
-  const [pendingAttendance, setPendingAttendance] = useState<{ id: string; label: string }[]>([]);
+  // Elementos de asistencia pendiente por curso-sección: { id, label, count }
+  const [pendingAttendance, setPendingAttendance] = useState<{ id: string; label: string; count: number }[]>([]);
+  const [pendingAttendanceTotal, setPendingAttendanceTotal] = useState<number>(0);
 
   // ✅ LOG DE DEBUG: Verificar qué count está recibiendo el componente
   console.log(`🔔 [NotificationsPanel] Received count: ${propCount} for user: ${user?.username} (${user?.role})`);
@@ -363,48 +364,45 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
     );
   };
 
-  // 📅 NUEVO: Calcular asistencia pendiente por curso-sección para hoy (profesores)
+  // 📅 NUEVO: Calcular asistencia pendiente por curso-sección para TODOS los días laborables del año hasta hoy (profesores)
   const computePendingAttendance = () => {
     try {
-      if (!user || user.role !== 'teacher') { setPendingAttendance([]); return; }
+      if (!user || user.role !== 'teacher') { setPendingAttendance([]); setPendingAttendanceTotal(0); return; }
       const today = new Date();
-      const y = today.getFullYear();
-      const m = String(today.getMonth() + 1).padStart(2, '0');
-      const d = String(today.getDate()).padStart(2, '0');
-      const todayStr = `${y}-${m}-${d}`;
-
-      // ⛔ No mostrar asistencia si hoy es no laborable según Calendario Admin
-      try {
-        const loadCfg = (year: number) => {
-          const def = { showWeekends: true, summer: {}, winter: {}, holidays: [] as string[] } as any;
-          const raw = localStorage.getItem(`admin-calendar-${year}`);
-          if (!raw) return def;
-          let parsed: any = null; try { parsed = JSON.parse(raw); } catch { parsed = raw; }
-          if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { /* ignore */ } }
-          return { ...def, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
-        };
-        const pad = (n: number) => String(n).padStart(2, '0');
-        const key = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
-        const cfg = loadCfg(today.getFullYear());
-        const inRange = (date: Date, range?: { start?: string; end?: string }) => {
-          if (!range?.start || !range?.end) return false;
-          const t = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-          const parseYmdLocal = (ymd: string) => {
-            const [yy, mm, dd] = ymd.split('-').map(Number);
-            return new Date(yy, (mm || 1) - 1, dd || 1);
-          };
-          const a = parseYmdLocal(range.start).getTime();
-          const b = parseYmdLocal(range.end).getTime();
-          const [min, max] = a <= b ? [a, b] : [b, a];
-          return t >= min && t <= max;
-        };
-  const isWeekend = today.getDay() === 0 || today.getDay() === 6;
+      const year = today.getFullYear();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const dateKey = (dt: Date) => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+      // Calendario Admin por año
+      const loadCfg = (y: number) => {
+        const def = { showWeekends: true, summer: {}, winter: {}, holidays: [] as string[] } as any;
+        const raw = localStorage.getItem(`admin-calendar-${y}`);
+        if (!raw) return def;
+        let parsed: any = null; try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+        if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { /* ignore */ } }
+        return { ...def, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+      };
+      const parseYmdLocal = (ymd: string) => {
+        const [yy, mm, dd] = ymd.split('-').map(Number);
+        return new Date(yy, (mm || 1) - 1, dd || 1);
+      };
+      const inRange = (date: Date, range?: { start?: string; end?: string }) => {
+        if (!range?.start || !range?.end) return false;
+        const t = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+        const a = parseYmdLocal(range.start).getTime();
+        const b = parseYmdLocal(range.end).getTime();
+        const [min, max] = a <= b ? [a, b] : [b, a];
+        return t >= min && t <= max;
+      };
+      const cfg = loadCfg(year);
+      const isWorkingDay = (d: Date) => {
+        const key = dateKey(d);
         const isHoliday = Array.isArray(cfg.holidays) && cfg.holidays.includes(key);
-        const isSummer = inRange(today, cfg.summer);
-        const isWinter = inRange(today, cfg.winter);
-  const weekendBlocked = cfg.showWeekends ? isWeekend : false;
-  if (weekendBlocked || isHoliday || isSummer || isWinter) { setPendingAttendance([]); return; }
-      } catch {}
+        const isSummer = inRange(d, cfg.summer);
+        const isWinter = inRange(d, cfg.winter);
+        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+        const weekendBlocked = cfg.showWeekends ? isWeekend : false; // mantener semántica existente
+        return !(weekendBlocked || isHoliday || isSummer || isWinter);
+      };
 
       const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
       const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
@@ -473,25 +471,67 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
       });
 
       const attendance = JSON.parse(localStorage.getItem('smart-student-attendance') || '[]');
-      const pendingList: { id: string; label: string }[] = [];
-      uniqueCS.forEach(({ id, label, sectionId }) => {
-        // Estudiantes asignados a la sección
+      // Indexar asistencia por curso y fecha -> Set de estudiantes
+      const attendanceIndex: Record<string, Record<string, Set<string>>> = {};
+      (attendance || []).forEach((r: any) => {
+        if (!r || !r.course || !r.date || !r.studentUsername) return;
+        attendanceIndex[r.course] = attendanceIndex[r.course] || {};
+        attendanceIndex[r.course][r.date] = attendanceIndex[r.course][r.date] || new Set<string>();
+        attendanceIndex[r.course][r.date].add(r.studentUsername);
+      });
+
+      // Construir lista de días laborables desde el 1 de enero hasta hoy (inclusive)
+      const start = new Date(year, 0, 1);
+      const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const workingDays: string[] = [];
+      for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+        const local = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+        if (isWorkingDay(local)) workingDays.push(dateKey(local));
+      }
+
+      // Calcular pendientes por curso-sección
+      const pendingMap: Record<string, number> = {};
+      uniqueCS.forEach(({ id, sectionId }) => {
+        // estudiantes asignados a la sección
         const assigned = (studentAssignments || []).filter((sa: any) => sa.sectionId === sectionId);
         const assignedCount = assigned.length;
+        if (assignedCount === 0) return; // sin estudiantes, no contar
 
-        // Registros de asistencia únicos por estudiante para hoy y este curso-sección
-        const todaySectionRecords = (attendance || []).filter((r: any) => r.date === todayStr && r.course === id);
-        const uniqueStudents = new Set<string>();
-        todaySectionRecords.forEach((r: any) => { if (r.studentUsername) uniqueStudents.add(r.studentUsername); });
-
-        // Pendiente si aún no se ha marcado a todos los estudiantes de la sección
-        const isPending = assignedCount > 0 ? uniqueStudents.size < assignedCount : false;
-        if (isPending) pendingList.push({ id, label });
+        const courseAttendance = attendanceIndex[id] || {};
+        let pending = 0;
+        for (const day of workingDays) {
+          const set = courseAttendance[day] || new Set<string>();
+          if (set.size < assignedCount) pending++;
+        }
+        if (pending > 0) pendingMap[id] = pending;
       });
+
+      const pendingList: { id: string; label: string; count: number }[] = [];
+      for (const item of uniqueCS) {
+        const count = pendingMap[item.id] || 0;
+        if (count > 0) pendingList.push({ id: item.id, label: item.label, count });
+      }
+
+      // Ordenar por mayor pendiente
+      pendingList.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
       setPendingAttendance(pendingList);
+      setPendingAttendanceTotal(pendingList.reduce((sum, it) => sum + it.count, 0));
+      try {
+        localStorage.setItem('smart-student-attendance-pending-detail', JSON.stringify(pendingList));
+        localStorage.setItem('smart-student-attendance-pending-total', String(pendingList.reduce((sum, it) => sum + it.count, 0)));
+        // Notificar a dashboard/campana
+        window.dispatchEvent(new CustomEvent('notificationsUpdated', { detail: { source: 'attendance', action: 'recompute' } }));
+        window.dispatchEvent(new CustomEvent('updateDashboardCounts', { detail: { source: 'attendance', action: 'recompute' } }));
+      } catch {}
     } catch (e) {
       console.error('[NotificationsPanel] Error calculando asistencia pendiente:', e);
       setPendingAttendance([]);
+      setPendingAttendanceTotal(0);
+      try {
+        localStorage.setItem('smart-student-attendance-pending-detail', JSON.stringify([]));
+        localStorage.setItem('smart-student-attendance-pending-total', '0');
+        window.dispatchEvent(new CustomEvent('notificationsUpdated', { detail: { source: 'attendance', action: 'error' } }));
+      } catch {}
     }
   };
 
@@ -863,6 +903,10 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
         e.key === 'smart-student-sections' ||
         e.key === 'smart-student-courses'
       ) {
+        computePendingAttendance();
+      }
+      // Recalcular si cambia calendario admin
+      if (e.key && e.key.startsWith('admin-calendar-')) {
         computePendingAttendance();
       }
     };
@@ -2627,13 +2671,13 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
               {user?.role === 'teacher' && (
                 <div>
                   {/* NUEVO: Asistencia pendiente (solo se muestra si hay pendientes) */}
-                  {pendingAttendance.length > 0 && (
+                  {pendingAttendanceTotal > 0 && (
                   <div className="divide-y divide-border rounded-md ring-1 ring-indigo-200/60 dark:ring-indigo-800/40 overflow-hidden bg-gradient-to-b from-indigo-50/40 dark:from-indigo-900/10 to-transparent">
                     {/* Encabezado con estilo dinámico según ATTENDANCE_COLOR */}
                     <div className={`px-4 py-2 ${getHeaderBgClass(ATTENDANCE_COLOR)} ${getHeaderBorderClass(ATTENDANCE_COLOR)} rounded-t-md shadow-sm ring-1 ring-inset ring-indigo-200/60 dark:ring-indigo-700/40` }>
                       <h3 className={`text-sm font-semibold ${getTitleTextClass(ATTENDANCE_COLOR)} flex items-center gap-2`}>
                         <ClipboardList className={`h-4 w-4 ${getIconTextClass(ATTENDANCE_COLOR)}`} />
-                        Asistencia {pendingAttendance.length > 0 ? `(${pendingAttendance.length})` : ''}
+                        Asistencia {pendingAttendanceTotal > 0 ? `(${pendingAttendanceTotal})` : ''}
                       </h3>
                     </div>
                     <div className="p-4">
@@ -2643,18 +2687,24 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
-                            <p className={`font-medium text-sm ${getBodyTextClass(ATTENDANCE_COLOR)}`}>Registro diario</p>
-                            {pendingAttendance.length > 0 && (
-                              <Badge className={`text-xs ${getBadgeBgClass(ATTENDANCE_COLOR)} shadow-sm`}>{pendingAttendance.length}</Badge>
+                            <p className={`font-medium text-sm ${getBodyTextClass(ATTENDANCE_COLOR)}`}>Días pendientes por curso</p>
+                            {pendingAttendanceTotal > 0 && (
+                              <Badge className={`text-xs ${getBadgeBgClass(ATTENDANCE_COLOR)} shadow-sm`}>{pendingAttendanceTotal > 99 ? '99+' : pendingAttendanceTotal}</Badge>
                             )}
                           </div>
                           {pendingAttendance.length === 0 ? (
-                            <p className="text-sm text-muted-foreground mt-1">No hay asistencia pendiente para hoy</p>
+                            <p className="text-sm text-muted-foreground mt-1">No hay asistencia pendiente</p>
                           ) : (
                             <ul className="mt-2 space-y-1">
                               {pendingAttendance.map((item) => (
-                                <li key={item.id} className={`text-sm ${getBodyTextClass(ATTENDANCE_COLOR)} flex items-center`}>
-                                  <span className="mr-2">•</span>{item.label}
+                                <li key={item.id} className={`text-sm ${getBodyTextClass(ATTENDANCE_COLOR)} flex items-center justify-between`}>
+                                  <div className="flex items-center min-w-0">
+                                    <span className="mr-2">•</span>
+                                    <span className="truncate" title={item.label}>{item.label}</span>
+                                  </div>
+                                  <Badge className={`ml-2 shrink-0 text-xs ${getBadgeBgClass(ATTENDANCE_COLOR)} shadow-sm`} title={`${item.count} día(s) pendiente(s)`}>
+                                    {item.count > 99 ? '99+' : item.count}
+                                  </Badge>
                                 </li>
                               ))}
                             </ul>
@@ -2668,7 +2718,7 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                   </div>
                   )}
 
-                  {(studentSubmissions.length === 0 && pendingGrading.length === 0 && unreadStudentComments.length === 0 && taskNotifications.length === 0 && pendingAttendance.length === 0) ? (
+                  {(studentSubmissions.length === 0 && pendingGrading.length === 0 && unreadStudentComments.length === 0 && taskNotifications.length === 0 && pendingAttendanceTotal === 0) ? (
                     <div className="py-8 px-6 text-center">
                       {/* Contenedor principal con animación sutil */}
                       <div className="relative">

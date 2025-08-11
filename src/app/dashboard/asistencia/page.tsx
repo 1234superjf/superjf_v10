@@ -730,7 +730,37 @@ export default function AttendancePage() {
                   <CalendarDays className="h-5 w-5" />
                   {translate('attendanceDate') || 'Asistencia del día'} - {format(parseLocalDate(selectedDate), 'dd/MM/yyyy', { locale: dateLocale })}
                 </CardTitle>
-                <DateInput value={selectedDate} onChange={(v) => setSelectedDate(v)} locale={dateLocale} />
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="hover:bg-transparent"
+                    onClick={() => {
+                      const d = parseLocalDate(selectedDate);
+                      d.setDate(d.getDate() - 1);
+                      setSelectedDate(toLocalDateString(d));
+                    }}
+                    aria-label={translate('prevDay') || 'Día anterior'}
+                    title={translate('prevDay') || 'Día anterior'}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <DateInput value={selectedDate} onChange={(v) => setSelectedDate(v)} locale={dateLocale} />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="hover:bg-transparent"
+                    onClick={() => {
+                      const d = parseLocalDate(selectedDate);
+                      d.setDate(d.getDate() + 1);
+                      setSelectedDate(toLocalDateString(d));
+                    }}
+                    aria-label={translate('nextDay') || 'Día siguiente'}
+                    title={translate('nextDay') || 'Día siguiente'}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
