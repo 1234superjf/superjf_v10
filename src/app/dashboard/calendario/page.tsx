@@ -25,9 +25,14 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const inRange = (date: Date, range?: VacationRange) => {
   if (!range?.start || !range?.end) return false;
-  const t = new Date(keyOf(date)).getTime();
-  const a = new Date(range.start).getTime();
-  const b = new Date(range.end).getTime();
+  // Comparación en horario local para evitar desfases por zona horaria
+  const t = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const parseYmdLocal = (ymd: string) => {
+    const [y, m, d] = ymd.split('-').map(Number);
+    return new Date(y, (m || 1) - 1, d || 1);
+  };
+  const a = parseYmdLocal(range.start).getTime();
+  const b = parseYmdLocal(range.end).getTime();
   const [min, max] = a <= b ? [a, b] : [b, a];
   return t >= min && t <= max;
 };
@@ -381,7 +386,13 @@ function MonthGrid({ year, month, getDayStyle, onDayClick }: {
 
 // Date input con calendario localizado (semana L-D) y formateo según locale
 function DateInput({ value, onChange, locale }: { value?: string; onChange: (v: string) => void; locale: Locale }) {
-  const parsed = value ? new Date(value) : undefined;
+  // Parseo local seguro para fechas en formato YYYY-MM-DD
+  const parseYmdLocal = (ymd?: string) => {
+    if (!ymd) return undefined;
+    const [y, m, d] = ymd.split('-').map(Number);
+    return new Date(y, (m || 1) - 1, d || 1);
+  };
+  const parsed = parseYmdLocal(value);
   const selected = parsed && !isNaN(parsed.getTime()) ? parsed : undefined;
   // Mostrar siempre dd/mm/yyyy según requerimiento
   const label = selected ? format(selected, 'dd/MM/yyyy', { locale }) : 'dd/mm/yyyy';

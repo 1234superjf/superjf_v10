@@ -373,6 +373,39 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
       const d = String(today.getDate()).padStart(2, '0');
       const todayStr = `${y}-${m}-${d}`;
 
+      // ⛔ No mostrar asistencia si hoy es no laborable según Calendario Admin
+      try {
+        const loadCfg = (year: number) => {
+          const def = { showWeekends: true, summer: {}, winter: {}, holidays: [] as string[] } as any;
+          const raw = localStorage.getItem(`admin-calendar-${year}`);
+          if (!raw) return def;
+          let parsed: any = null; try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+          if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { /* ignore */ } }
+          return { ...def, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+        };
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const key = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+        const cfg = loadCfg(today.getFullYear());
+        const inRange = (date: Date, range?: { start?: string; end?: string }) => {
+          if (!range?.start || !range?.end) return false;
+          const t = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+          const parseYmdLocal = (ymd: string) => {
+            const [yy, mm, dd] = ymd.split('-').map(Number);
+            return new Date(yy, (mm || 1) - 1, dd || 1);
+          };
+          const a = parseYmdLocal(range.start).getTime();
+          const b = parseYmdLocal(range.end).getTime();
+          const [min, max] = a <= b ? [a, b] : [b, a];
+          return t >= min && t <= max;
+        };
+  const isWeekend = today.getDay() === 0 || today.getDay() === 6;
+        const isHoliday = Array.isArray(cfg.holidays) && cfg.holidays.includes(key);
+        const isSummer = inRange(today, cfg.summer);
+        const isWinter = inRange(today, cfg.winter);
+  const weekendBlocked = cfg.showWeekends ? isWeekend : false;
+  if (weekendBlocked || isHoliday || isSummer || isWinter) { setPendingAttendance([]); return; }
+      } catch {}
+
       const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
       const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
       const courses = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
@@ -2595,24 +2628,24 @@ export default function NotificationsPanel({ count: propCount }: NotificationsPa
                 <div>
                   {/* NUEVO: Asistencia pendiente (solo se muestra si hay pendientes) */}
                   {pendingAttendance.length > 0 && (
-                  <div className="divide-y divide-border">
+                  <div className="divide-y divide-border rounded-md ring-1 ring-indigo-200/60 dark:ring-indigo-800/40 overflow-hidden bg-gradient-to-b from-indigo-50/40 dark:from-indigo-900/10 to-transparent">
                     {/* Encabezado con estilo dinámico según ATTENDANCE_COLOR */}
-                    <div className={`px-4 py-2 ${getHeaderBgClass(ATTENDANCE_COLOR)} ${getHeaderBorderClass(ATTENDANCE_COLOR)}`}>
-                      <h3 className={`text-sm font-medium ${getTitleTextClass(ATTENDANCE_COLOR)} flex items-center gap-2`}>
+                    <div className={`px-4 py-2 ${getHeaderBgClass(ATTENDANCE_COLOR)} ${getHeaderBorderClass(ATTENDANCE_COLOR)} rounded-t-md shadow-sm ring-1 ring-inset ring-indigo-200/60 dark:ring-indigo-700/40` }>
+                      <h3 className={`text-sm font-semibold ${getTitleTextClass(ATTENDANCE_COLOR)} flex items-center gap-2`}>
                         <ClipboardList className={`h-4 w-4 ${getIconTextClass(ATTENDANCE_COLOR)}`} />
                         Asistencia {pendingAttendance.length > 0 ? `(${pendingAttendance.length})` : ''}
                       </h3>
                     </div>
                     <div className="p-4">
                       <div className="flex items-start gap-2">
-                        <div className={`${getIconBgClass(ATTENDANCE_COLOR)} p-2 rounded-full`}>
+                        <div className={`${getIconBgClass(ATTENDANCE_COLOR)} p-2 rounded-full ring-1 ring-inset ring-indigo-200/60 dark:ring-indigo-700/50`}>
                           <ClipboardList className={`h-4 w-4 ${getIconTextClass(ATTENDANCE_COLOR)}`} />
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
                             <p className={`font-medium text-sm ${getBodyTextClass(ATTENDANCE_COLOR)}`}>Registro diario</p>
                             {pendingAttendance.length > 0 && (
-                              <Badge className={`text-xs ${getBadgeBgClass(ATTENDANCE_COLOR)}`}>{pendingAttendance.length}</Badge>
+                              <Badge className={`text-xs ${getBadgeBgClass(ATTENDANCE_COLOR)} shadow-sm`}>{pendingAttendance.length}</Badge>
                             )}
                           </div>
                           {pendingAttendance.length === 0 ? (

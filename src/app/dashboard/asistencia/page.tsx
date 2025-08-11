@@ -23,6 +23,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Calendar as UICalendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import type { Locale } from 'date-fns';
+import { es as esLocale, enGB } from 'date-fns/locale';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
@@ -88,9 +93,49 @@ const parseLocalDate = (ymd: string) => {
   return new Date(y, (m || 1) - 1, d || 1);
 };
 
+// --- Calendario Admin: utilidades para detectar días no laborables ---
+type VacationRange = { start?: string; end?: string };
+type CalendarYearConfig = { showWeekends: boolean; summer: VacationRange; winter: VacationRange; holidays: string[] };
+const pad = (n: number) => String(n).padStart(2, '0');
+const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const inRange = (date: Date, range?: VacationRange) => {
+  if (!range?.start || !range?.end) return false;
+  // Comparar en horario local: construir fechas sin pasar por Date ISO string
+  const t = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const aDate = parseLocalDate(range.start);
+  const bDate = parseLocalDate(range.end);
+  const a = aDate.getTime();
+  const b = bDate.getTime();
+  const [min, max] = a <= b ? [a, b] : [b, a];
+  return t >= min && t <= max;
+};
+const loadCalendarConfig = (year: number): CalendarYearConfig => {
+  const def: CalendarYearConfig = { showWeekends: true, summer: {}, winter: {}, holidays: [] };
+  try {
+    const raw = localStorage.getItem(`admin-calendar-${year}`);
+    if (!raw) return def;
+    let parsed: any = null;
+    try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+    if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { /* ignore */ } }
+    return { ...def, ...(parsed && typeof parsed === 'object' ? parsed : {}) } as CalendarYearConfig;
+  } catch { return def; }
+};
+const getNonWorkingReason = (dateStr: string): null | 'holiday' | 'summer' | 'winter' | 'weekend' => {
+  const d = parseLocalDate(dateStr);
+  const cfg = loadCalendarConfig(d.getFullYear());
+  if (cfg.holidays?.includes(keyOf(d))) return 'holiday';
+  if (inRange(d, cfg.summer)) return 'summer';
+  if (inRange(d, cfg.winter)) return 'winter';
+  const dow = d.getDay(); // 0=Dom, 6=Sab
+  // Solo considerar fin de semana como no laborable si el Admin lo tiene habilitado
+  if (cfg.showWeekends && (dow === 0 || dow === 6)) return 'weekend';
+  return null;
+};
+
 export default function AttendancePage() {
-  const { translate } = useLanguage();
+  const { translate, language } = useLanguage();
   const { user } = useAuth();
+  const dateLocale: Locale = language === 'es' ? esLocale : enGB;
   
   // Helper de traducción con fallback: si translate devuelve la clave tal cual, usamos el valor por defecto
   const t = useCallback((key: string, def?: string) => {
@@ -122,6 +167,7 @@ export default function AttendancePage() {
   const [mySubjects, setMySubjects] = useState<string[]>([]);
   const [teacherCourseSections, setTeacherCourseSections] = useState<Array<{ id: string; courseId: string; sectionId: string; label: string }>>([]);
   const [dailyAttendance, setDailyAttendance] = useState<Record<string, 'present' | 'absent' | 'late' | 'excused'>>({});
+  const [nonWorkingReason, setNonWorkingReason] = useState<null | 'holiday' | 'summer' | 'winter' | 'weekend'>(null);
 
   // Derivados del selectedCourse
   const selectedCourseIds = useMemo(() => {
@@ -330,6 +376,9 @@ export default function AttendancePage() {
   };
 
   const markAttendance = (studentUsername: string, status: 'present' | 'absent' | 'late' | 'excused') => {
+    if (nonWorkingReason) {
+      return; // No permitir marcaje en días no laborables
+    }
     const record: AttendanceRecord = {
       id: `${studentUsername}-${selectedDate}-${selectedSubject}-${selectedCourse}`,
       studentUsername,
@@ -411,11 +460,33 @@ export default function AttendancePage() {
     return stats;
   };
 
+  // Nueva: tasa de asistencia según calendario admin (solo días laborables) usando presentes vs ausentes
+  const getWorkingAttendanceRate = (studentUsername: string): number => {
+    const studentRecords = attendanceRecords.filter(record => 
+      record.studentUsername === studentUsername &&
+      record.course === selectedCourse
+    );
+    let present = 0;
+    let absent = 0;
+    studentRecords.forEach((r) => {
+      const reason = getNonWorkingReason(r.date);
+      // Contar solo días laborables según el Calendario Admin.
+      // Si showWeekends=false, los fines de semana se consideran laborables.
+      if (!reason) {
+        if (r.status === 'present') present++;
+        else if (r.status === 'absent') absent++;
+      }
+    });
+    const total = present + absent;
+    return total > 0 ? Math.round((present / total) * 100) : 0;
+  };
+
   const generateCalendarDays = () => {
-    const firstDay = new Date(selectedYear, selectedMonth, 1);
-    const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
-    const startDate = new Date(firstDay);
-    startDate.setDate(startDate.getDate() - firstDay.getDay());
+  const firstDay = new Date(selectedYear, selectedMonth, 1);
+  // Ajuste lunes-domingo: offset calculado con Monday=0
+  const mondayOffset = (firstDay.getDay() + 6) % 7; // 0..6
+  const startDate = new Date(firstDay);
+  startDate.setDate(startDate.getDate() - mondayOffset);
 
     const days = [];
     const current = new Date(startDate);
@@ -462,9 +533,26 @@ export default function AttendancePage() {
     setDailyAttendance(dayAttendance);
   }, [selectedDate, selectedCourse, selectedSubject, attendanceRecords]);
 
+  // Detectar día no laborable según Calendario Admin
+  useEffect(() => {
+    setNonWorkingReason(getNonWorkingReason(selectedDate));
+  }, [selectedDate]);
+
+  // Escuchar cambios del calendario admin en otras pestañas/ventanas
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key && e.key.startsWith('admin-calendar-')) {
+        setNonWorkingReason(getNonWorkingReason(selectedDate));
+      }
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, [selectedDate]);
+
   // Sincronizar mes/año del calendario con la fecha seleccionada del encabezado/input
   useEffect(() => {
-    const d = new Date(selectedDate);
+  // Usar parseo local para evitar desfases por zona horaria
+  const d = parseLocalDate(selectedDate);
     const m = d.getMonth();
     const y = d.getFullYear();
     if (m !== selectedMonth) setSelectedMonth(m);
@@ -523,7 +611,7 @@ export default function AttendancePage() {
             {translate('attendanceControl') || 'Registra y visualiza la asistencia de tus estudiantes.'}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Badge className="bg-indigo-600 text-white">{parseLocalDate(selectedDate).toLocaleDateString()}</Badge>
+            <Badge className="bg-indigo-600 text-white">{format(parseLocalDate(selectedDate), 'dd/MM/yyyy', { locale: dateLocale })}</Badge>
             {selectedCourse && (
               <Badge variant="outline" className="border-indigo-300 text-indigo-700 dark:text-indigo-300">
                 {teacherCourseSections.find(cs => cs.id === selectedCourse)?.label || translate('course')}
@@ -640,20 +728,23 @@ export default function AttendancePage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <CalendarDays className="h-5 w-5" />
-                  {translate('attendanceDate') || 'Asistencia del día'} - {parseLocalDate(selectedDate).toLocaleDateString()}
+                  {translate('attendanceDate') || 'Asistencia del día'} - {format(parseLocalDate(selectedDate), 'dd/MM/yyyy', { locale: dateLocale })}
                 </CardTitle>
-                <Input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-auto"
-                />
+                <DateInput value={selectedDate} onChange={(v) => setSelectedDate(v)} locale={dateLocale} />
               </div>
             </CardHeader>
             <CardContent>
+              {nonWorkingReason && (
+                <div className="mb-4 p-3 rounded-md border text-sm bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700 text-amber-800 dark:text-amber-200">
+                  {nonWorkingReason === 'holiday' && (translate('noAttendanceHoliday') || 'No se requiere asistencia: feriado')}
+                  {nonWorkingReason === 'summer' && (translate('noAttendanceSummer') || 'No se requiere asistencia: vacaciones de verano')}
+                  {nonWorkingReason === 'winter' && (translate('noAttendanceWinter') || 'No se requiere asistencia: vacaciones de invierno')}
+                  {nonWorkingReason === 'weekend' && (translate('noAttendanceWeekend') || 'No se requiere asistencia: fin de semana')}
+                </div>
+              )}
               {/* Acciones rápidas */}
               <div className="flex flex-wrap gap-2 mb-4">
-                <Button size="sm" variant="secondary" className="hover:bg-indigo-600 hover:text-white transition-colors" onClick={() => {
+                <Button size="sm" variant="secondary" disabled={!!nonWorkingReason} className="hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-50" onClick={() => {
                   const next: Record<string, 'present' | 'absent' | 'late' | 'excused'> = {};
                   filteredStudents.forEach(s => { next[s.username] = 'present'; });
                   setDailyAttendance(next);
@@ -693,11 +784,12 @@ export default function AttendancePage() {
                           )}
                           
                           <div className="flex gap-1">
-                            {Object.entries(statusLabels).map(([status, label]) => {
+            {Object.entries(statusLabels).map(([status, label]) => {
                               const Icon = statusIcons[status as keyof typeof statusIcons];
                               return (
                 <Button
                                   key={status}
+              disabled={!!nonWorkingReason}
                                   size="sm"
                                   variant={currentStatus === status ? "default" : "outline"}
                                   className={cn(
@@ -708,7 +800,8 @@ export default function AttendancePage() {
                   currentStatus === status && status === 'late' && "bg-yellow-600 hover:bg-yellow-600",
                   currentStatus === status && status === 'excused' && "bg-blue-600 hover:bg-blue-600",
                   // Para estados no seleccionados: hover con color indigo característico
-                  currentStatus !== status && "hover:bg-indigo-600 hover:text-white"
+      currentStatus !== status && "hover:bg-indigo-600 hover:text-white",
+      nonWorkingReason && "opacity-50 cursor-not-allowed"
                                   )}
                                   onClick={() => markAttendance(student.username, status as any)}
                                   title={label}
@@ -746,7 +839,8 @@ export default function AttendancePage() {
                     className="hover:bg-transparent"
                     onClick={() => {
                       // Ir al mes anterior manteniendo el día en rango
-                      const current = new Date(selectedDate);
+                      // Evitar desfases: parsear YYYY-MM-DD en local time
+                      const current = parseLocalDate(selectedDate);
                       let newMonth = selectedMonth - 1;
                       let newYear = selectedYear;
                       if (newMonth < 0) { newMonth = 11; newYear = selectedYear - 1; }
@@ -766,7 +860,8 @@ export default function AttendancePage() {
                     className="hover:bg-transparent"
                     onClick={() => {
                       // Ir al mes siguiente manteniendo el día en rango
-                      const current = new Date(selectedDate);
+                      // Evitar desfases: parsear YYYY-MM-DD en local time
+                      const current = parseLocalDate(selectedDate);
                       let newMonth = selectedMonth + 1;
                       let newYear = selectedYear;
                       if (newMonth > 11) { newMonth = 0; newYear = selectedYear + 1; }
@@ -785,7 +880,7 @@ export default function AttendancePage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-7 gap-1 mb-4">
-                {[translate('sunShort')||'Dom', translate('monShort')||'Lun', translate('tueShort')||'Mar', translate('wedShort')||'Mié', translate('thuShort')||'Jue', translate('friShort')||'Vie', translate('satShort')||'Sáb'].map(day => (
+                {[translate('monShort')||'Lun', translate('tueShort')||'Mar', translate('wedShort')||'Mié', translate('thuShort')||'Jue', translate('friShort')||'Vie', translate('satShort')||'Sáb', translate('sunShort')||'Dom'].map(day => (
                   <div key={day} className="p-2 text-center font-semibold text-gray-600">
                     {day}
                   </div>
@@ -797,17 +892,30 @@ export default function AttendancePage() {
                   const isToday = date.toDateString() === new Date().toDateString();
                   const stats = getDateAttendanceStats(date);
                   const hasData = stats.total > 0;
+                  const reason = getNonWorkingReason(toLocalDateString(date));
+                  const isBlocked = !!reason;
+                  const hiddenComment = reason === 'holiday'
+                    ? (translate('noAttendanceHoliday') || 'No se requiere asistencia: feriado')
+                    : reason === 'summer'
+                      ? (translate('noAttendanceSummer') || 'No se requiere asistencia: vacaciones de verano')
+                      : reason === 'winter'
+                        ? (translate('noAttendanceWinter') || 'No se requiere asistencia: vacaciones de invierno')
+                        : reason === 'weekend'
+                          ? (translate('noAttendanceWeekend') || 'No se requiere asistencia: fin de semana')
+                          : '';
                   
                   return (
                     <div
                       key={index}
                       className={cn(
-                        "p-2 min-h-16 border rounded cursor-pointer transition-colors",
+                        "p-2 min-h-16 border rounded transition-colors",
+                        isBlocked ? "bg-gray-100 dark:bg-gray-800/60 opacity-60 cursor-not-allowed" : "cursor-pointer",
                         isCurrentMonth ? "bg-white dark:bg-gray-900" : "bg-gray-50 dark:bg-gray-800/60",
                         isToday && "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700",
                         hasData && "border-indigo-200 dark:border-indigo-700"
                       )}
-                      onClick={() => setSelectedDate(toLocalDateString(date))}
+                      onClick={() => { if (!isBlocked) setSelectedDate(toLocalDateString(date)); }}
+                      title={hiddenComment}
                     >
                       <div className={cn(
                         "text-sm font-medium",
@@ -871,7 +979,7 @@ export default function AttendancePage() {
               <div className="space-y-4">
                 {filteredStudents.map(student => {
                   const stats = getStudentAttendanceStats(student.username);
-                  const attendanceRate = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
+                  const attendanceRate = getWorkingAttendanceRate(student.username);
                   
                   return (
                     <div key={student.username} className="border rounded-lg p-4">
@@ -932,5 +1040,39 @@ export default function AttendancePage() {
 
       
     </div>
+  );
+}
+
+// Selector de fecha con popover y calendario (localizado) que emite YYYY-MM-DD y muestra dd/MM/yyyy
+function DateInput({ value, onChange, locale }: { value: string; onChange: (v: string) => void; locale: Locale }) {
+  // Parseo local seguro: evita que YYYY-MM-DD se interprete como UTC y reste un día en algunas zonas horarias
+  const parsed = value ? parseLocalDate(value) : undefined;
+  const selected = parsed && !isNaN(parsed.getTime()) ? parsed : undefined;
+  const label = selected ? format(selected, 'dd/MM/yyyy', { locale }) : 'dd/mm/yyyy';
+  const toIso = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="w-[150px] justify-start text-left font-normal">
+          <CalendarDays className="mr-2 h-4 w-4" />
+          {label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="end">
+        <UICalendar
+          mode="single"
+          selected={selected}
+          locale={locale}
+          onSelect={(d) => d && onChange(toIso(d))}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

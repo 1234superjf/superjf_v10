@@ -46,7 +46,8 @@ export const getTitleTextClass = (color: AppColor) => {
     case 'purple': return 'text-purple-800 dark:text-purple-200';
     case 'orange': return 'text-orange-800 dark:text-orange-200';
     case 'red': return 'text-red-800 dark:text-red-200';
-    case 'indigo': return 'text-indigo-800 dark:text-indigo-200';
+  // En dark, usar blanco para máxima legibilidad sobre fondo índigo oscuro
+  case 'indigo': return 'text-indigo-800 dark:text-white';
     case 'teal': return 'text-teal-800 dark:text-teal-200';
     case 'rose': return 'text-rose-800 dark:text-rose-200';
     case 'emerald': return 'text-emerald-800 dark:text-emerald-200';
@@ -62,7 +63,8 @@ export const getIconTextClass = (color: AppColor) => {
     case 'purple': return 'text-purple-700 dark:text-purple-300';
     case 'orange': return 'text-orange-700 dark:text-orange-300';
     case 'red': return 'text-red-700 dark:text-red-300';
-    case 'indigo': return 'text-indigo-700 dark:text-indigo-300';
+  // En dark, igualar al título para máxima legibilidad
+  case 'indigo': return 'text-indigo-700 dark:text-white';
     case 'teal': return 'text-teal-700 dark:text-teal-300';
     case 'rose': return 'text-rose-700 dark:text-rose-300';
     case 'emerald': return 'text-emerald-700 dark:text-emerald-300';

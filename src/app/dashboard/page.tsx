@@ -247,6 +247,40 @@ export default function DashboardHomePage() {
       const d = String(today.getDate()).padStart(2, '0');
       const todayStr = `${y}-${m}-${d}`;
 
+      // Si hoy es día no laborable según el Calendario Admin, no exigir asistencia
+      try {
+        const loadCfg = (year: number) => {
+          const def = { showWeekends: true, summer: {}, winter: {}, holidays: [] as string[] } as any;
+          const raw = localStorage.getItem(`admin-calendar-${year}`);
+          if (!raw) return def;
+          let parsed: any = null; try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+          if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { /* ignore */ } }
+          return { ...def, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+        };
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const key = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+        const cfg = loadCfg(today.getFullYear());
+        const inRange = (date: Date, range?: { start?: string; end?: string }) => {
+          if (!range?.start || !range?.end) return false;
+          const t = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+          const parseYmdLocal = (ymd: string) => {
+            const [yy, mm, dd] = ymd.split('-').map(Number);
+            return new Date(yy, (mm || 1) - 1, dd || 1);
+          };
+          const a = parseYmdLocal(range.start).getTime();
+          const b = parseYmdLocal(range.end).getTime();
+          const [min, max] = a <= b ? [a, b] : [b, a];
+          return t >= min && t <= max;
+        };
+  const isWeekend = today.getDay() === 0 || today.getDay() === 6;
+        const isHoliday = Array.isArray(cfg.holidays) && cfg.holidays.includes(key);
+        const isSummer = inRange(today, cfg.summer);
+        const isWinter = inRange(today, cfg.winter);
+  // Solo considerar fin de semana como no laborable si showWeekends=true
+  const weekendBlocked = cfg.showWeekends ? isWeekend : false;
+  if (weekendBlocked || isHoliday || isSummer || isWinter) { setPendingAttendanceCount(0); return; }
+      } catch {}
+
       const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
       const myAssignments = teacherAssignments.filter((ta: any) =>
         ta.teacherId === user.id || ta.teacherUsername === user.username || ta.teacher === user.username
