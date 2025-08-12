@@ -154,7 +154,7 @@ export default function Configuration() {
         } catch (error) {
           return {
             exito: false,
-            error: (error as Error).message,
+            asignacionesCreadas: 0,
             mensaje: 'Error en corrección básica'
           };
         }
@@ -233,8 +233,8 @@ export default function Configuration() {
       LocalStorageManager.setConfig(config);
       
       // Update section max capacity in all existing sections
-      const sections = LocalStorageManager.getSections();
-      const updatedSections = sections.map(section => ({
+  const sections = LocalStorageManager.getSections();
+  const updatedSections = sections.map((section: any) => ({
         ...section,
         maxStudents: config.maxStudentsPerSection
       }));
@@ -313,6 +313,52 @@ export default function Configuration() {
       console.warn('No se pudieron leer configuraciones del calendario admin:', e);
     }
     return configs;
+  };
+
+  // ✅ Helper: recolectar todas las pruebas creadas por profesores (por usuario) desde localStorage
+  const collectAllTestsByUser = () => {
+    const prefix = 'smart-student-tests';
+    const out: Record<string, any[]> = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        if (key === prefix || key.startsWith(prefix + '_')) {
+          try {
+            const arr = JSON.parse(localStorage.getItem(key) || '[]');
+            if (Array.isArray(arr)) out[key] = arr;
+          } catch {
+            // ignorar
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[EXPORT] No se pudieron recolectar pruebas por usuario:', e);
+    }
+    return out;
+  };
+
+  // ✅ Helper: recolectar historial de revisión de pruebas por testId
+  const collectAllTestReviews = () => {
+    const prefix = 'smart-student-test-reviews_';
+    const out: Record<string, any[]> = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        if (key.startsWith(prefix)) {
+          try {
+            const arr = JSON.parse(localStorage.getItem(key) || '[]');
+            if (Array.isArray(arr)) out[key] = arr;
+          } catch {
+            // ignorar
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[EXPORT] No se pudieron recolectar historiales de revisión:', e);
+    }
+    return out;
   };
 
   const exportSystemData = () => {
@@ -406,6 +452,10 @@ export default function Configuration() {
         attendance: JSON.parse(localStorage.getItem('smart-student-attendance') || '[]'),
         // ✅ NUEVO: Incluir configuraciones del calendario admin por año
         calendarConfigs,
+        // ✅ NUEVO: Incluir pruebas por profesor/usuario, historiales y notas de pruebas
+        testsByUser: collectAllTestsByUser(),
+        testReviews: collectAllTestReviews(),
+        testGrades: JSON.parse(localStorage.getItem('smart-student-test-grades') || '[]'),
         // ✅ USUARIOS PRINCIPALES CON CAMPOS COMPLETOS PARA LOGIN
         users: exportUsers,
         // ✅ METADATOS DE CORRECCIÓN DINÁMICA
@@ -417,10 +467,11 @@ export default function Configuration() {
           sistemaCorreccionDinamica: typeof window.regenerarAsignacionesDinamicas === 'function',
           // ✅ Calendarios incluidos
           calendarYears,
-          calendarConfigsCount: calendarYears.length
+          calendarConfigsCount: calendarYears.length,
+          includeTestsAndGrades: true
         },
         exportDate: new Date().toISOString(),
-        version: '2.1' // Incrementar versión por inclusión de tareas/evaluaciones/asistencia
+        version: '2.2' // Incrementar versión por inclusión de pruebas/Notas
       };
 
       const dataStr = JSON.stringify(data, null, 2);
@@ -559,6 +610,41 @@ export default function Configuration() {
           if (importedData.attendance) {
             console.log('🗓️ [ASISTENCIA] Restaurando registros de asistencia...');
             localStorage.setItem('smart-student-attendance', JSON.stringify(importedData.attendance));
+          }
+
+          // ✅ NUEVO: Importar pruebas por usuario, historiales y notas
+          if (importedData.testsByUser && typeof importedData.testsByUser === 'object') {
+            console.log('🧪 [PRUEBAS] Restaurando pruebas por usuario...');
+            try {
+              Object.entries(importedData.testsByUser as Record<string, any[]>).forEach(([key, arr]) => {
+                if (!key || !Array.isArray(arr)) return;
+                // Clave debe ser 'smart-student-tests' o 'smart-student-tests_<username>'
+                if (key === 'smart-student-tests' || key.startsWith('smart-student-tests_')) {
+                  localStorage.setItem(key, JSON.stringify(arr));
+                }
+              });
+            } catch (e) {
+              console.warn('No se pudieron restaurar las pruebas por usuario:', e);
+            }
+          }
+
+          if (importedData.testReviews && typeof importedData.testReviews === 'object') {
+            console.log('📜 [REVISIÓN PRUEBAS] Restaurando historiales de revisión...');
+            try {
+              Object.entries(importedData.testReviews as Record<string, any[]>).forEach(([key, arr]) => {
+                if (!key || !Array.isArray(arr)) return;
+                if (key.startsWith('smart-student-test-reviews_')) {
+                  localStorage.setItem(key, JSON.stringify(arr));
+                }
+              });
+            } catch (e) {
+              console.warn('No se pudieron restaurar historiales de revisión:', e);
+            }
+          }
+
+          if (Array.isArray(importedData.testGrades)) {
+            console.log('🏷️ [NOTAS PRUEBAS] Restaurando notas de pruebas...');
+            localStorage.setItem('smart-student-test-grades', JSON.stringify(importedData.testGrades));
           }
 
           // ✅ MEJORAR IMPORTACIÓN: Consolidar todos los usuarios y garantizar campos completos
@@ -1769,9 +1855,9 @@ function UserManagementSection({
       const userMap = new Map();
 
       // Add admins from main users (those not in students or teachers)
-      mainUsers.forEach(user => {
-        if (user && user.username && !students.find(s => s.username === user.username) && 
-            !teachers.find(t => t.username === user.username)) {
+  mainUsers.forEach((user: any) => {
+    if (user && user.username && !students.find((s: any) => s.username === user.username) && 
+      !teachers.find((t: any) => t.username === user.username)) {
           userMap.set(user.username, {
             id: user.id || crypto.randomUUID(),
             username: user.username || 'Sin usuario',
@@ -1787,9 +1873,9 @@ function UserManagementSection({
       });
 
       // Add students
-      students.forEach(student => {
+    students.forEach((student: any) => {
         if (student && student.username) {
-          const mainUser = mainUsers.find(u => u && u.username === student.username);
+      const mainUser = mainUsers.find((u: any) => u && u.username === student.username);
           userMap.set(student.username, {
             id: student.id || crypto.randomUUID(),
             username: student.username || 'Sin usuario',
@@ -1808,9 +1894,9 @@ function UserManagementSection({
       });
 
       // Add teachers
-      teachers.forEach(teacher => {
+    teachers.forEach((teacher: any) => {
         if (teacher && teacher.username) {
-          const mainUser = mainUsers.find(u => u && u.username === teacher.username);
+      const mainUser = mainUsers.find((u: any) => u && u.username === teacher.username);
           userMap.set(teacher.username, {
             id: teacher.id || crypto.randomUUID(),
             username: teacher.username || 'Sin usuario',
@@ -1873,11 +1959,11 @@ function UserManagementSection({
       // Remove from respective collections
       if (userToDelete.type === 'student') {
         const students = LocalStorageManager.getStudents();
-        const updatedStudents = students.filter(s => s.id !== userToDelete.id);
+  const updatedStudents = students.filter((s: any) => s.id !== userToDelete.id);
         LocalStorageManager.setStudents(updatedStudents);
       } else if (userToDelete.type === 'teacher') {
         const teachers = LocalStorageManager.getTeachers();
-        const updatedTeachers = teachers.filter(t => t.id !== userToDelete.id);
+  const updatedTeachers = teachers.filter((t: any) => t.id !== userToDelete.id);
         LocalStorageManager.setTeachers(updatedTeachers);
       }
 
@@ -2123,7 +2209,7 @@ function UserManagementSection({
                     id="student"
                     name="userType"
                     checked={createUserFormData.role === 'student'}
-                    onChange={() => setCreateUserFormData(prev => ({ 
+                    onChange={() => setCreateUserFormData((prev: any) => ({ 
                       ...prev, 
                       role: 'student',
                       courseId: '',
@@ -2142,7 +2228,7 @@ function UserManagementSection({
                     id="teacher"
                     name="userType"
                     checked={createUserFormData.role === 'teacher'}
-                    onChange={() => setCreateUserFormData(prev => ({ 
+                    onChange={() => setCreateUserFormData((prev: any) => ({ 
                       ...prev, 
                       role: 'teacher',
                       courseId: '',
@@ -2161,7 +2247,7 @@ function UserManagementSection({
                     id="admin"
                     name="userType"
                     checked={createUserFormData.role === 'admin'}
-                    onChange={() => setCreateUserFormData(prev => ({ 
+                    onChange={() => setCreateUserFormData((prev: any) => ({ 
                       ...prev, 
                       role: 'admin',
                       courseId: '',
@@ -2189,7 +2275,7 @@ function UserManagementSection({
                 <Switch
                   id="autoGenerate"
                   checked={createUserFormData.autoGenerate}
-                  onCheckedChange={(checked) => setCreateUserFormData(prev => ({ ...prev, autoGenerate: checked }))}
+                  onCheckedChange={(checked) => setCreateUserFormData((prev: any) => ({ ...prev, autoGenerate: checked }))}
                 />
               </div>
 
@@ -2200,7 +2286,7 @@ function UserManagementSection({
                   <Input
                     id="name"
                     value={createUserFormData.name}
-                    onChange={(e) => setCreateUserFormData(prev => ({ ...prev, name: e.target.value }))}
+                    onChange={(e) => setCreateUserFormData((prev: any) => ({ ...prev, name: e.target.value }))}
                     placeholder={translate('userManagementFullNamePlaceholder') || 'Nombre completo del usuario'}
                   />
                 </div>
@@ -2213,7 +2299,7 @@ function UserManagementSection({
                       id="email"
                       type="email"
                       value={createUserFormData.email}
-                      onChange={(e) => setCreateUserFormData(prev => ({ ...prev, email: e.target.value }))}
+                      onChange={(e) => setCreateUserFormData((prev: any) => ({ ...prev, email: e.target.value }))}
                       placeholder={translate('userManagementEmailPlaceholder') || 'correo@ejemplo.com (opcional)'}
                       className="pl-10"
                     />
@@ -2228,7 +2314,7 @@ function UserManagementSection({
                   <Input
                     id="username"
                     value={createUserFormData.username}
-                    onChange={(e) => setCreateUserFormData(prev => ({ ...prev, username: e.target.value }))}
+                    onChange={(e) => setCreateUserFormData((prev: any) => ({ ...prev, username: e.target.value }))}
                     placeholder={translate('userManagementUsernamePlaceholder') || 'Ingresa el nombre de usuario'}
                     disabled={createUserFormData.autoGenerate}
                   />
@@ -2242,7 +2328,7 @@ function UserManagementSection({
                       id="password"
                       type="password"
                       value={createUserFormData.password}
-                      onChange={(e) => setCreateUserFormData(prev => ({ ...prev, password: e.target.value }))}
+                      onChange={(e) => setCreateUserFormData((prev: any) => ({ ...prev, password: e.target.value }))}
                       placeholder={translate('userManagementPasswordPlaceholder') || 'Contraseña'}
                       disabled={createUserFormData.autoGenerate}
                       className="pl-10"
@@ -2263,7 +2349,7 @@ function UserManagementSection({
                   id="confirmPassword"
                   type="password"
                   value={createUserFormData.confirmPassword}
-                  onChange={(e) => setCreateUserFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                  onChange={(e) => setCreateUserFormData((prev: any) => ({ ...prev, confirmPassword: e.target.value }))}
                   placeholder={translate('userManagementConfirmPasswordPlaceholder') || 'Confirmar contraseña'}
                   disabled={createUserFormData.autoGenerate}
                 />
@@ -2276,13 +2362,13 @@ function UserManagementSection({
                     <Label htmlFor="course">{translate('userManagementCourse') || 'Curso'} *</Label>
                     <Select 
                       value={createUserFormData.courseId} 
-                      onValueChange={(value) => setCreateUserFormData(prev => ({ ...prev, courseId: value, section: '' }))}
+                      onValueChange={(value) => setCreateUserFormData((prev: any) => ({ ...prev, courseId: value, section: '' }))}
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder={translate('userManagementSelectCourse') || 'Selecciona un curso'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {availableCourses.map((course, index) => (
+                        {availableCourses.map((course: any, index: number) => (
                           <SelectItem key={course.id || `course-${index}`} value={course.id}>
                             {course.name || course}
                           </SelectItem>
@@ -2295,7 +2381,7 @@ function UserManagementSection({
                     <Label htmlFor="section">{translate('userManagementSection') || 'Sección'} *</Label>
                     <Select 
                       value={createUserFormData.section} 
-                      onValueChange={(value) => setCreateUserFormData(prev => ({ ...prev, section: value }))}
+                      onValueChange={(value) => setCreateUserFormData((prev: any) => ({ ...prev, section: value }))}
                       disabled={!createUserFormData.courseId}
                     >
                       <SelectTrigger className="w-full">
@@ -2341,7 +2427,7 @@ function UserManagementSection({
                             }}
                             title={subject.name}
                             onClick={() => {
-                              setCreateUserFormData(prev => ({
+                              setCreateUserFormData((prev: any) => ({
                                 ...prev,
                                 selectedSubjects: prev.selectedSubjects?.includes(subject.name)
                                   ? prev.selectedSubjects.filter((s: string) => s !== subject.name)
@@ -2453,17 +2539,17 @@ function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon 
   }, [user]);
 
   const handleInputChange = (field: string, value: any) => {
-    setFormData(prev => ({
+    setFormData((prev: any) => ({
       ...prev,
       [field]: value
     }));
   };
 
   const handleSubjectToggle = (subjectName: string) => {
-    setFormData(prev => ({
+    setFormData((prev: any) => ({
       ...prev,
       selectedSubjects: prev.selectedSubjects.includes(subjectName)
-        ? prev.selectedSubjects.filter(s => s !== subjectName)
+        ? prev.selectedSubjects.filter((s: string) => s !== subjectName)
         : [...prev.selectedSubjects, subjectName]
     }));
   };
@@ -2492,7 +2578,7 @@ function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon 
       // Update user in respective collection
       if (user.type === 'student') {
         const students = LocalStorageManager.getStudents();
-        const updatedStudents = students.map(s => 
+  const updatedStudents = students.map((s: any) => 
           s.id === user.id 
             ? { 
                 ...s, 
@@ -2508,7 +2594,7 @@ function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon 
         LocalStorageManager.setStudents(updatedStudents);
       } else if (user.type === 'teacher') {
         const teachers = LocalStorageManager.getTeachers();
-        const updatedTeachers = teachers.map(t => 
+  const updatedTeachers = teachers.map((t: any) => 
           t.id === user.id 
             ? { 
                 ...t, 
@@ -2669,7 +2755,7 @@ function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon 
                   <SelectValue placeholder={translate('editUserSelectCourse') || 'Seleccionar curso'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableCourses.map(course => (
+                  {availableCourses.map((course: any) => (
                     <SelectItem key={course.id} value={course.id}>
                       {course.name}
                     </SelectItem>
@@ -2690,8 +2776,8 @@ function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon 
                 </SelectTrigger>
                 <SelectContent>
                   {availableSections
-                    .filter(section => !formData.courseId || section.courseId === formData.courseId)
-                    .map(section => (
+                    .filter((section: any) => !formData.courseId || section.courseId === formData.courseId)
+                    .map((section: any) => (
                       <SelectItem key={section.id} value={section.id}>
                         {translate('editUserSectionPrefix') || 'Sección'} {section.name}
                       </SelectItem>
@@ -2718,7 +2804,7 @@ function EditUserForm({ user, onClose, onUserUpdated, getRoleColor, getRoleIcon 
           </div>
           
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {availableSubjects.map(subject => (
+            {availableSubjects.map((subject: any) => (
               <div key={subject.id} className="flex items-center space-x-2">
                 <input
                   type="checkbox"

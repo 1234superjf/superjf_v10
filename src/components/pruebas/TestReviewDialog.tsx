@@ -64,6 +64,8 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const [importing, setImporting] = useState(false)
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
+  // Modal emergente para mensajes de estado (por requerimiento)
+  const [statusModal, setStatusModal] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
 
   useEffect(() => {
     if (!open) {
@@ -494,7 +496,9 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
           score: correct,
           totalQuestions: qTot,
           totalPoints: totalPts,
-          rawPoints: puntos != null ? Math.max(0, Math.min(puntos, totalPts)) : (porcentaje != null ? Math.round((Math.max(0, Math.min(porcentaje,100)) / 100) * totalPts) : null),
+          // Si se ingresó 'Puntos', guardamos puntos exactos; si se ingresó 'Porcentaje', no forzamos rawPoints
+          rawPoints: puntos != null ? Math.max(0, Math.min(puntos, totalPts)) : null,
+          rawPercent: porcentaje != null ? Math.max(0, Math.min(porcentaje, 100)) : null,
           sameDocument: false,
           coverage: 0,
           studentFound: true,
@@ -514,13 +518,19 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
           window.dispatchEvent(new StorageEvent('storage', { key: reviewKey, newValue: JSON.stringify(reviewList) }))
         } catch {}
         setHistory(reviewList)
-        setImportStatus({ type: 'success', message: `Importación exitosa: ${updates} (nuevos: ${created}, actualizados: ${updated})` })
+        const msg = `Importación exitosa: ${updates} (nuevos: ${created}, actualizados: ${updated})`
+        setImportStatus({ type: 'success', message: msg })
+        setStatusModal({ type: 'success', message: msg })
       } else {
-        setImportStatus({ type: 'info', message: 'No se procesaron filas con datos válidos.' })
+        const msg = 'No se procesaron filas con datos válidos.'
+        setImportStatus({ type: 'info', message: msg })
+        setStatusModal({ type: 'info', message: msg })
       }
     } catch (err) {
       console.warn('[Excel] Import error', err)
-      setImportStatus({ type: 'error', message: (err as any)?.message || 'Error al importar archivo' })
+      const msg = (err as any)?.message || 'Error al importar archivo'
+      setImportStatus({ type: 'error', message: msg })
+      setStatusModal({ type: 'error', message: msg })
     } finally {
       setImporting(false)
       if (e.target) e.target.value = '' // reset input
@@ -535,6 +545,7 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
           <DialogTitle>{translate('testsReviewTitlePrefix')} {test?.title || translate('testsPageTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          {/* Fila superior: selector de archivo + ejecutar OCR (izquierda) y acciones Excel (derecha) */}
           <div className="flex items-center gap-3">
             <input
               id="review-file-input"
@@ -553,26 +564,37 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
             <span className="text-sm text-muted-foreground truncate">
               {file?.name || translate('testsReviewNoFile')}
             </span>
-          </div>
-          <div className="flex gap-2 items-center">
+            {/* Ejecutar OCR */}
             <Button onClick={runOCR} disabled={!file || processing}>
               {processing ? translate('testsReviewProcessing') : translate('testsReviewRunOCR')}
             </Button>
-            {/* Botones Excel */}
-            <Button type="button" variant="outline" className="h-9 w-9 p-0" title="Descargar plantilla Excel" onClick={exportExcelTemplate} disabled={!test}>
-              <Download className="h-4 w-4" />
-            </Button>
-            <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
-            <Button type="button" variant="outline" className="h-9 w-9 p-0" title="Importar notas desde Excel" disabled={!test || importing} onClick={() => uploadInputRef.current?.click()}>
-              <Upload className="h-4 w-4" />
-            </Button>
-            {importStatus && (
-              <span className={`text-xs px-2 py-1 rounded border ${importStatus.type === 'success' ? 'text-green-600 border-green-400' : importStatus.type === 'error' ? 'text-red-600 border-red-400' : 'text-amber-500 border-amber-400'}`}>{importStatus.message}</span>
-            )}
+            {/* Acciones Excel alineadas a la derecha */}
+            <div className="ml-auto flex gap-2 items-center">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 w-9 p-0 border-fuchsia-300 text-fuchsia-700 hover:bg-fuchsia-100 hover:text-fuchsia-900 hover:border-fuchsia-400"
+                title="Descargar plantilla Excel"
+                onClick={exportExcelTemplate}
+                disabled={!test}
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+              <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 w-9 p-0 border-fuchsia-300 text-fuchsia-700 hover:bg-fuchsia-100 hover:text-fuchsia-900 hover:border-fuchsia-400"
+                title="Importar notas desde Excel"
+                disabled={!test || importing}
+                onClick={() => uploadInputRef.current?.click()}
+              >
+                <Upload className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           {error && <div className="text-sm text-red-600">{error}</div>}
-
           {ocr && (
             <div className="border rounded-md p-3 space-y-2">
               <div className="text-sm">
@@ -678,7 +700,22 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                         // Refrescar historial local inmediatamente
                         const key = getReviewKey(test.id)
                         const raw = localStorage.getItem(key)
-                        if (raw) setHistory(JSON.parse(raw))
+                        if (raw) {
+                          try {
+                            const arr: ReviewRecord[] = JSON.parse(raw)
+                            // Buscar último registro del estudiante por id o nombre y guardar rawPoints exactos
+                            const normName = normalize(studentName || '')
+                            const idx = arr.findIndex(r => (r.studentId && String(r.studentId) === String(verification.studentId)) || normalize(r.studentName) === normName)
+                            if (idx >= 0) {
+                              const tPts = (arr[idx].totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+                              arr[idx] = { ...arr[idx], rawPoints: clampedPts, totalPoints: tPts }
+                              localStorage.setItem(key, JSON.stringify(arr))
+                            }
+                            setHistory(JSON.parse(localStorage.getItem(key) || '[]'))
+                          } catch {
+                            setHistory(JSON.parse(raw))
+                          }
+                        }
                       } catch {}
                     }}>Guardar nota</Button>
                   )}
@@ -820,7 +857,7 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                       // Mostrar una fila por estudiante de la sección, usando su última revisión si existe
                       students.map((s) => {
                         const latest = getLatestReviewForStudent(history, s)
-                        const courseLabel = resolveCourseSectionLabel(latest?.courseId ?? (test?.courseId || null), latest?.sectionId ?? (test?.sectionId || null))
+      const courseLabel = resolveCourseSectionLabel(latest?.courseId ?? (test?.courseId || null), latest?.sectionId ?? (test?.sectionId || null))
                         const subjectLabel = resolveSubjectName(latest?.subjectId ?? (test?.subjectId || null), latest?.subjectName ?? (test?.subjectName || null))
                         const topic = (latest?.topic || test?.topic || '-')
                         return (
@@ -832,17 +869,29 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                             <td className="py-1 pr-2 truncate">{latest ? formatDateTime(latest.uploadedAt) : '-'}</td>
                             <td className="py-1 pr-2 truncate whitespace-nowrap">
                               {(() => {
-                                if (!latest || typeof latest.score !== 'number') return '-'
-                                const qTot = typeof latest.totalQuestions === 'number' ? latest.totalQuestions : (test?.questions?.length || 0)
-                                const tPts = (history[0]?.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
-                                const pct = qTot > 0 ? Math.min(latest.score, qTot) / qTot : 0
-                                const pts = Math.round(pct * (tPts || qTot))
-                                return `${pts} pts`
+        if (!latest) return '-'
+        // Preferir puntos crudos exactos si existen
+        if (typeof latest.rawPoints === 'number') return `${latest.rawPoints} pts`
+        if (typeof latest.score !== 'number') return '-'
+        const qTot = typeof latest.totalQuestions === 'number' ? latest.totalQuestions : (test?.questions?.length || 0)
+        const tPts = (latest?.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+        // Si hay porcentaje crudo importado, úsalo para derivar puntos
+        if (typeof latest.rawPercent === 'number') {
+          const pct = Math.max(0, Math.min(latest.rawPercent, 100)) / 100
+          const pts = Math.round(pct * (tPts || qTot))
+          return `${pts} pts`
+        }
+        const pct = qTot > 0 ? Math.min(latest.score, qTot) / qTot : 0
+        const pts = Math.round(pct * (tPts || qTot))
+        return `${pts} pts`
                               })()}
                             </td>
                             <td className="py-1 pr-2 truncate whitespace-nowrap">
                               {(() => {
-                                if (!latest || typeof latest.score !== 'number') return '-'
+                                if (!latest) return '-'
+                                // Preferir porcentaje crudo importado si existe
+                                if (typeof latest.rawPercent === 'number') return `${Math.round(Math.max(0, Math.min(latest.rawPercent, 100)))}%`
+                                if (typeof latest.score !== 'number') return '-'
                                 const qTot = typeof latest.totalQuestions === 'number' ? latest.totalQuestions : (test?.questions?.length || 0)
                                 if (qTot <= 0) return '-'
                                 const pct = Math.round((Math.min(latest.score, qTot) / qTot) * 100)
@@ -1008,6 +1057,19 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
             )}
           </div>
         </div>
+        {/* Ventana emergente de estado de importación */}
+        {statusModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" role="dialog" aria-modal="true">
+            <div className={`rounded-md shadow-lg p-4 max-w-sm w-[90%] bg-white border ${statusModal.type === 'success' ? 'border-green-300' : statusModal.type === 'error' ? 'border-red-300' : 'border-amber-300'}`}>
+              <div className={`text-sm ${statusModal.type === 'success' ? 'text-green-700' : statusModal.type === 'error' ? 'text-red-700' : 'text-amber-700'}`}>
+                {statusModal.message}
+              </div>
+              <div className="mt-3 text-right">
+                <Button size="sm" onClick={() => setStatusModal(null)}>Cerrar</Button>
+              </div>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -1478,6 +1540,8 @@ type ReviewRecord = {
   totalPoints?: number | null
   // Puntos originales exactos (sin reconversión ni redondeo adicional) ingresados manualmente o importados
   rawPoints?: number | null
+  // Porcentaje original (0-100) importado desde Excel (si se usó la columna Porcentaje)
+  rawPercent?: number | null
   sameDocument: boolean
   coverage: number
   studentFound: boolean
