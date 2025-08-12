@@ -1,5 +1,5 @@
 // Colores soportados en el proyecto
-export type AppColor = 'green' | 'blue' | 'yellow' | 'cyan' | 'purple' | 'orange' | 'red' | 'indigo' | 'teal' | 'rose' | 'emerald';
+export type AppColor = 'green' | 'blue' | 'yellow' | 'cyan' | 'purple' | 'orange' | 'red' | 'indigo' | 'teal' | 'rose' | 'emerald' | 'stone';
 
 // Única fuente de verdad para el color de la tarjeta/sección de Asistencia
 export const ATTENDANCE_COLOR: AppColor = 'indigo';
@@ -18,6 +18,7 @@ export const getHeaderBgClass = (color: AppColor) => {
     case 'teal': return 'bg-teal-50 dark:bg-teal-900/20';
     case 'rose': return 'bg-rose-50 dark:bg-rose-900/20';
     case 'emerald': return 'bg-emerald-50 dark:bg-emerald-900/20';
+  case 'stone': return 'bg-stone-50 dark:bg-stone-900/20';
   }
 };
 
@@ -34,6 +35,7 @@ export const getHeaderBorderClass = (color: AppColor) => {
     case 'teal': return 'border-l-4 border-teal-400 dark:border-teal-500';
     case 'rose': return 'border-l-4 border-rose-400 dark:border-rose-500';
     case 'emerald': return 'border-l-4 border-emerald-400 dark:border-emerald-500';
+  case 'stone': return 'border-l-4 border-stone-400 dark:border-stone-500';
   }
 };
 
@@ -51,6 +53,7 @@ export const getTitleTextClass = (color: AppColor) => {
     case 'teal': return 'text-teal-800 dark:text-teal-200';
     case 'rose': return 'text-rose-800 dark:text-rose-200';
     case 'emerald': return 'text-emerald-800 dark:text-emerald-200';
+  case 'stone': return 'text-stone-800 dark:text-stone-200';
   }
 };
 
@@ -68,6 +71,7 @@ export const getIconTextClass = (color: AppColor) => {
     case 'teal': return 'text-teal-700 dark:text-teal-300';
     case 'rose': return 'text-rose-700 dark:text-rose-300';
     case 'emerald': return 'text-emerald-700 dark:text-emerald-300';
+  case 'stone': return 'text-stone-700 dark:text-stone-300';
   }
 };
 
@@ -84,6 +88,7 @@ export const getIconBgClass = (color: AppColor) => {
     case 'teal': return 'bg-teal-100 dark:bg-teal-800/50';
     case 'rose': return 'bg-rose-100 dark:bg-rose-800/50';
     case 'emerald': return 'bg-emerald-100 dark:bg-emerald-800/50';
+  case 'stone': return 'bg-stone-100 dark:bg-stone-800/50';
   }
 };
 
@@ -100,6 +105,7 @@ export const getBodyTextClass = (color: AppColor) => {
     case 'teal': return 'text-teal-900 dark:text-teal-100';
     case 'rose': return 'text-rose-900 dark:text-rose-100';
     case 'emerald': return 'text-emerald-900 dark:text-emerald-100';
+  case 'stone': return 'text-stone-900 dark:text-stone-100';
   }
 };
 
@@ -116,6 +122,7 @@ export const getBadgeBgClass = (color: AppColor) => {
     case 'teal': return 'bg-teal-600 text-white';
     case 'rose': return 'bg-rose-600 text-white';
     case 'emerald': return 'bg-emerald-600 text-white';
+  case 'stone': return 'bg-stone-700 text-white';
   }
 };
 
@@ -132,5 +139,6 @@ export const getLinkTextClass = (color: AppColor) => {
     case 'teal': return 'text-teal-700 dark:text-teal-300';
     case 'rose': return 'text-rose-700 dark:text-rose-300';
     case 'emerald': return 'text-emerald-700 dark:text-emerald-300';
+  case 'stone': return 'text-stone-700 dark:text-stone-300';
   }
 };

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/language-context';
 import { useAuth } from '@/contexts/auth-context';
-import { Library, Newspaper, Network, FileQuestion, ClipboardList, Home, Users, Settings, ClipboardCheck, MessageSquare, GraduationCap, Crown, Shield, UserCheck, TrendingUp, Megaphone, CalendarDays, BarChart2 } from 'lucide-react';
+import { Library, Newspaper, Network, FileQuestion, ClipboardList, Home, Users, Settings, ClipboardCheck, MessageSquare, GraduationCap, Crown, Shield, UserCheck, TrendingUp, Megaphone, CalendarDays, BarChart3 } from 'lucide-react';
 import NotificationsPanel from '@/components/common/notifications-panel';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -176,8 +176,8 @@ const featureCards = [
     descKey: 'cardGradesDesc',
     btnKey: 'cardGradesBtn',
     targetPage: '/dashboard/calificaciones',
-    icon: BarChart2,
-    colorClass: 'emerald',
+    icon: BarChart3,
+  colorClass: 'emerald',
     showBadge: false,
   },
 ];
@@ -217,8 +217,8 @@ const adminCards = [
     descKey: 'cardGradesDesc',
     btnKey: 'cardGradesBtn',
     targetPage: '/dashboard/calificaciones',
-    icon: BarChart2,
-    colorClass: 'emerald',
+    icon: BarChart3,
+  colorClass: 'indigo',
     showBadge: false,
   },
 ];
@@ -249,8 +249,8 @@ const teacherCards = [
     descKey: 'cardGradesDesc',
     btnKey: 'cardGradesBtn',
     targetPage: '/dashboard/calificaciones',
-    icon: BarChart2,
-    colorClass: 'emerald',
+    icon: BarChart3,
+  colorClass: 'emerald',
     showBadge: false,
   },
 ];
@@ -1298,6 +1298,7 @@ export default function DashboardHomePage() {
       case 'emerald': return 'home-card-button-emerald';
   case 'gray': return 'home-card-button-gray';
   case 'silver': return 'home-card-button-silver';
+  case 'stone': return 'home-card-button-stone';
       default: return '';
     }
   };
@@ -1319,6 +1320,8 @@ export default function DashboardHomePage() {
       case 'emerald': return 'text-emerald-500 dark:text-emerald-400';
   case 'gray': return 'text-gray-600 dark:text-gray-300';
   case 'silver': return 'text-zinc-400 dark:text-zinc-300';
+  // Stone (Calificaciones): subir un tono en light para diferenciarse de silver
+  case 'stone': return 'text-stone-600 dark:text-stone-400';
       default: return 'text-muted-foreground';
     }
   };
@@ -1340,6 +1343,8 @@ export default function DashboardHomePage() {
       case 'emerald': return 'border-emerald-200 dark:border-emerald-800';
   case 'gray': return 'border-gray-200 dark:border-gray-800';
   case 'silver': return 'border-zinc-300 dark:border-zinc-600';
+  // Stone (Calificaciones): borde más visible para distinguir de Calendario (silver)
+  case 'stone': return 'border-stone-400 dark:border-stone-600';
       default: return 'border-gray-200 dark:border-gray-800';
     }
   };
@@ -1613,6 +1618,10 @@ export default function DashboardHomePage() {
               }
               // Ocultar tarjeta de Tareas para rol admin
               if (card.titleKey === 'cardTasksTitle' && user?.role === 'admin') {
+                return false;
+              }
+              // Ocultar Calificaciones del bloque general cuando es admin (se muestra en adminCards)
+              if (card.titleKey === 'cardGradesTitle' && user?.role === 'admin') {
                 return false;
               }
               if ((card.titleKey === 'cardTestsTitle' || card.titleKey === 'cardSlidesTitle') && user?.role !== 'teacher') {

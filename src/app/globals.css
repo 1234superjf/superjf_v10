@@ -954,6 +954,25 @@ html.dark.theme-accent-rose {
   border: none !important;
 }
 
+/* STONE button (Calificaciones) */
+.home-card-button-stone {
+  @apply border-transparent hover:shadow-2xl hover:shadow-stone-400/30 hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;
+  background-color: rgb(245 245 244) !important; /* stone-100 */
+  color: rgb(41 37 36) !important; /* stone-800 */
+  border: 1px solid rgb(214 211 209) !important; /* stone-300 */
+}
+.home-card-button-stone:hover {
+  background-color: rgb(41 37 36) !important; /* stone-800 */
+  color: rgb(245 245 244) !important; /* stone-100 */
+  border-color: rgb(120 113 108) !important; /* stone-500 */
+}
+.home-card-button-stone:active {
+  transform: scale(1.05) !important;
+}
+.dark .home-card-button-stone {
+  @apply border-transparent hover:shadow-2xl hover:shadow-stone-500/30 hover:scale-110 hover:-translate-y-1 transition-all duration-300 ease-out;
+}
+
 
 /* FAQ specific styles */
 .faq-answer {
