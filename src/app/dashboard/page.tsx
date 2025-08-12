@@ -1581,6 +1581,10 @@ export default function DashboardHomePage() {
               if (card.titleKey === 'cardCommunicationsStudentTitle' && user?.role === 'admin') {
                 return false;
               }
+              // Ocultar tarjeta de Tareas para rol admin
+              if (card.titleKey === 'cardTasksTitle' && user?.role === 'admin') {
+                return false;
+              }
               if ((card.titleKey === 'cardTestsTitle' || card.titleKey === 'cardSlidesTitle') && user?.role !== 'teacher') {
                 return false;
               }

@@ -8,20 +8,13 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  webpack: (config, { isServer }) => {
-    // Evita que Webpack intente resolver 'canvas' (dependencia Node-only) requerida indirectamente por pdfjs-dist
-    config.resolve = config.resolve || {};
-    config.resolve.alias = {
-      ...(config.resolve.alias || {}),
-      canvas: false as any,
-    } as any;
-    // En algunos setups, agregar también en fallback ayuda
-    // @ts-ignore - webpack typing opcional
-    config.resolve.fallback = {
-      ...(config.resolve as any).fallback,
-      canvas: false,
-    };
-    return config;
+  // Configuración de Turbopack para alinear con la personalización de Webpack
+  // Evitamos resolver 'canvas' en el navegador (usado por ramas Node de algunas libs)
+  turbopack: {
+    resolveAlias: {
+  // Apunta a un shim local para reemplazar 'canvas' en el cliente
+  canvas: require.resolve('./shims/canvas.js'),
+    },
   },
   experimental: {
     serverActions: {

@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Download, Upload } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from "@/contexts/language-context"
@@ -43,6 +44,13 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
   const [processing, setProcessing] = useState(false)
   const [score, setScore] = useState<number | null>(null)
   const [editScore, setEditScore] = useState<number | null>(null)
+  // Desglose por tipo: TF/MC/MS/DES
+  const [breakdown, setBreakdown] = useState<{
+    tf: { correct: number; total: number }
+    mc: { correct: number; total: number }
+    ms: { correct: number; total: number }
+    des: { correct: number; total: number }
+  } | null>(null)
   const [studentName, setStudentName] = useState<string>("")
   const [error, setError] = useState<string>("")
   const workerRef = useRef<any>(null)
@@ -53,6 +61,9 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
   // Edición directa en historial
   const [editHistTs, setEditHistTs] = useState<number | null>(null)
   const [editHistScore, setEditHistScore] = useState<number | null>(null)
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
 
   useEffect(() => {
     if (!open) {
@@ -125,21 +136,41 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
     }
   }, [])
 
+  // Cargar pdf.js desde CDN para evitar dependencias Node (canvas) en el bundle
+  const ensurePdfJs = useCallback(async (): Promise<any> => {
+    try {
+      const w = window as any
+      if (w.pdfjsLib) return w.pdfjsLib
+      const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+        const s = document.createElement('script')
+        s.src = src
+        s.async = true
+        s.onload = () => resolve()
+        s.onerror = (err) => reject(err)
+        document.head.appendChild(s)
+      })
+      // Versión fijada para consistencia con package.json
+      const CDN_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174'
+      await loadScript(`${CDN_BASE}/pdf.min.js`)
+      const pdfjsLib = (window as any).pdfjsLib
+      if (pdfjsLib?.GlobalWorkerOptions) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `${CDN_BASE}/pdf.worker.min.js`
+      }
+      return pdfjsLib
+    } catch (e) {
+      console.error('No se pudo cargar pdf.js desde CDN', e)
+      throw new Error('PDF.js no disponible')
+    }
+  }, [])
+
   const extractTextFromPDF = async (file: File): Promise<string> => {
     // Estrategia en dos pasos:
     // 1) Extraer texto nativo (si el PDF lo contiene)
     // 2) Si es escaneado (sin texto), renderizar páginas a <canvas> y pasar OCR con Tesseract
     try {
-      const buf = await file.arrayBuffer()
-      const pdfjs: any = await import('pdfjs-dist/build/pdf.mjs')
-      try {
-        // @ts-ignore
-        if (pdfjs.GlobalWorkerOptions) {
-          // @ts-ignore
-          pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
-        }
-      } catch {}
-      const task = pdfjs.getDocument({ data: buf })
+  const buf = await file.arrayBuffer()
+  const pdfjs: any = await ensurePdfJs()
+  const task = pdfjs.getDocument({ data: buf })
       const doc = await task.promise
       const maxPages = Math.min(3, doc.numPages)
       let textAll = ''
@@ -197,7 +228,28 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
         } as any)
         text = data?.text || ""
       }
-      let guessedName = guessStudentName(text)
+      let guessedName = guessStudentName(text, students)
+      // Validar que el nombre detectado parezca un nombre real; si no, aplicar fallbacks
+      if (!isLikelyPersonName(guessedName)) {
+        const fromFile = file?.name ? guessStudentNameFromFilename(file.name) : ''
+        if (isLikelyPersonName(fromFile)) {
+          guessedName = fromFile
+        } else {
+          // Mejor candidato desde la lista de estudiantes
+          try {
+            if (Array.isArray(students) && students.length > 0) {
+              let best: { name: string, s: number } | null = null
+              for (const s of students) {
+                const nm = String(s.displayName || s.username || '').trim()
+                if (!nm) continue
+                const sc = similarityByTokens(nm, text)
+                if (!best || sc > best.s) best = { name: nm, s: sc }
+              }
+              if (best && best.s >= 0.35) guessedName = best.name
+            }
+          } catch {}
+        }
+      }
       // Fallback: extraer nombre desde el nombre del archivo cuando OCR no ayuda
       if (!guessedName && file?.name) {
         guessedName = guessStudentNameFromFilename(file.name)
@@ -226,16 +278,26 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
       const studentInfo = findStudentInSection(guessedName, test?.courseId, test?.sectionId)
       setVerification({ sameDocument: sameDoc.isMatch, coverage: sameDoc.coverage, studentFound: !!studentInfo, studentId: studentInfo?.id || null })
   // 3) Calificar siempre (se mostrará como vista previa si no pasa la verificación)
-  let computed: number | null = autoGrade(text, test?.questions || [])
-      // Si es archivo CLAVE y no hay OCR utilizable, otorgar puntaje perfecto para cotejo
-      if ((computed === 0 || textIsFallback) && file?.name) {
-        const isClave = /\bclave\b/i.test(file.name)
-        if (isClave && Array.isArray(test?.questions) && test.questions.length > 0) {
-          computed = test.questions.length
-        }
+  const graded = autoGrade(text, test?.questions || [])
+  let computed: number | null = graded.correct
+  setBreakdown(graded.breakdown)
+      // Nota: detectamos si el documento parece una CLAVE, pero no forzamos 100%.
+      // Esto evita falsos positivos cuando el archivo contiene la palabra "CLAVE" en el encabezado.
+      // Si quieres calificar claves al 100% manualmente, podemos añadir un toggle en UI.
+      const isClaveDoc = (file?.name && /\bclave\b/i.test(file.name)) || /\bclave\b/i.test(text)
+      if (isClaveDoc) {
+        console.info('[OCR] Documento parece CLAVE; no se forzará 100%, se usa autoGrade.')
       }
-      setScore(computed)
-      setEditScore(computed)
+  setScore(computed)
+      // Inicializar edición en PUNTOS (no en respuestas), para permitir hasta totalPoints
+      try {
+  const qTot = Array.isArray(test?.questions) ? test!.questions.length : 0
+        const totalPts = typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints as number : qTot
+        const pts = qTot > 0 ? Math.round((Math.max(0, Math.min(computed, qTot)) / qTot) * totalPts) : 0
+        setEditScore(pts)
+      } catch {
+        setEditScore(computed)
+      }
       // 3.1) Asignar nota automáticamente si hay estudiante identificado y nota
       if (sameDoc.isMatch && studentInfo && typeof computed === 'number') {
         try {
@@ -267,6 +329,7 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
         score: typeof computed === 'number' ? computed : null,
   totalQuestions: Array.isArray(test?.questions) ? test?.questions.length : null,
   totalPoints: typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints : (Array.isArray(test?.questions) ? test?.questions.length : null),
+  rawPoints: (() => { try { const qTot = Array.isArray(test?.questions) ? test!.questions.length : 0; const totalPts = typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints as number : qTot; return qTot > 0 && typeof computed === 'number' ? Math.round((Math.max(0, Math.min(computed, qTot)) / qTot) * totalPts) : null } catch { return null } })(),
         sameDocument: sameDoc.isMatch,
         coverage: sameDoc.coverage,
         studentFound: !!studentInfo,
@@ -277,13 +340,192 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
     } finally {
       setProcessing(false)
     }
-  }, [file, ensureWorker, test?.questions])
+  }, [file, ensureWorker, test?.questions, students])
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
     setFile(f)
   }
+
+  // ====== Exportación / Importación Excel ======
+  const exportExcelTemplate = useCallback(async () => {
+    try {
+      if (!test) return
+      const XLSX = await import('xlsx')
+      const qTot = test.questions?.length || 0
+      const totalPts = typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints : qTot
+      // Construir filas base desde estudiantes de la sección (si existen) o del historial
+      let baseStudents: Array<{ id?: string; name: string }> = []
+      if (students.length > 0) {
+        baseStudents = students.map(s => ({ id: String(s.id || s.username || ''), name: s.displayName || s.username || '' }))
+      } else if (history.length > 0) {
+        const seen = new Set<string>()
+        for (const h of history) {
+          const nm = h.studentName || ''
+            if (!nm) continue
+          if (!seen.has(nm)) { seen.add(nm); baseStudents.push({ id: h.studentId || undefined, name: nm }) }
+        }
+      }
+      if (baseStudents.length === 0) baseStudents.push({ id: '', name: '' })
+      const rows = baseStudents.map(s => ({
+        ID: s.id || '',
+        Estudiante: s.name,
+        Puntos: '',
+        Porcentaje: '',
+      }))
+      // Creamos primeramente AOA con 3 líneas info luego encabezado real
+      const info = [
+        [`Plantilla de notas para: ${test.title}`],
+        [`Total Preguntas: ${qTot}  Total Puntos: ${totalPts}`],
+        [`Rellena 'Puntos' o 'Porcentaje' (0-100). Deja vacío para omitir.`],
+        ['ID','Estudiante','Puntos','Porcentaje']
+      ]
+      const ws = XLSX.utils.aoa_to_sheet(info)
+      XLSX.utils.sheet_add_json(ws, rows, { origin: 'A5', skipHeader: true })
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Notas')
+      const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+      const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const safeTitle = (test.title || 'notas').replace(/[^a-zA-Z0-9-_]+/g, '_')
+      a.download = `plantilla_notas_${safeTitle}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.warn('[Excel] Export error', e)
+    }
+  }, [test, students, history])
+
+  const handleExcelUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !test) return
+    setImporting(true)
+    setImportStatus(null)
+    try {
+      const XLSX = await import('xlsx')
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const sheetName = wb.SheetNames[0]
+      const ws = wb.Sheets[sheetName]
+      // Leemos como matriz para detectar encabezado (puede estar en fila 4 si se usó plantilla)
+      const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[]
+      if (!Array.isArray(rows) || rows.length === 0) throw new Error('Hoja vacía')
+      // Buscar fila de header que contenga Estudiante y (ID o Puntos)
+      let headerIndex = rows.findIndex(r => Array.isArray(r) && r.some(c => /estudiante/i.test(String(c))) && r.some(c => /^id$/i.test(String(c)) || /puntos/i.test(String(c))))
+      if (headerIndex === -1) headerIndex = 0
+      const headerRow = rows[headerIndex].map((c: any) => String(c).trim())
+      const dataRows = rows.slice(headerIndex + 1)
+      const json = dataRows.map(r => {
+        const obj: any = {}
+        for (let i=0;i<headerRow.length;i++) {
+          const key = headerRow[i] || `col${i}`
+          obj[key] = r[i]
+        }
+        return obj
+      })
+      const qTot = test.questions?.length || 0
+      const totalPts = typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints : qTot
+      const nowBase = Date.now()
+      let updates = 0
+  // Cargar historial existente una sola vez para actualizar en memoria
+  const reviewKey = getReviewKey(test.id)
+  let reviewList: ReviewRecord[] = []
+  try { reviewList = JSON.parse(localStorage.getItem(reviewKey) || '[]') } catch {}
+  let updated = 0
+  let created = 0
+  for (let i=0;i<json.length;i++) {
+        const row = json[i]
+        const rawName = String(row['Estudiante'] || row['estudiante'] || '').trim()
+        const rawId = String(row['ID'] || row['id'] || '').trim()
+        if (!rawName && !rawId) continue
+        const puntosStr = String(row['Puntos'] || row['puntos'] || '').replace(/,/g,'.').trim()
+        const porcStr = String(row['Porcentaje'] || row['porcentaje'] || '').replace(/,/g,'.').replace(/%/,'').trim()
+        let puntos: number | null = null
+        if (puntosStr && !isNaN(Number(puntosStr))) puntos = Number(puntosStr)
+        let porcentaje: number | null = null
+        if (porcStr && !isNaN(Number(porcStr))) porcentaje = Number(porcStr)
+        if (puntos == null && porcentaje == null) continue
+        // Calcular correct answers
+        let correct = 0
+        if (puntos != null && totalPts > 0 && qTot > 0) {
+          const clampedPts = Math.max(0, Math.min(puntos, totalPts))
+          correct = Math.round((clampedPts / totalPts) * qTot)
+        } else if (porcentaje != null && qTot > 0) {
+          const clampedPct = Math.max(0, Math.min(porcentaje, 100))
+          correct = Math.round((clampedPct / 100) * qTot)
+        }
+        // Mapear a studentId real si existe
+        let studentObj: any = null
+        if (students.length) {
+          studentObj = students.find(s => String(s.id) === rawId || String(s.username) === rawId) || students.find(s => (s.displayName || '').toLowerCase() === rawName.toLowerCase())
+        }
+        const studentId = studentObj ? String(studentObj.id || studentObj.username) : (rawId || rawName)
+        const studentName = studentObj ? (studentObj.displayName || studentObj.username) : rawName || rawId
+        if (!studentId || !studentName) continue
+        // Upsert grade
+        upsertTestGrade({
+          testId: test.id,
+          studentId,
+          studentName,
+          score: correct,
+          courseId: test.courseId || null,
+          sectionId: test.sectionId || null,
+          subjectId: test.subjectId || null,
+          title: test.title || '',
+        })
+        // Historial: si ya existe registro para el estudiante, sobrescribir último; si no, crear nuevo.
+        const normName = normalize(studentName)
+        let idx = reviewList.findIndex(r => (r.studentId && r.studentId === studentId) || normalize(r.studentName) === normName)
+        const newRecord: ReviewRecord = {
+          testId: test.id,
+          uploadedAt: nowBase + i, // nuevo timestamp asegura orden cronológico
+          studentName,
+          studentId,
+          courseId: test.courseId || null,
+          sectionId: test.sectionId || null,
+          subjectId: test.subjectId || null,
+          subjectName: test.subjectName || null,
+          topic: test.topic || '',
+          score: correct,
+          totalQuestions: qTot,
+          totalPoints: totalPts,
+          rawPoints: puntos != null ? Math.max(0, Math.min(puntos, totalPts)) : (porcentaje != null ? Math.round((Math.max(0, Math.min(porcentaje,100)) / 100) * totalPts) : null),
+          sameDocument: false,
+          coverage: 0,
+          studentFound: true,
+        }
+        if (idx >= 0) {
+          reviewList[idx] = newRecord
+          updated++
+        } else {
+          reviewList.unshift(newRecord)
+          created++
+        }
+        updates++
+      }
+      if (updates > 0) {
+        try {
+          localStorage.setItem(reviewKey, JSON.stringify(reviewList))
+          window.dispatchEvent(new StorageEvent('storage', { key: reviewKey, newValue: JSON.stringify(reviewList) }))
+        } catch {}
+        setHistory(reviewList)
+        setImportStatus({ type: 'success', message: `Importación exitosa: ${updates} (nuevos: ${created}, actualizados: ${updated})` })
+      } else {
+        setImportStatus({ type: 'info', message: 'No se procesaron filas con datos válidos.' })
+      }
+    } catch (err) {
+      console.warn('[Excel] Import error', err)
+      setImportStatus({ type: 'error', message: (err as any)?.message || 'Error al importar archivo' })
+    } finally {
+      setImporting(false)
+      if (e.target) e.target.value = '' // reset input
+    }
+  }, [test, students, history])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -312,10 +554,21 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
               {file?.name || translate('testsReviewNoFile')}
             </span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <Button onClick={runOCR} disabled={!file || processing}>
               {processing ? translate('testsReviewProcessing') : translate('testsReviewRunOCR')}
             </Button>
+            {/* Botones Excel */}
+            <Button type="button" variant="outline" className="h-9 w-9 p-0" title="Descargar plantilla Excel" onClick={exportExcelTemplate} disabled={!test}>
+              <Download className="h-4 w-4" />
+            </Button>
+            <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
+            <Button type="button" variant="outline" className="h-9 w-9 p-0" title="Importar notas desde Excel" disabled={!test || importing} onClick={() => uploadInputRef.current?.click()}>
+              <Upload className="h-4 w-4" />
+            </Button>
+            {importStatus && (
+              <span className={`text-xs px-2 py-1 rounded border ${importStatus.type === 'success' ? 'text-green-600 border-green-400' : importStatus.type === 'error' ? 'text-red-600 border-red-400' : 'text-amber-500 border-amber-400'}`}>{importStatus.message}</span>
+            )}
           </div>
 
           {error && <div className="text-sm text-red-600">{error}</div>}
@@ -364,10 +617,16 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                       </span>
                     )
                   })()}
+                  {/* Distribución por tipo */}
+                  {breakdown && (
+                    <span className="ml-3 text-xs text-muted-foreground whitespace-nowrap">
+                      TF: {breakdown.tf.correct}/{breakdown.tf.total} · MC: {breakdown.mc.correct}/{breakdown.mc.total} · MS: {breakdown.ms.correct}/{breakdown.ms.total} · DES: {breakdown.des.correct}/{breakdown.des.total}
+                    </span>
+                  )}
                 </div>
                 {/* Editor de nota */}
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-muted-foreground">Editar nota:</label>
+                  <label className="text-xs text-muted-foreground">Editar puntaje (pts):</label>
                   <Input
                     type="number"
                     className="h-8 w-24"
@@ -377,39 +636,43 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                       if (v === '') return setEditScore(null)
                       const num = Number(v)
                       if (!Number.isNaN(num)) {
-            const maxPts = Array.isArray(test?.questions) ? test!.questions.length : undefined
-            const clamped = typeof maxPts === 'number' ? Math.max(0, Math.min(num, maxPts)) : Math.max(0, num)
+            const qTot = Array.isArray(test?.questions) ? test!.questions.length : 0
+            const totalPts = typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints as number : qTot
+            const clamped = Math.max(0, Math.min(num, totalPts))
                         setEditScore(clamped)
                       }
                     }}
                     min={0}
-                    max={Array.isArray(test?.questions) ? test?.questions.length : undefined}
+                    max={(() => { const qTot = Array.isArray(test?.questions) ? test!.questions.length : 0; const totalPts = typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints as number : qTot; return totalPts })()}
                   />
                   {/* Guardar cambios cuando ya hay estudiante detectado */}
                   {verification.studentFound && typeof editScore === 'number' && (
                     <Button size="sm" onClick={() => {
                       if (!test?.id || !verification.studentId) return
-                      const maxPts = Array.isArray(test?.questions) ? test!.questions.length : undefined
-                      const clamped = typeof maxPts === 'number' ? Math.max(0, Math.min(editScore, maxPts)) : Math.max(0, editScore)
+                      // Convertir puntos a respuestas correctas antes de guardar
+                      const qTot = Array.isArray(test?.questions) ? test!.questions.length : 0
+                      const totalPts = typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints as number : qTot
+                      const clampedPts = Math.max(0, Math.min(editScore, totalPts))
+                      const newCorrect = qTot > 0 ? Math.round((clampedPts / totalPts) * qTot) : 0
                       upsertTestGrade({
                         testId: test.id,
                         studentId: String(verification.studentId),
                         studentName: studentName || '',
-                        score: clamped,
+                        score: newCorrect,
                         courseId: test.courseId || null,
                         sectionId: test.sectionId || null,
                         subjectId: test.subjectId || null,
                         title: test.title || '',
                       })
                       // Actualizar UI e historial
-                      setScore(clamped)
-                      setEditScore(clamped)
+                      setScore(newCorrect)
+                      setEditScore(clampedPts)
                       try {
                         updateLatestReviewScore({
                           testId: test.id,
                           studentId: String(verification.studentId),
                           studentName: studentName || '',
-                          newScore: clamped,
+                          newScore: newCorrect,
                           totalQuestions: Array.isArray(test?.questions) ? test.questions.length : null,
                         })
                         // Refrescar historial local inmediatamente
@@ -443,13 +706,16 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                   <Button size="sm" disabled={!manualAssignId} onClick={() => {
                     const chosen = students.find(s => String(s.id) === manualAssignId || String(s.username) === manualAssignId)
                     if (!chosen || typeof editScore !== 'number' || !test?.id) return
-                    const maxPts = Array.isArray(test?.questions) ? test!.questions.length : undefined
-                    const clamped = typeof maxPts === 'number' ? Math.max(0, Math.min(editScore, maxPts)) : Math.max(0, editScore)
+                    // Convertimos puntos a respuestas correctas antes de guardar
+                    const qTot = Array.isArray(test?.questions) ? test!.questions.length : 0
+                    const totalPts = typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints as number : qTot
+                    const clampedPts = Math.max(0, Math.min(editScore, totalPts))
+                    const newCorrect = qTot > 0 ? Math.round((clampedPts / totalPts) * qTot) : 0
                     upsertTestGrade({
                       testId: test.id,
                       studentId: String(chosen.id || chosen.username),
                       studentName: chosen.displayName || chosen.username,
-                      score: clamped,
+                      score: newCorrect,
                       courseId: test.courseId || null,
                       sectionId: test.sectionId || null,
                       subjectId: test.subjectId || null,
@@ -457,17 +723,46 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                     })
                     setVerification(v => ({ ...v, studentFound: true, studentId: String(chosen.id || chosen.username) }))
                     setStudentName(chosen.displayName || chosen.username)
-                    setScore(clamped)
-                    setEditScore(clamped)
+                    setScore(newCorrect)
+                    setEditScore(clampedPts)
                     try {
-                      updateLatestReviewScore({
-                        testId: test.id,
-                        studentId: String(chosen.id || chosen.username),
-                        studentName: chosen.displayName || chosen.username,
-                        newScore: clamped,
-                        totalQuestions: Array.isArray(test?.questions) ? test.questions.length : null,
-                      })
+                      // Si no existe historial previo del estudiante, crear un nuevo registro;
+                      // si existe, actualizar su último registro
                       const key = getReviewKey(test.id)
+                      const list: ReviewRecord[] = JSON.parse(localStorage.getItem(key) || '[]')
+                      const existsForStudent = Array.isArray(list) && list.some(r => {
+                        const sidOk = r.studentId && String(r.studentId) === String(chosen.id || chosen.username)
+                        const nameOk = normalize(r.studentName || '') === normalize(chosen.displayName || chosen.username || '')
+                        return sidOk || nameOk
+                      })
+                      if (existsForStudent) {
+                        updateLatestReviewScore({
+                          testId: test.id,
+                          studentId: String(chosen.id || chosen.username),
+                          studentName: chosen.displayName || chosen.username,
+                          newScore: newCorrect,
+                          totalQuestions: Array.isArray(test?.questions) ? test.questions.length : null,
+                        })
+                      } else {
+                        persistReview({
+                          testId: test.id,
+                          uploadedAt: Date.now(),
+                          studentName: chosen.displayName || chosen.username,
+                          studentId: String(chosen.id || chosen.username),
+                          courseId: test.courseId || null,
+                          sectionId: test.sectionId || null,
+                          subjectId: test.subjectId || null,
+                          subjectName: test.subjectName || null,
+                          topic: test.topic || '',
+                          score: newCorrect,
+                          totalQuestions: Array.isArray(test?.questions) ? test.questions.length : null,
+                          totalPoints: typeof (test as any)?.totalPoints === 'number' ? (test as any).totalPoints : (Array.isArray(test?.questions) ? test?.questions.length : null),
+                          rawPoints: clampedPts,
+                          sameDocument: false,
+                          coverage: 0,
+                          studentFound: true,
+                        })
+                      }
                       const raw = localStorage.getItem(key)
                       if (raw) setHistory(JSON.parse(raw))
                     } catch {}
@@ -487,37 +782,37 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
             {(history.length === 0 && (!test?.sectionId || students.length === 0)) ? (
               <div className="text-xs text-muted-foreground">{translate('testsReviewHistoryEmpty') || 'Sin registros'}</div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-hidden">
                 {/* Tabla de ancho fijo con columnas iguales */}
                 <table className="w-full text-xs table-fixed">
                   <colgroup>
                     {/* Estudiante */}
-                    <col style={{ width: '24%' }} />
+                    <col style={{ width: '11%' }} />
                     {/* Curso/Sección */}
-                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '12%' }} />
                     {/* Asignatura */}
-                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '16%' }} />
                     {/* Tema */}
-                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '24%' }} />
                     {/* Fecha */}
-                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '15%' }} />
                     {/* Ptos */}
-                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '6%' }} />
                     {/* Nota */}
-                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '6%' }} />
                     {/* Acciones */}
-                    <col style={{ width: '2%' }} />
+                    <col style={{ width: '10%' }} />
                   </colgroup>
-                  <thead className="text-muted-foreground">
+          <thead className="text-muted-foreground">
                     <tr>
-                      <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColStudent')}</th>
-                      <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColCourseSection')}</th>
-                      <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColSubject')}</th>
-                      <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColTopic')}</th>
-                      <th className="text-left py-1 pr-2">{translate('testsReviewHistoryColUploadedAt')}</th>
-                      <th className="text-left py-1 pr-2">Ptos</th>
-                      <th className="text-left py-1 pr-2">Nota</th>
-                      <th className="text-center py-1 pl-2 pr-2">Acción</th>
+            <th className="text-left py-1 pr-2 truncate whitespace-nowrap">{translate('testsReviewHistoryColStudent')}</th>
+            <th className="text-left py-1 pr-2 truncate whitespace-nowrap">{translate('testsReviewHistoryColCourseSection')}</th>
+            <th className="text-left py-1 pr-2 truncate whitespace-nowrap">{translate('testsReviewHistoryColSubject')}</th>
+            <th className="text-left py-1 pr-2 truncate whitespace-nowrap">{translate('testsReviewHistoryColTopic')}</th>
+            <th className="text-left py-1 pr-2 truncate whitespace-nowrap">{translate('testsReviewHistoryColUploadedAt')}</th>
+            <th className="text-left py-1 pr-2 truncate whitespace-nowrap">Ptos</th>
+            <th className="text-left py-1 pr-2 truncate whitespace-nowrap">Nota</th>
+            <th className="text-center py-1 pl-2 pr-2 truncate whitespace-nowrap">Acc.</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -535,7 +830,7 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                             <td className="py-1 pr-2 truncate">{subjectLabel}</td>
                             <td className="py-1 pr-2 truncate">{topic}</td>
                             <td className="py-1 pr-2 truncate">{latest ? formatDateTime(latest.uploadedAt) : '-'}</td>
-                            <td className="py-1 pr-2 truncate">
+                            <td className="py-1 pr-2 truncate whitespace-nowrap">
                               {(() => {
                                 if (!latest || typeof latest.score !== 'number') return '-'
                                 const qTot = typeof latest.totalQuestions === 'number' ? latest.totalQuestions : (test?.questions?.length || 0)
@@ -545,7 +840,7 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                                 return `${pts} pts`
                               })()}
                             </td>
-                            <td className="py-1 pr-2 truncate">
+                            <td className="py-1 pr-2 truncate whitespace-nowrap">
                               {(() => {
                                 if (!latest || typeof latest.score !== 'number') return '-'
                                 const qTot = typeof latest.totalQuestions === 'number' ? latest.totalQuestions : (test?.questions?.length || 0)
@@ -560,32 +855,58 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                                   <div className="inline-flex items-center gap-2">
                                     <Input
                                       type="number"
-                                      className="h-7 w-24"
+                                      className="h-7 w-16"
                                       value={typeof editHistScore === 'number' ? editHistScore : ''}
                                       min={0}
-                                      max={latest?.totalQuestions ?? (test?.questions?.length ?? undefined)}
+                                      max={(() => { const qTot = latest?.totalQuestions ?? (test?.questions?.length ?? 0); const tPts = (latest?.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number; return tPts })()}
                                       onChange={(e) => {
                                         const v = e.target.value
                                         if (v === '') return setEditHistScore(null)
                                         const num = Number(v)
                                         if (Number.isNaN(num)) return
-                                        const maxPts = latest?.totalQuestions ?? (test?.questions?.length ?? undefined)
-                                        const clamped = typeof maxPts === 'number' ? Math.max(0, Math.min(num, maxPts)) : Math.max(0, num)
+                                        const qTot = latest?.totalQuestions ?? (test?.questions?.length ?? 0)
+                                        const tPts = (latest?.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+                                        const clamped = Math.max(0, Math.min(num, tPts))
                                         setEditHistScore(clamped)
                                       }}
                                     />
-                                    <Button size="sm" variant="default" onClick={() => {
+                                    <Button size="icon" className="h-7 w-7 shrink-0 p-0 leading-none" onClick={() => {
                                       if (!test?.id || typeof editHistScore !== 'number') return
-                                      updateReviewByUploadedAt(test.id, latest.uploadedAt, editHistScore, latest.totalQuestions ?? (test?.questions?.length ?? null))
+                                      // Convertir puntos a respuestas correctas
+                                      const qTot = latest?.totalQuestions ?? (test?.questions?.length ?? 0)
+                                      const tPts = (latest?.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+                                      const clampedPts = Math.max(0, Math.min(editHistScore, tPts))
+                                      const newCorrect = qTot > 0 ? Math.round((clampedPts / tPts) * qTot) : 0
+                                      // Actualizamos score y luego en memoria añadimos rawPoints editados
+                                      updateReviewByUploadedAt(test.id, latest.uploadedAt, newCorrect, qTot)
                                       const key = getReviewKey(test.id)
                                       const raw = localStorage.getItem(key)
-                                      if (raw) setHistory(JSON.parse(raw))
+                                      if (raw) {
+                                        try {
+                                          const arr: ReviewRecord[] = JSON.parse(raw)
+                                          const i = arr.findIndex(r => r.uploadedAt === latest.uploadedAt)
+                                          if (i >= 0) { arr[i] = { ...arr[i], rawPoints: clampedPts } }
+                                          localStorage.setItem(key, JSON.stringify(arr))
+                                          setHistory(arr)
+                                        } catch { setHistory(JSON.parse(raw)) }
+                                      }
                                       setEditHistTs(null); setEditHistScore(null)
-                                    }}>Guardar</Button>
-                                    <Button size="sm" variant="ghost" onClick={() => { setEditHistTs(null); setEditHistScore(null) }}>Cancelar</Button>
+                                    }} aria-label="Guardar cambios">
+                                      💾
+                                    </Button>
                                   </div>
                                 ) : (
-                                  <Button size="sm" variant="ghost" onClick={() => { setEditHistTs(latest.uploadedAt); setEditHistScore(latest.score ?? null) }}>✎</Button>
+                                  <Button size="icon" className="h-7 w-7 shrink-0 p-0 leading-none" variant="ghost" onClick={() => {
+                                    // Inicializar edición en PUNTOS a partir de respuestas correctas
+                                    const qTot = latest?.totalQuestions ?? (test?.questions?.length ?? 0)
+                                    const tPts = (latest?.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+                                    const pts = qTot > 0 ? Math.round((Math.max(0, Math.min(latest?.score ?? 0, qTot)) / qTot) * tPts) : 0
+                                        const initialPts = typeof latest?.rawPoints === 'number' ? latest.rawPoints : pts
+                                    setEditHistTs(latest.uploadedAt);
+                                        setEditHistScore(initialPts)
+                                  }} aria-label="Editar">
+                                    ✎
+                                  </Button>
                                 )
                               ) : null}
                             </td>
@@ -600,17 +921,20 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
               <td className="py-1 pr-2 truncate">{resolveSubjectName(h.subjectId, h.subjectName)}</td>
               <td className="py-1 pr-2 truncate">{h.topic || '-'}</td>
               <td className="py-1 pr-2 truncate">{formatDateTime(h.uploadedAt)}</td>
-              <td className="py-1 pr-2 truncate">
+                            <td className="py-1 pr-2 truncate whitespace-nowrap">
                 {(() => {
                   if (typeof h.score !== 'number') return '-'
                   const qTot = typeof h.totalQuestions === 'number' ? h.totalQuestions : (test?.questions?.length || 0)
                   const tPts = (h.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+                  if (typeof h.rawPoints === 'number') {
+                    return `${h.rawPoints} pts`
+                  }
                   const pct = qTot > 0 ? Math.min(h.score, qTot) / qTot : 0
                   const pts = Math.round(pct * (tPts || qTot))
                   return `${pts} pts`
                 })()}
               </td>
-                          <td className="py-1 pr-2 truncate">
+                            <td className="py-1 pr-2 truncate whitespace-nowrap">
                 {(() => {
                   if (typeof h.score !== 'number') return '-'
                   const qTot = typeof h.totalQuestions === 'number' ? h.totalQuestions : (test?.questions?.length || 0)
@@ -624,32 +948,55 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
                               <div className="inline-flex items-center gap-2">
                                 <Input
                                   type="number"
-                                  className="h-7 w-24"
+                                  className="h-7 w-16"
                                   value={typeof editHistScore === 'number' ? editHistScore : ''}
                                   min={0}
-                                  max={h.totalQuestions ?? (test?.questions?.length ?? undefined)}
+                                  max={(() => { const qTot = h.totalQuestions ?? (test?.questions?.length ?? 0); const tPts = (h.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number; return tPts })()}
                                   onChange={(e) => {
                                     const v = e.target.value
                                     if (v === '') return setEditHistScore(null)
                                     const num = Number(v)
                                     if (Number.isNaN(num)) return
-                                    const maxPts = h.totalQuestions ?? (test?.questions?.length ?? undefined)
-                                    const clamped = typeof maxPts === 'number' ? Math.max(0, Math.min(num, maxPts)) : Math.max(0, num)
+                                    const qTot = h.totalQuestions ?? (test?.questions?.length ?? 0)
+                                    const tPts = (h.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+                                    const clamped = Math.max(0, Math.min(num, tPts))
                                     setEditHistScore(clamped)
                                   }}
                                 />
-                                <Button size="sm" variant="default" onClick={() => {
+                                <Button size="icon" className="h-7 w-7 shrink-0 p-0 leading-none" onClick={() => {
                                   if (!test?.id || typeof editHistScore !== 'number') return
-                                  updateReviewByUploadedAt(test.id, h.uploadedAt, editHistScore, h.totalQuestions ?? (test?.questions?.length ?? null))
+                                  const qTot = h.totalQuestions ?? (test?.questions?.length ?? 0)
+                                  const tPts = (h.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+                                  const clampedPts = Math.max(0, Math.min(editHistScore, tPts))
+                                  const newCorrect = qTot > 0 ? Math.round((clampedPts / tPts) * qTot) : 0
+                                  updateReviewByUploadedAt(test.id, h.uploadedAt, newCorrect, qTot)
                                   const key = getReviewKey(test.id)
                                   const raw = localStorage.getItem(key)
-                                  if (raw) setHistory(JSON.parse(raw))
+                                  if (raw) {
+                                    try {
+                                      const arr: ReviewRecord[] = JSON.parse(raw)
+                                      const i = arr.findIndex(r => r.uploadedAt === h.uploadedAt)
+                                      if (i >= 0) { arr[i] = { ...arr[i], rawPoints: clampedPts } }
+                                      localStorage.setItem(key, JSON.stringify(arr))
+                                      setHistory(arr)
+                                    } catch { setHistory(JSON.parse(raw)) }
+                                  }
                                   setEditHistTs(null); setEditHistScore(null)
-                                }}>Guardar</Button>
-                                <Button size="sm" variant="ghost" onClick={() => { setEditHistTs(null); setEditHistScore(null) }}>Cancelar</Button>
+                                }} aria-label="Guardar cambios">
+                                  💾
+                                </Button>
                               </div>
                             ) : (
-                              <Button size="sm" variant="ghost" onClick={() => { setEditHistTs(h.uploadedAt); setEditHistScore(h.score ?? null) }}>✎</Button>
+                              <Button size="icon" className="h-7 w-7 shrink-0 p-0 leading-none" variant="ghost" onClick={() => {
+                                const qTot = h.totalQuestions ?? (test?.questions?.length ?? 0)
+                                const tPts = (h.totalPoints ?? (test as any)?.totalPoints ?? qTot) as number
+                                const pts = qTot > 0 ? Math.round((Math.max(0, Math.min(h?.score ?? 0, qTot)) / qTot) * tPts) : 0
+                                const initialPts = typeof h.rawPoints === 'number' ? h.rawPoints : pts
+                                setEditHistTs(h.uploadedAt);
+                                setEditHistScore(initialPts)
+                              }} aria-label="Editar">
+                                ✎
+                              </Button>
                             )}
                           </td>
                         </tr>
@@ -666,7 +1013,27 @@ export default function TestReviewDialog({ open, onOpenChange, test }: Props) {
   )
 }
 
-function guessStudentName(text: string): string {
+function isLikelyPersonName(name?: string): boolean {
+  if (!name) return false
+  const s = name.trim()
+  if (!s) return false
+  if (s.length < 3 || s.length > 50) return false
+  // Evitar frases con comas, signos o números
+  if (/[\d,;:¡!¿?]/.test(s)) return false
+  // Evitar palabras comunes de enunciados
+  const bad = /(sistema|respiratorio|verdadero|falso|pregunta|puntos|pts|opcion|opciones|seleccione|funcion|principal|durante|inhalacion|inhalación|clave|asignatura|curso|seccion|sección)/i
+  if (bad.test(s)) return false
+  // Debe ser 1-4 tokens alfabéticos
+  const tokens = s.split(/\s+/).filter(Boolean)
+  if (tokens.length === 0 || tokens.length > 4) return false
+  if (!tokens.every(t => /^[A-Za-zÁÉÍÓÚÑáéíóúñ']{2,}$/.test(t))) return false
+  // Ratio de letras alto
+  const letters = s.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ']/g, '').length
+  if (letters / s.length < 0.7) return false
+  return true
+}
+
+function guessStudentName(text: string, knownStudents?: any[]): string {
   // Heurísticas mejoradas para formatos comunes en evaluaciones chilenas/latinoamericanas
   const cleaned = text.replace(/[_•◯●○◉◌]+/g, ' ').replace(/\s+/g, ' ')
   
@@ -728,7 +1095,8 @@ function guessStudentName(text: string): string {
             !/^[\d\-_\.]+$/.test(token) &&
             !/^(el|la|los|las|de|del|y|o|en|con|por|para)$/i.test(token)
           )
-          if (tokens.length >= 1) return tokens.slice(0, 3).join(' ')
+    const candidateName = tokens.slice(0, 3).join(' ')
+    if (isLikelyPersonName(candidateName)) return candidateName
         }
       }
     }
@@ -739,11 +1107,7 @@ function guessStudentName(text: string): string {
     const line = lines[i].trim()
     
     // Permitir nombres simples de 3+ caracteres que no sean palabras comunes
-    if (line.length >= 3 && 
-        line.length <= 30 &&
-        /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ']*(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ']*){0,3}$/.test(line) &&
-        !/(?:curso|sección|fecha|asignatura|página|hoja|universidad|colegio|liceo|sistema|respiratorio|clave|ciencias|naturales|básico|temas)/i.test(line) &&
-        !/^(el|la|los|las|de|del|y|o|en|con|por|para|que|como|este|esta|año|mes|día)$/i.test(line)) {
+  if (isLikelyPersonName(line)) {
       
       // Verificar que no es parte de un título o encabezado
       const prevLine = i > 0 ? lines[i - 1] : ''
@@ -760,42 +1124,84 @@ function guessStudentName(text: string): string {
   const commaPattern = /([A-ZÁÉÍÓÚÑ][a-záéíóúñ']+)\s*,\s*([A-ZÁÉÍÓÚÑ][a-záéíóúñ']+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ']*)?)/
   const commaMatch = text.match(commaPattern)
   if (commaMatch) {
-    return `${commaMatch[2]} ${commaMatch[1]}`.trim()
+  const cand = `${commaMatch[2]} ${commaMatch[1]}`.trim()
+  if (isLikelyPersonName(cand)) return cand
   }
   
   // 5) Última búsqueda: nombres en contexto específico de pruebas
   for (const line of lines.slice(0, 15)) {
     // Buscar líneas que contengan solo un nombre después de información del curso
-    if (/^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}$/.test(line.trim()) &&
-        !(/(?:sistema|respiratorio|clave|ciencias|básico|naturales)/i.test(line))) {
+    if (isLikelyPersonName(line.trim())) {
       return line.trim()
     }
   }
   
+  // 6) Intento con lista de estudiantes de la sección: escoger el que mejor calce en el OCR
+  try {
+    if (Array.isArray(knownStudents) && knownStudents.length > 0) {
+      const normText = normalize(text)
+      let best: { name: string, score: number } | null = null
+      for (const s of knownStudents) {
+        const name = String(s.displayName || s.username || '').trim()
+        if (!name) continue
+        const nName = normalize(name)
+        // Presencia directa del nombre completo
+        let score = 0
+        if (nName && normText.includes(nName)) score = 1
+        else score = similarityByTokens(nName, normText)
+        if (!best || score > best.score) best = { name, score }
+      }
+      if (best && best.score >= 0.4) return best.name
+    }
+  } catch {}
+
   return ''
 }
 
-function autoGrade(text: string, questions: AnyQuestion[]): number {
-  if (!questions?.length) return 0
+type AutoGradeResult = {
+  correct: number
+  breakdown: {
+    tf: { correct: number; total: number }
+    mc: { correct: number; total: number }
+    ms: { correct: number; total: number }
+    des: { correct: number; total: number }
+  }
+  evidence: number
+}
+
+function autoGrade(text: string, questions: AnyQuestion[]): AutoGradeResult {
+  if (!questions?.length) {
+    return {
+      correct: 0,
+      evidence: 0,
+      breakdown: { tf: { correct: 0, total: 0 }, mc: { correct: 0, total: 0 }, ms: { correct: 0, total: 0 }, des: { correct: 0, total: 0 } }
+    }
+  }
   
   // Normalizar texto para buscar marcas y opciones
   const raw = text
   const norm = normalize(text)
   const lines = raw.split(/\n+/)
   
+  // Conjunto de símbolos que suelen representar marcas de selección (incluye cuadrados, rayas y trazos comunes)
+  const MARK_CHARS = 'xX✓✔●◉•■□▪▢◻◆▲☑☒✗✘╳'
+  // Conjunto extendido para trazos que el estudiante puede dibujar encima (rayas, subrayados, etc.)
+  const MARK_SCRIBBLE = MARK_CHARS + '-_/=|~'
   // Patrones mejorados para detectar marcas seleccionadas
   const isSelectedMark = (s: string) => {
-    // Detectar múltiples formatos de marcas
+    if (!s) return false
+    // Escapar símbolos para uso seguro en clases de caracteres
+  const escaped = MARK_SCRIBBLE.replace(/[-\\^$.*+?()[\]{}|]/g, '\\$&')
+    const charClass = `[${escaped}]`
     const patterns = [
-      /[\[\(]\s*[xX✓✔●◉•]\s*[\]\)]/,  // (x), [✓], etc.
-      /\b[xX✓✔●◉•]\b/,                  // x, ✓ standalone
-      /\([xX✓✔●◉•]\)/,                 // (x)
-      /\[[xX✓✔●◉•]\]/,                 // [x]
-      /{[xX✓✔●◉•]}/,                   // {x}
-      /\*[xX✓✔●◉•]\*/,                 // *x*
-      /\b[xX✓✔●◉•]\s*(?=\s|$)/,       // x seguido de espacio o fin
+      new RegExp(`\\(\\s*${charClass}\\s*\\)`),  // (x)
+      new RegExp(`\\[\\s*${charClass}\\s*\\]`),  // [x]
+      new RegExp(`\\{\\s*${charClass}\\s*\\}`),  // {x}
+      new RegExp(`\\*\\s*${charClass}\\s*\\*`),  // *x*
+      new RegExp(`${charClass}`),                      // símbolo suelto (fallback)
     ]
-    return patterns.some(pattern => pattern.test(s))
+    const matched = patterns.filter((re) => re.test(s)).length
+    return matched > 0 && matched <= 3
   }
   
   const optionLabel = (idx: number) => String.fromCharCode(65 + idx) // A, B, C, D...
@@ -804,22 +1210,29 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
   const hasOptionLabel = (line: string, label: string) => {
     if (!line || !label) return false
     const upper = line.toUpperCase()
+    const lower = line.toLowerCase()
     const L = label.toUpperCase()
+    const l = label.toLowerCase()
     
     // Patrones múltiples para encontrar etiquetas
     const patterns = [
-      new RegExp(`\\b${L}\\s*[\\)\\]\\.]`, 'g'),  // A) A] A.
-      new RegExp(`\\(${L}\\)`, 'g'),              // (A)
-      new RegExp(`\\[${L}\\]`, 'g'),              // [A]
-      new RegExp(`^\\s*${L}\\s*[\\-:]`, 'g'),    // A- A:
-      new RegExp(`\\b${L}\\b`, 'g'),              // A standalone
+      new RegExp(`\\b${L}\\s*[\\)\\]\\.]`,'g'), // A) A] A.
+      new RegExp(`\\(${L}\\)`,'g'),                 // (A)
+      new RegExp(`\\[${L}\\]`,'g'),                 // [A]
+      new RegExp(`^\\s*${L}\\s*[\\-:]`,'g'),      // A- A:
+      new RegExp(`\\b${L}\\b`,'g'),                // A
+      // versiones minúsculas
+      new RegExp(`\\b${l}\\s*[\\)\\]\\.]`,'g'),
+      new RegExp(`\\(${l}\\)`,'g'),
+      new RegExp(`\\[${l}\\]`,'g'),
+      new RegExp(`^\\s*${l}\\s*[\\-:]`,'g'),
+      new RegExp(`\\b${l}\\b`,'g'),
     ]
-    
-    return patterns.some(pattern => pattern.test(upper))
+    return patterns.some(p => p.test(upper) || p.test(lower))
   }
   
   // Función para buscar texto de opción en contexto
-  const findOptionInContext = (optionText: string, searchRadius = 2) => {
+  const findOptionInContext = (optionText: string, searchRadius = 3) => {
     const normalizedOption = normalize(optionText)
     if (normalizedOption.length < 5) return false
     
@@ -839,79 +1252,90 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
   }
 
   let correct = 0
+  let evidence = 0 // cuenta líneas/marcas que respaldan detecciones
+  const bd = {
+    tf: { correct: 0, total: 0 },
+    mc: { correct: 0, total: 0 },
+    ms: { correct: 0, total: 0 },
+    des: { correct: 0, total: 0 },
+  }
   
   for (const q of questions) {
     if ((q as any).type === 'tf') {
+      bd.tf.total++
       const tf = q as QuestionTF
-      
-      // Buscar patrones V/F específicos para el formato de la imagen
+      // Heurística de ventana: buscar V y F con paréntesis marcados en la misma línea o en un bloque pequeño
+  const windowSize = 3
       let vSelected = false
       let fSelected = false
-      
+  const escaped = MARK_SCRIBBLE.replace(/[-\\^$.*+?()[\]{}|]/g, '\\$&')
+  const markClass = `[${escaped}]`
+  const vLineRegex = new RegExp(`v(?:erdadero)?\\s*[\\n\\r\\s]*[\\(\\[]\\s*${markClass}?\\s*[\\)\\]]`, 'i')
+  const fLineRegex = new RegExp(`f(?:also)?\\s*[\\n\\r\\s]*[\\(\\[]\\s*${markClass}?\\s*[\\)\\]]`, 'i')
+  const bothSameLine = new RegExp(`v(?:erdadero)?\\s*[\\(\\[]\\s*(${markClass}?)\\s*[\\)\\]][^\\n\\r]{0,20}f(?:also)?\\s*[\\(\\[]\\s*(${markClass}?)\\s*[\\)\\]]`, 'i')
+  const bothSameLineRev = new RegExp(`f(?:also)?\\s*[\\(\\[]\\s*(${markClass}?)\\s*[\\)\\]][^\\n\\r]{0,20}v(?:erdadero)?\\s*[\\(\\[]\\s*(${markClass}?)\\s*[\\)\\]]`, 'i')
+
+      // 1) Intento en la misma línea
       for (const line of lines) {
-        const normalLine = normalize(line)
-        const originalLine = line
-        
-        // Patrones específicos como "V ( X )" o "V(X)" - detectar X dentro de paréntesis después de V
-        const vPatterns = [
-          /v\s*\(\s*[xX✓✔●◉•]\s*\)/i,           // V(X), V( X ), etc.
-          /v\s*\[\s*[xX✓✔●◉•]\s*\]/i,           // V[X]
-          /v\s*[xX✓✔●◉•]/i,                     // V X (sin paréntesis)
-          /(verdadero)\s*[\(\[]?\s*[xX✓✔●◉•]\s*[\)\]]?/i  // Verdadero marcado
-        ]
-        
-        const fPatterns = [
-          /f\s*\(\s*[xX✓✔●◉•]\s*\)/i,           // F(X), F( X ), etc.
-          /f\s*\[\s*[xX✓✔●◉•]\s*\]/i,           // F[X]
-          /f\s*[xX✓✔●◉•]/i,                     // F X (sin paréntesis)
-          /(falso)\s*[\(\[]?\s*[xX✓✔●◉•]\s*[\)\]]?/i      // Falso marcado
-        ]
-        
-        // Verificar patrones V
-        if (vPatterns.some(pattern => pattern.test(originalLine))) {
-          vSelected = true
+        const m1 = line.match(bothSameLine)
+        if (m1) {
+          const vm = m1[1]; const fm = m1[2]
+          vSelected = !!vm && new RegExp(markClass).test(vm)
+          fSelected = !!fm && new RegExp(markClass).test(fm)
+          if (vSelected || fSelected) { evidence++; }
+          break
         }
-        
-        // Verificar patrones F
-        if (fPatterns.some(pattern => pattern.test(originalLine))) {
-          fSelected = true
-        }
-        
-        // Patrón especial: detectar líneas como "V ( ) F ( X )" donde solo una opción está marcada
-        const combinedVF = /v\s*\(\s*([xX✓✔●◉•\s]*)\s*\)\s*f\s*\(\s*([xX✓✔●◉•\s]*)\s*\)/i
-        const combinedMatch = originalLine.match(combinedVF)
-        if (combinedMatch) {
-          const vMark = combinedMatch[1].trim()
-          const fMark = combinedMatch[2].trim()
-          if (vMark && /[xX✓✔●◉•]/.test(vMark)) vSelected = true
-          if (fMark && /[xX✓✔●◉•]/.test(fMark)) fSelected = true
-        }
-        
-        // Patrón inverso: "F ( ) V ( X )"
-        const combinedFV = /f\s*\(\s*([xX✓✔●◉•\s]*)\s*\)\s*v\s*\(\s*([xX✓✔●◉•\s]*)\s*\)/i
-        const combinedFVMatch = originalLine.match(combinedFV)
-        if (combinedFVMatch) {
-          const fMark = combinedFVMatch[1].trim()
-          const vMark = combinedFVMatch[2].trim()
-          if (fMark && /[xX✓✔●◉•]/.test(fMark)) fSelected = true
-          if (vMark && /[xX✓✔●◉•]/.test(vMark)) vSelected = true
+        const m2 = line.match(bothSameLineRev)
+        if (m2) {
+          const fm = m2[1]; const vm = m2[2]
+          vSelected = !!vm && new RegExp(markClass).test(vm)
+          fSelected = !!fm && new RegExp(markClass).test(fm)
+          if (vSelected || fSelected) { evidence++; }
+          break
         }
       }
-      
-      // Debug logging para V/F
-      console.log(`[TF Debug] Pregunta: "${tf.text.slice(0, 50)}...", Respuesta correcta: ${tf.answer ? 'V' : 'F'}, V seleccionada: ${vSelected}, F seleccionada: ${fSelected}`)
-      
-      // Validar respuesta: solo otorgar punto si exactamente una opción está seleccionada y es la correcta
+      // 2) Si no quedó claro, buscar en ventana de líneas consecutivas
+      if (!vSelected && !fSelected) {
+        for (let i = 0; i < lines.length; i++) {
+          const chunk = lines.slice(i, i + windowSize).join(' ')
+          if (!chunk) continue
+          const hasV = vLineRegex.test(chunk)
+          const hasF = fLineRegex.test(chunk)
+          if (hasV || hasF) {
+            // Determinar cuál está marcado
+            const vHasMark = new RegExp(`v(?:erdadero)?\\s*[\\(\\[]\\s*${markClass}\\s*[\\)\\]]`, 'i').test(chunk)
+            const fHasMark = new RegExp(`f(?:also)?\\s*[\\(\\[]\\s*${markClass}\\s*[\\)\\]]`, 'i').test(chunk)
+            vSelected = vHasMark && !fHasMark
+            fSelected = fHasMark && !vHasMark
+            if (vSelected || fSelected) { evidence++ }
+            break
+          }
+        }
+      }
+      // 3) Fallback: patrones simples (menos confiables)
+      if (!vSelected && !fSelected) {
+  const fallbackMark = `[${MARK_SCRIBBLE.replace(/[-\\^$.*+?()[\]{}|]/g, '\\$&')}]`
+        const vFallback = new RegExp(`v\\s*\\(\\s*${fallbackMark}+`, 'i')
+        const fFallback = new RegExp(`f\\s*\\(\\s*${fallbackMark}+`, 'i')
+        const vWordFallback = new RegExp(`(verdadero)\\s*[\\(\\[]\\s*${fallbackMark}+`, 'i')
+        const fWordFallback = new RegExp(`(falso)\\s*[\\(\\[]\\s*${fallbackMark}+`, 'i')
+        for (const line of lines) {
+          if (vFallback.test(line) || vWordFallback.test(line)) { vSelected = true; evidence++ }
+          if (fFallback.test(line) || fWordFallback.test(line)) { fSelected = true; evidence++ }
+        }
+        // Si ambos quedaron verdaderos por ruido, invalidar
+        if (vSelected && fSelected) { vSelected = false; fSelected = false }
+      }
+
+      console.log(`[TF Debug] Pregunta: "${tf.text.slice(0, 50)}...", correcta=${tf.answer ? 'V' : 'F'}, V=${vSelected}, F=${fSelected}`)
       if ((tf.answer && vSelected && !fSelected) || (!tf.answer && fSelected && !vSelected)) {
-        correct++
-        console.log(`[TF] ✅ Respuesta correcta`)
-      } else {
-        console.log(`[TF] ❌ Respuesta incorrecta o ambigua`)
-      }
+        correct++; bd.tf.correct++; console.log('[TF] ✅')
+      } else { console.log('[TF] ❌/ambigua') }
       continue
     }
     
     if ((q as any).type === 'mc') {
+      bd.mc.total++
       const mc = q as QuestionMC
       const correctIdx = mc.correctIndex
       const correctText = mc.options[correctIdx]
@@ -924,19 +1348,26 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
         foundByText: false
       }
       
-      // 1) Buscar por letra con marca
+      // 1) Buscar por letra con marca en la misma línea, evitando ambigüedad
+  const inlineMarkRe = new RegExp(`(${label})[^\n]{0,6}[${MARK_SCRIBBLE.replace(/[-\\^$.*+?()[\]{}|]/g, '\\$&')}]{1,3}`,'i')
       for (const line of lines) {
-        if (hasOptionLabel(line, label) && isSelectedMark(line)) {
-          isCorrect = true
-          debugInfo.foundByLabel = true
-          break
+        if (hasOptionLabel(line, label) && (isSelectedMark(line) || inlineMarkRe.test(line))) {
+          // Si la línea también contiene otras etiquetas de opción marcadas, la consideramos ambigua
+          const otherLabels = mc.options.map((_, i) => optionLabel(i)).filter(L => L !== label)
+          const otherMarked = otherLabels.some(L => hasOptionLabel(line, L) && isSelectedMark(line))
+          if (!otherMarked) {
+            isCorrect = true
+            evidence++
+            debugInfo.foundByLabel = true
+            break
+          }
         }
       }
       
       // 2) Buscar por texto de opción con marca cercana
       if (!isCorrect) {
         isCorrect = findOptionInContext(correctText)
-        if (isCorrect) debugInfo.foundByContext = true
+  if (isCorrect) { debugInfo.foundByContext = true; evidence++ }
       }
       
       // 3) Fallback: texto de opción exacto con marca en la misma línea
@@ -946,6 +1377,7 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
         for (const line of lines) {
           if (textPattern.test(line) && isSelectedMark(line)) {
             isCorrect = true
+            evidence++
             debugInfo.foundByText = true
             break
           }
@@ -957,6 +1389,7 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
       
       if (isCorrect) {
         correct++
+        bd.mc.correct++
         console.log(`[MC] ✅ Respuesta correcta`)
       } else {
         console.log(`[MC] ❌ Respuesta no detectada`)
@@ -965,6 +1398,7 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
     }
     
     if ((q as any).type === 'ms') {
+      bd.ms.total++
       const ms = q as QuestionMS
       const correctOptions = ms.options.filter(o => o.correct)
       let correctSelections = 0
@@ -977,8 +1411,9 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
         let isSelected = false
         
         // Buscar por letra con marca
+  const inlineMarkRe = new RegExp(`(${label})[^\n]{0,6}[${MARK_SCRIBBLE.replace(/[-\\^$.*+?()[\]{}|]/g, '\\$&')}]{1,3}`,'i')
         for (const line of lines) {
-          if (hasOptionLabel(line, label) && isSelectedMark(line)) {
+          if (hasOptionLabel(line, label) && (isSelectedMark(line) || inlineMarkRe.test(line))) {
             isSelected = true
             break
           }
@@ -999,21 +1434,31 @@ function autoGrade(text: string, questions: AnyQuestion[]): number {
         }
       }
       
-      // Otorgar punto solo si todas las correctas están seleccionadas y ninguna incorrecta
-      if (correctSelections === correctOptions.length && incorrectSelections === 0) {
+  // Otorgar punto solo si todas las correctas están seleccionadas y ninguna incorrecta
+      if (correctSelections === correctOptions.length && incorrectSelections === 0 && correctOptions.length > 0) {
         correct++
+        bd.ms.correct++
+        evidence++
       }
       continue
     }
     
     // Para preguntas de desarrollo, no auto-calificar (requiere revisión manual)
     if ((q as any).type === 'des') {
+      bd.des.total++
       // Las preguntas de desarrollo se califican manualmente
       continue
     }
   }
   
-  return correct
+  // Total auto-calificables
+  const autoTotal = bd.tf.total + bd.mc.total + bd.ms.total
+  // Si detectamos 100% pero la evidencia es muy baja, suavizar: devolver como mínimo autoTotal-1 para evitar falsos 100%
+  let adjustedCorrect = correct
+  if (autoTotal > 0 && correct === autoTotal && evidence < Math.max(3, Math.ceil(autoTotal * 0.25))) {
+    adjustedCorrect = Math.max(0, autoTotal - 1)
+  }
+  return { correct: adjustedCorrect, breakdown: bd, evidence }
 }
 
 // ===== Utilidades nuevas =====
@@ -1031,6 +1476,8 @@ type ReviewRecord = {
   score: number | null
   totalQuestions: number | null
   totalPoints?: number | null
+  // Puntos originales exactos (sin reconversión ni redondeo adicional) ingresados manualmente o importados
+  rawPoints?: number | null
   sameDocument: boolean
   coverage: number
   studentFound: boolean
@@ -1059,7 +1506,8 @@ function updateReviewByUploadedAt(testId: string, uploadedAt: number, newScore: 
     const list: ReviewRecord[] = JSON.parse(localStorage.getItem(key) || '[]')
     const idx = list.findIndex(r => r.uploadedAt === uploadedAt)
     if (idx >= 0) {
-      list[idx] = { ...list[idx], score: newScore, totalQuestions }
+  // Mantener rawPoints si ya existía; no podemos reconstruir puntos exactos sin el valor editado, así que aceptaremos que se actualizará aparte si corresponde.
+  list[idx] = { ...list[idx], score: newScore, totalQuestions }
       localStorage.setItem(key, JSON.stringify(list))
       try { window.dispatchEvent(new StorageEvent('storage', { key, newValue: JSON.stringify(list) })) } catch {}
       return true
@@ -1082,7 +1530,7 @@ function updateLatestReviewScore(params: { testId: string, studentId: string, st
       idx = list.findIndex(r => normalize(r.studentName) === target)
     }
     if (idx >= 0) {
-      list[idx] = { ...list[idx], score: params.newScore, totalQuestions: params.totalQuestions }
+  list[idx] = { ...list[idx], score: params.newScore, totalQuestions: params.totalQuestions }
       localStorage.setItem(key, JSON.stringify(list))
       try { window.dispatchEvent(new StorageEvent('storage', { key, newValue: JSON.stringify(list) })) } catch {}
     }

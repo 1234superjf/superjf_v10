@@ -356,6 +356,11 @@ export default function TestViewDialog({ open, onOpenChange, test, onReview }: P
           const courseSec = courseName ? `${courseName} ${courseSectionName}` : (courseSectionName || '-')
           text(`CURSO/SECCIÓN: ${courseSec}`, { bold: true })
           text(`ASIGNATURA: ${subjectName || 'Ciencias Naturales'}`, { bold: true })
+          // Puntaje total (si no está definido, usamos el número de preguntas)
+          const counts = test?.counts || { tf: 0, mc: 0, ms: 0, des: 0 }
+          const totalQuestions = (counts.tf || 0) + (counts.mc || 0) + (counts.ms || 0) + (counts.des || 0)
+          const totalPoints = (typeof test?.totalPoints === 'number' && (test?.totalPoints as number) > 0) ? (test!.totalPoints as number) : totalQuestions
+          text(`PUNTAJE TOTAL: ${totalPoints} pts`, { bold: true })
           y += 2
           pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12)
           const label = 'NOMBRE DEL ESTUDIANTE:'
@@ -855,6 +860,14 @@ export default function TestViewDialog({ open, onOpenChange, test, onReview }: P
         <DialogHeader>
           <DialogTitle className="text-xl">Vista: {test?.title || "Prueba"}</DialogTitle>
         </DialogHeader>
+        <div className="mb-3 text-sm text-muted-foreground">
+          {(() => {
+            const counts = test?.counts || { tf: 0, mc: 0, ms: 0, des: 0 }
+            const totalQuestions = (counts.tf || 0) + (counts.mc || 0) + (counts.ms || 0) + (counts.des || 0)
+            const totalPoints = (typeof test?.totalPoints === 'number' && (test?.totalPoints as number) > 0) ? (test!.totalPoints as number) : totalQuestions
+            return `Puntaje total: ${totalPoints} pts`
+          })()}
+        </div>
         <div className="flex items-center justify-between gap-2 mb-4">
           <div className="text-sm text-muted-foreground font-medium">
             {courseName ? `${courseName} ${courseSectionName}` : courseSectionName}

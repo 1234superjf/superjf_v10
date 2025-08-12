@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { Plus, Eye, ClipboardCheck, FileSearch, Pencil, Trash2, CheckCircle, Lock } from "lucide-react"
+import { Eye, ClipboardCheck, FileSearch, Trash2, CheckCircle } from "lucide-react"
 import { useLanguage } from "@/contexts/language-context"
 import { useAuth } from "@/contexts/auth-context"
 
@@ -9,14 +9,19 @@ import { Button } from "@/components/ui/button"
 import TestViewDialog from "@/components/pruebas/TestViewDialog"
 import TestReviewDialog from "@/components/pruebas/TestReviewDialog"
 import TestBuilder from "@/components/pruebas/TestBuilder"
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
-type QuestionTF = { id: string; type: "tf"; text: string; answer: boolean; explanation?: string }
-type QuestionMC = { id: string; type: "mc"; text: string; options: string[]; correctIndex: number }
-type QuestionMS = { id: string; type: "ms"; text: string; options: Array<{ text: string; correct: boolean }> }
-type QuestionDES = { id: string; type: "des"; prompt: string; sampleAnswer?: string }
-type AnyQuestion = QuestionTF | QuestionMC | QuestionMS | QuestionDES
-
-type TestItem = {
+// Tipos
+export type TestItem = {
 	id: string
 	title: string
 	description?: string
@@ -24,137 +29,128 @@ type TestItem = {
 	courseId?: string
 	sectionId?: string
 	subjectId?: string
-	// Guardamos también el nombre para mostrarlo aunque falte el dataset en localStorage
 	subjectName?: string
 	topic?: string
 	counts?: { tf: number; mc: number; ms: number; des?: number }
-	// Nuevos campos: ponderación por tipo (%) y puntaje total
 	weights?: { tf: number; mc: number; ms: number; des: number }
 	totalPoints?: number
 	total?: number
-	questions?: AnyQuestion[]
-	// Estado de generación (simulado mientras la IA prepara la prueba)
-	status?: 'generating' | 'ready'
-	progress?: number // 0-100
-	// Propietario de la prueba (profesor que la creó)
+	questions?: any[]
+	status?: "generating" | "ready"
+	progress?: number
 	ownerId?: string
 	ownerUsername?: string
 }
 
-// Clave base para historial de pruebas; se individualiza por usuario para aislar datos
 const TESTS_BASE_KEY = "smart-student-tests"
-
-function getTestsKey(user?: { username?: string | null } | null): string {
-	const uname = user?.username ? String(user.username).trim().toLowerCase() : ''
+const getTestsKey = (user?: { username?: string | null } | null): string => {
+	const uname = user?.username ? String(user.username).trim().toLowerCase() : ""
 	return uname ? `${TESTS_BASE_KEY}_${uname}` : TESTS_BASE_KEY
 }
+const getReviewKey = (id: string) => `smart-student-test-reviews_${id}`
 
 export default function PruebasPage() {
 	const { translate, language } = useLanguage()
 	const { user } = useAuth()
+
 	const [tests, setTests] = useState<TestItem[]>([])
-		const [newTitle, setNewTitle] = useState("")
-		const [builder, setBuilder] = useState<any>({})
+	const [builder, setBuilder] = useState<any>({})
+
 	const [selected, setSelected] = useState<TestItem | null>(null)
 	const [openView, setOpenView] = useState(false)
 	const [openReview, setOpenReview] = useState(false)
-	const [openEdit, setOpenEdit] = useState(false)
-	const [editDraft, setEditDraft] = useState<any>({})
-	// Intervalo para progresos simulados
+
+	// Confirmación de borrado
+	const [deleteOpen, setDeleteOpen] = useState(false)
+	const [deleteTarget, setDeleteTarget] = useState<TestItem | null>(null)
+
+	// Progreso simulado
 	const progressIntervalRef = useRef<number | null>(null)
-	// Datos base para rotular curso/sección y asignatura en el historial y en la vista
+
+	// Datos base (solo para etiquetas mínimas)
 	const [courses, setCourses] = useState<any[]>([])
 	const [sections, setSections] = useState<any[]>([])
 	const [subjects, setSubjects] = useState<any[]>([])
 
+	// Cargar datasets y pruebas
 	useEffect(() => {
-		// Cargar datasets base
 		try {
-			setCourses(JSON.parse(localStorage.getItem('smart-student-courses') || '[]'))
-			setSections(JSON.parse(localStorage.getItem('smart-student-sections') || '[]'))
-			setSubjects(JSON.parse(localStorage.getItem('smart-student-subjects') || '[]'))
-		} catch (e) {
-			console.error("[Pruebas] Error cargando datasets base:", e)
-		}
+			setCourses(JSON.parse(localStorage.getItem("smart-student-courses") || "[]"))
+			setSections(JSON.parse(localStorage.getItem("smart-student-sections") || "[]"))
+			setSubjects(JSON.parse(localStorage.getItem("smart-student-subjects") || "[]"))
+		} catch {}
 
-		// Cargar historial específico del usuario (o global si no hay usuario)
 		try {
 			const key = getTestsKey(user)
 			const raw = localStorage.getItem(key)
 			if (raw) {
 				setTests(JSON.parse(raw))
 			} else {
-				// Intentar migrar desde clave global solo los items que pertenezcan al usuario actual
 				const globalRaw = localStorage.getItem(TESTS_BASE_KEY)
 				if (globalRaw) {
 					const globalItems: TestItem[] = JSON.parse(globalRaw)
-					const mine = user ? globalItems.filter(t => (t.ownerId === user.id) || (t.ownerUsername === user.username)) : globalItems
+					const mine = user
+						? globalItems.filter(
+								(t) => (t.ownerId === (user as any).id) || (t.ownerUsername === (user as any).username)
+							)
+						: globalItems
 					if (mine.length > 0) {
 						localStorage.setItem(key, JSON.stringify(mine))
 						setTests(mine)
-					} else {
-						setTests([])
-					}
-				} else {
-					setTests([])
-				}
+					} else setTests([])
+				} else setTests([])
 			}
 		} catch (e) {
 			console.error("[Pruebas] Error cargando/migrando historial:", e)
 		}
 
-		// Listener de cambios en storage solo para la clave de este usuario
 		const onStorage = (e: StorageEvent) => {
 			if (!e.key) return
 			const currentKey = getTestsKey(user)
-			if (e.key === currentKey) setTests(JSON.parse(e.newValue || '[]'))
-			if (e.key === 'smart-student-courses') setCourses(JSON.parse(e.newValue || '[]'))
-			if (e.key === 'smart-student-sections') setSections(JSON.parse(e.newValue || '[]'))
-			if (e.key === 'smart-student-subjects') setSubjects(JSON.parse(e.newValue || '[]'))
+			if (e.key === currentKey) setTests(JSON.parse(e.newValue || "[]"))
+			if (e.key === "smart-student-courses") setCourses(JSON.parse(e.newValue || "[]"))
+			if (e.key === "smart-student-sections") setSections(JSON.parse(e.newValue || "[]"))
+			if (e.key === "smart-student-subjects") setSubjects(JSON.parse(e.newValue || "[]"))
 		}
-		window.addEventListener('storage', onStorage)
-		return () => window.removeEventListener('storage', onStorage)
+		window.addEventListener("storage", onStorage)
+		return () => window.removeEventListener("storage", onStorage)
 	}, [user?.username])
 
 	const saveTests = (items: TestItem[]) => {
-	const key = getTestsKey(user)
-	setTests(items)
-	localStorage.setItem(key, JSON.stringify(items))
-	window.dispatchEvent(new StorageEvent("storage", { key, newValue: JSON.stringify(items) }))
+		const key = getTestsKey(user)
+		setTests(items)
+		localStorage.setItem(key, JSON.stringify(items))
+		window.dispatchEvent(new StorageEvent("storage", { key, newValue: JSON.stringify(items) }))
 	}
 
-	// Helper: actualiza progreso/estado de una prueba por id
 	const patchTest = (id: string, patch: Partial<TestItem>) => {
 		const key = getTestsKey(user)
-		setTests(prev => {
-			const updated: TestItem[] = prev.map(t => (t.id === id ? { ...t, ...patch } : t))
+		setTests((prev) => {
+			const updated: TestItem[] = prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
 			localStorage.setItem(key, JSON.stringify(updated))
-			window.dispatchEvent(new StorageEvent('storage', { key, newValue: JSON.stringify(updated) }))
+			window.dispatchEvent(new StorageEvent("storage", { key, newValue: JSON.stringify(updated) }))
 			return updated
 		})
 	}
 
-	// Simular progreso de generación hasta 100% para pruebas con status 'generating'
+	// Progreso simulado si status === 'generating'
 	useEffect(() => {
-		const hasGenerating = tests.some(t => t.status === 'generating')
+		const hasGenerating = tests.some((t) => t.status === "generating")
 		if (hasGenerating && !progressIntervalRef.current) {
 			progressIntervalRef.current = window.setInterval(() => {
-				setTests(prev => {
-					let anyGenerating = false
-					const updated: TestItem[] = prev.map((t): TestItem => {
-						if (t.status === 'generating') {
-							anyGenerating = true
-							const inc = Math.floor(Math.random() * 8) + 3 // +3..+10
+				setTests((prev) => {
+					const updated: TestItem[] = prev.map((t) => {
+						if (t.status === "generating") {
+							const inc = Math.floor(Math.random() * 8) + 3
 							const next = Math.min(100, (t.progress || 0) + inc)
-							return { ...t, progress: next, status: (next >= 100 ? 'ready' : 'generating') as 'ready' | 'generating' }
+							return { ...t, progress: next, status: (next >= 100 ? "ready" : "generating") as "ready" | "generating" }
 						}
 						return t
 					})
 					const key = getTestsKey(user)
 					localStorage.setItem(key, JSON.stringify(updated))
-					window.dispatchEvent(new StorageEvent('storage', { key, newValue: JSON.stringify(updated) }))
-					// Si ya no queda ninguna generando, paramos el intervalo
-					if (!updated.some(x => x.status === 'generating') && progressIntervalRef.current) {
+					window.dispatchEvent(new StorageEvent("storage", { key, newValue: JSON.stringify(updated) }))
+					if (!updated.some((x) => x.status === "generating") && progressIntervalRef.current) {
 						window.clearInterval(progressIntervalRef.current)
 						progressIntervalRef.current = null
 					}
@@ -174,182 +170,62 @@ export default function PruebasPage() {
 		}
 	}, [tests])
 
-	// Generador local de preguntas basado en el tema y los contadores
-	const generateQuestions = (topic: string, counts?: { tf: number; mc: number; ms: number; des?: number }): AnyQuestion[] => {
-		const out: AnyQuestion[] = []
-		if (!counts) return out
+	const handleOpenView = (t: TestItem) => { setSelected(t); setOpenView(true) }
+	const handleOpenReview = (t?: TestItem) => { if (t) setSelected(t); setOpenReview(true) }
 
-		const makeId = (p: string) => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-		const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
-		const cleanTopic = (topic || "Tema").trim()
-
-		// Verdadero/Falso
-		for (let i = 0; i < (counts.tf || 0); i++) {
-			const positive = Math.random() > 0.5
-			const text = positive
-				? `${cap(cleanTopic)}: la afirmación ${i + 1} es correcta según lo visto en clase.`
-				: `${cap(cleanTopic)}: la afirmación ${i + 1} es incorrecta de acuerdo al contenido.`
-			out.push({ id: makeId("tf"), type: "tf", text, answer: positive, explanation: positive ? "Es consistente con la definición del tema." : "Contradice el concepto central del tema." })
-		}
-
-		// Alternativas (una correcta)
-		for (let i = 0; i < (counts.mc || 0); i++) {
-			const stem = `Sobre ${cleanTopic}, seleccione la alternativa correcta (ítem ${i + 1}).`
-			const distractors = [
-				`Enfoque no asociado directamente a ${cleanTopic}.`,
-				`Aplicación parcial de ${cleanTopic}.`,
-				`Caso límite de ${cleanTopic}.`,
-			]
-			const correct = `Definición o ejemplo preciso de ${cleanTopic}.`
-			const options = [...distractors]
-			const idx = Math.floor(Math.random() * (options.length + 1))
-			options.splice(idx, 0, correct)
-			out.push({ id: makeId("mc"), type: "mc", text: stem, options, correctIndex: idx })
-		}
-
-		// Selección múltiple (varias correctas)
-		for (let i = 0; i < (counts.ms || 0); i++) {
-			const stem = `Marque todas las opciones que corresponden a ${cleanTopic} (ítem ${i + 1}).`
-			const base = [
-				{ text: `Propiedad clave de ${cleanTopic}.`, correct: true },
-				{ text: `Característica secundaria de ${cleanTopic}.`, correct: true },
-				{ text: `Idea común pero no esencial de ${cleanTopic}.`, correct: false },
-				{ text: `Concepto no relacionado con ${cleanTopic}.`, correct: false },
-			]
-			// Mezclar
-			const shuffled = [...base].sort(() => Math.random() - 0.5)
-			out.push({ id: makeId("ms"), type: "ms", text: stem, options: shuffled })
-		}
-
-		// Desarrollo con variedad
-		const desPromptTemplates = [
-			`Desarrolle un análisis crítico sobre ${cleanTopic}. Explique los aspectos más relevantes y proporcione ejemplos específicos.`,
-			`Analice y justifique la importancia de ${cleanTopic} en el contexto actual. Sustente su respuesta con argumentos sólidos.`,
-			`Examine detalladamente ${cleanTopic}. Explique sus características principales y su aplicación práctica.`,
-			`Evalúe críticamente ${cleanTopic}. Proporcione una explicación fundamentada con ejemplos concretos.`,
-			`Reflexione sobre ${cleanTopic}. Desarrolle una argumentación coherente que incluya análisis y conclusiones.`,
-			`Describa y analice ${cleanTopic}. Justifique su respuesta con razonamientos lógicos y ejemplos relevantes.`,
-			`Explique de manera fundamentada ${cleanTopic}. Incluya análisis crítico y ejemplos que sustenten su posición.`,
-			`Elabore un análisis comprehensivo sobre ${cleanTopic}. Desarrolle argumentos bien estructurados y conclusiones válidas.`,
-			`Discuta los aspectos fundamentales de ${cleanTopic}. Proporcione una explicación detallada y bien justificada.`,
-			`Interprete y analice ${cleanTopic}. Desarrolle una respuesta argumentada con ejemplos y reflexiones personales.`,
-			`Examine críticamente ${cleanTopic}. Elabore una explicación coherente que demuestre comprensión profunda del tema.`,
-			`Desarrolle una disertación sobre ${cleanTopic}. Incluya análisis, ejemplos y conclusiones bien fundamentadas.`
-		]
-
-		const desSampleTemplates = [
-			`Se espera un análisis crítico que demuestre comprensión profunda de ${cleanTopic}, incluyendo ejemplos específicos y conclusiones bien fundamentadas.`,
-			`Respuesta debe incluir justificación teórica sobre ${cleanTopic}, aplicación práctica y reflexión personal del estudiante.`,
-			`Se requiere explicación detallada de ${cleanTopic} con argumentos sólidos, ejemplos concretos y análisis coherente.`,
-			`Debe evidenciar dominio conceptual de ${cleanTopic} mediante explicación fundamentada, ejemplos relevantes y conclusiones válidas.`,
-			`Se evalúa capacidad de análisis sobre ${cleanTopic}, incluyendo argumentación lógica, ejemplos apropiados y síntesis personal.`,
-			`Respuesta esperada: análisis comprehensivo de ${cleanTopic} con sustento teórico, aplicación práctica y reflexión crítica.`,
-			`Debe demostrar comprensión integral de ${cleanTopic} a través de explicación fundamentada, ejemplos y conclusiones coherentes.`,
-			`Se requiere desarrollo argumentativo sobre ${cleanTopic} que incluya análisis, justificación y ejemplos específicos del tema.`,
-			`Respuesta debe reflejar pensamiento crítico sobre ${cleanTopic} con explicación detallada, ejemplos y conclusiones sustentadas.`,
-			`Se espera disertación sobre ${cleanTopic} que demuestre análisis profundo, ejemplos relevantes y síntesis personal del estudiante.`
-		]
-
-		// Función para detectar similitud entre textos
-		const getSimilarity = (text1: string, text2: string) => {
-			const normalize = (text: string) => text.toLowerCase()
-				.replace(/[^\w\s]/g, ' ')
-				.split(/\s+/)
-				.filter((word: string) => word.length > 3 && !['sobre', 'para', 'desde', 'hasta', 'como', 'entre', 'durante', 'mediante', 'según'].includes(word))
-			
-			const tokens1 = normalize(text1)
-			const tokens2 = normalize(text2)
-			const intersection = tokens1.filter((token: string) => tokens2.includes(token)).length
-			const union = new Set([...tokens1, ...tokens2]).size
-			return union > 0 ? intersection / union : 0
-		}
-
-		const usedPrompts: string[] = []
-		const usedSamples: string[] = []
-
-		for (let i = 0; i < (counts.des || 0); i++) {
-			// Buscar prompt único
-			let selectedPrompt = null
-			let attempts = 0
-			const maxAttempts = 20
-
-			while (!selectedPrompt && attempts < maxAttempts) {
-				const candidate = desPromptTemplates[Math.floor(Math.random() * desPromptTemplates.length)]
-				const isSimilarToUsed = usedPrompts.some((used: string) => getSimilarity(candidate, used) > 0.4)
-				
-				if (!isSimilarToUsed) {
-					selectedPrompt = candidate
-					usedPrompts.push(candidate)
-				}
-				attempts++
-			}
-
-			// Fallback si no se encuentra prompt único
-			if (!selectedPrompt) {
-				selectedPrompt = `Desarrolle una reflexión crítica sobre ${cleanTopic}. Proporcione análisis detallado con ejemplos específicos (ítem ${i + 1}).`
-				usedPrompts.push(selectedPrompt)
-			}
-
-			// Buscar respuesta muestra única
-			let selectedSample = null
-			attempts = 0
-
-			while (!selectedSample && attempts < maxAttempts) {
-				const candidate = desSampleTemplates[Math.floor(Math.random() * desSampleTemplates.length)]
-				const isSimilarToUsed = usedSamples.some((used: string) => getSimilarity(candidate, used) > 0.4)
-				
-				if (!isSimilarToUsed) {
-					selectedSample = candidate
-					usedSamples.push(candidate)
-				}
-				attempts++
-			}
-
-			// Fallback si no se encuentra muestra única
-			if (!selectedSample) {
-				selectedSample = `Se espera análisis integral de ${cleanTopic} con argumentación sólida, ejemplos concretos y conclusiones fundamentadas (ítem ${i + 1}).`
-				usedSamples.push(selectedSample)
-			}
-
-			out.push({ id: makeId("des"), type: "des", prompt: selectedPrompt, sampleAnswer: selectedSample })
-		}
-
-		return out
+	const hasAnyReview = (id: string) => {
+		try { const raw = localStorage.getItem(getReviewKey(id)); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) && arr.length > 0 } catch { return false }
 	}
 
-			const handleCreate = () => {
-				// Validar usuario actual: solo usuarios autenticados (profesor) pueden crear
-				if (!user) {
-					alert('Usuario no autenticado')
-					return
-				}
-				const title = (newTitle.trim() || builder?.topic?.trim() || "Prueba")
-			if (!title) return
-		// Validar datos mínimos del constructor
-		if (!builder?.courseId || !builder?.sectionId || !builder?.subjectId) {
-			alert(translate('testsSelectAllBeforeCreate'))
-			return
+	// Generador local sencillo como fallback si falla el SSE
+	const generateLocalQuestions = (topic: string, counts?: { tf?: number; mc?: number; ms?: number; des?: number }) => {
+		const res: any[] = []
+		if (!counts) return res
+		const makeId = (p: string) => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+		for (let i = 0; i < (counts.tf || 0); i++) {
+			res.push({ id: makeId('tf'), type: 'tf', text: `(${i + 1}) ${topic}: enunciado verdadero/falso`, answer: Math.random() > 0.5 })
 		}
+		for (let i = 0; i < (counts.mc || 0); i++) {
+			const opts = ['Opción A', 'Opción B', 'Opción C']
+			const ci = Math.floor(Math.random() * (opts.length + 1))
+			opts.splice(ci, 0, 'Respuesta correcta')
+			res.push({ id: makeId('mc'), type: 'mc', text: `(${i + 1}) ${topic}: alternativa correcta`, options: opts, correctIndex: ci })
+		}
+		for (let i = 0; i < (counts.ms || 0); i++) {
+			const arr = [
+				{ text: 'Correcta 1', correct: true },
+				{ text: 'Correcta 2', correct: true },
+				{ text: 'Incorrecta 1', correct: false },
+				{ text: 'Incorrecta 2', correct: false },
+			]
+			res.push({ id: makeId('ms'), type: 'ms', text: `(${i + 1}) ${topic}: seleccione todas las correctas`, options: arr.sort(() => Math.random() - 0.5) })
+		}
+		for (let i = 0; i < (counts.des || 0); i++) {
+			res.push({ id: makeId('des'), type: 'des', prompt: `(${i + 1}) ${topic}: desarrolle una respuesta fundamentada` })
+		}
+		return res
+	}
+
+	// Crear prueba: guarda item en estado "generating" y dispara SSE; fallback a generador local.
+	const handleCreate = () => {
+		if (!user) { alert('Usuario no autenticado'); return }
+		if (!builder?.courseId || !builder?.sectionId || !builder?.subjectId) { alert(translate('testsSelectAllBeforeCreate')); return }
 		const now = Date.now()
-		// Creamos inicialmente el registro en estado "generating"
-		// Resolver nombre de la asignatura para guardarlo junto con la prueba (fallback de visualización)
+		const title = (builder?.topic?.trim() || 'Prueba') as string
+		// Resolver nombre de asignatura
 		const subjName = (() => {
 			try {
-				const list = subjects && Array.isArray(subjects) ? subjects : JSON.parse(localStorage.getItem('smart-student-subjects') || '[]')
-				// 1) Buscar por ID exacto
+				const list = Array.isArray(subjects) ? subjects : JSON.parse(localStorage.getItem('smart-student-subjects') || '[]')
 				let found = list.find((x: any) => String(x?.id) === String(builder?.subjectId))
 				if (found?.name) return found.name
-				// 2) Algunas veces subjectId trae el nombre; buscar por nombre
 				found = list.find((x: any) => String(x?.name) === String(builder?.subjectId))
-				if (found?.name) return found.name
-				// 3) Fallback: usar el valor que venga (subjectName o subjectId como nombre)
-				return builder?.subjectName || (builder?.subjectId ? String(builder.subjectId) : '')
-			} catch { return builder?.subjectName || (builder?.subjectId ? String(builder.subjectId) : '') }
+				return found?.name || (builder?.subjectName || String(builder?.subjectId))
+			} catch { return builder?.subjectName || String(builder?.subjectId) }
 		})()
-				const item: TestItem = {
+		const item: TestItem = {
 			id: `test_${now}`,
 			title,
-			description: "",
+			description: '',
 			createdAt: now,
 			courseId: builder.courseId,
 			sectionId: builder.sectionId,
@@ -357,22 +233,17 @@ export default function PruebasPage() {
 			subjectName: subjName,
 			topic: builder.topic,
 			counts: builder.counts,
-				weights: builder.weights,
-				totalPoints: builder.totalPoints,
+			weights: builder.weights,
+			totalPoints: builder.totalPoints,
 			total: builder.total,
-			questions: [] as AnyQuestion[],
+			questions: [],
 			status: 'generating',
-		  progress: 0,
-		  ownerId: user.id,
-		  ownerUsername: user.username,
+			progress: 0,
+			ownerId: (user as any).id,
+			ownerUsername: (user as any).username,
 		}
-		const next = [item, ...tests]
-		saveTests(next)
-		setNewTitle("")
-		setBuilder({})
+		saveTests([item, ...tests])
 
-		// Lanzar generación con IA en segundo plano, reflejando progreso por fases
-		// Conexión SSE para progreso en vivo desde servidor
 		try {
 			const id = item.id
 			const countTF = Number(builder?.counts?.tf || 0)
@@ -381,26 +252,16 @@ export default function PruebasPage() {
 			const questionCount = Math.max(1, countTF + countMC + countMS)
 			const bookTitle = subjName || 'General'
 			const topic = String(builder?.topic || title)
-			const params = new URLSearchParams({
-				topic,
-				bookTitle,
-				language: language === 'en' ? 'en' : 'es',
-				questionCount: String(questionCount),
-				timeLimit: '120',
-			})
+			const params = new URLSearchParams({ topic, bookTitle, language: language === 'en' ? 'en' : 'es', questionCount: String(questionCount), timeLimit: '120' })
 			const es = new EventSource(`/api/tests/generate/stream?${params.toString()}`)
 			es.addEventListener('progress', (evt: MessageEvent) => {
-				try {
-					const data = JSON.parse(evt.data)
-					const p = Math.min(100, Number(data?.percent ?? 0))
-					patchTest(id, { progress: p })
-				} catch {}
+				try { const data = JSON.parse((evt as any).data); const p = Math.min(100, Number(data?.percent ?? 0)); patchTest(id, { progress: p }) } catch {}
 			})
 			es.addEventListener('done', (evt: MessageEvent) => {
 				try {
-					const payload = JSON.parse(evt.data)
+					const payload = JSON.parse((evt as any).data)
 					const aiOut = payload?.data
-					const mapped: AnyQuestion[] = (aiOut?.questions || []).map((q: any, idx: number) => {
+					const mapped: any[] = (aiOut?.questions || []).map((q: any, idx: number) => {
 						const makeId = (p: string) => `${p}_${now}_${idx}`
 						if (q.type === 'TRUE_FALSE') return { id: makeId('tf'), type: 'tf', text: q.questionText || q.text || '', answer: !!q.correctAnswer }
 						if (q.type === 'MULTIPLE_CHOICE') {
@@ -417,72 +278,24 @@ export default function PruebasPage() {
 					})
 					const desCount = Number(builder?.counts?.des || 0)
 					if (desCount > 0) {
-						const extra = generateQuestions(topic, { tf: 0, mc: 0, ms: 0, des: desCount })
-						mapped.push(...extra)
+						mapped.push(...generateLocalQuestions(topic, { tf: 0, mc: 0, ms: 0, des: desCount }))
 					}
 					patchTest(id, { questions: mapped, status: 'ready', progress: 100 })
-				} finally {
-					es.close()
-				}
+				} finally { es.close() }
 			})
 			es.addEventListener('error', () => {
-				// Fallback en caso de error del stream
 				es.close()
-				const fallback = generateQuestions(builder?.topic || '', builder?.counts)
-				patchTest(id, { questions: fallback, status: 'ready', progress: 100 })
+				const fallback = generateLocalQuestions(builder?.topic || title, builder?.counts)
+				patchTest(item.id, { questions: fallback, status: 'ready', progress: 100 })
 			})
 		} catch (e) {
 			console.error('[Pruebas] SSE error, usando generador local:', e)
-			const fallback = generateQuestions(builder?.topic || '', builder?.counts)
+			const fallback = generateLocalQuestions(builder?.topic || 'Tema', builder?.counts)
 			patchTest(item.id, { questions: fallback, status: 'ready', progress: 100 })
 		}
 	}
 
-	const handleOpenView = (t: TestItem) => {
-		setSelected(t)
-		setOpenView(true)
-	}
-
-	const handleOpenReview = (t?: TestItem) => {
-		if (t) setSelected(t)
-		setOpenReview(true)
-	}
-
-	const getReviewKey = (id: string) => `smart-student-test-reviews_${id}`
-	const hasAnyReview = (id: string) => {
-		try { const raw = localStorage.getItem(getReviewKey(id)); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) && arr.length > 0 } catch { return false }
-	}
-
-	const handleEdit = (t: TestItem) => {
-		// Si tiene revisiones, bloquear edición
-		if (hasAnyReview(t.id)) {
-			alert('No se puede editar: ya existe al menos una revisión de estudiante. La prueba debe permanecer igual para todos.')
-			return
-		}
-		// Abrir modal de edición con TestBuilder en modo edit
-		setSelected(t)
-		setEditDraft({
-			courseId: t.courseId,
-			sectionId: t.sectionId,
-			subjectId: t.subjectId || t.subjectName,
-			topic: t.topic || '',
-			counts: t.counts || { tf: 0, mc: 0, ms: 0, des: 0 },
-			weights: t.weights || { tf: 25, mc: 25, ms: 25, des: 25 },
-			totalPoints: typeof t.totalPoints === 'number' ? t.totalPoints : 100,
-			total: t.total || 0,
-		})
-		setOpenEdit(true)
-	}
-
-	const sorted = useMemo(() => {
-		// Si no hay usuario, no mostrar nada
-		if (!user) return [] as TestItem[]
-		// Admin ve todas; profesores ven solo las suyas
-		const source = user.role === 'admin' ? tests : tests.filter(t => (t.ownerId && t.ownerId === user.id) || (t.ownerUsername && t.ownerUsername === user.username))
-		return [...source].sort((a, b) => b.createdAt - a.createdAt)
-	}, [tests, user])
-
-		return (
+	return (
 		<div className="p-6 space-y-6">
 			<div className="flex items-center justify-between">
 				<div>
@@ -492,123 +305,92 @@ export default function PruebasPage() {
 						</span>
 						<span>{translate('testsPageTitle')}</span>
 					</h1>
-						<p className="text-sm text-muted-foreground">{translate('testsPageSub')}</p>
+					<p className="text-sm text-muted-foreground">{translate('testsPageSub')}</p>
 				</div>
 			</div>
 
-					<div className="space-y-4">
-						<div className="border rounded-lg p-4">
-							<div className="mb-3 text-sm font-medium">{translate('testsCreateTitle')}</div>
-							<div className="mb-2 text-xs text-muted-foreground">{translate('testsCreateHint')}</div>
-										<TestBuilder
-											value={builder}
-											onChange={setBuilder}
-											onCreate={handleCreate}
-										/>
-						</div>
-					</div>
+			<div className="space-y-4">
+				<div className="border rounded-lg p-4">
+					<div className="mb-3 text-sm font-medium">{translate('testsCreateTitle')}</div>
+					<div className="mb-2 text-xs text-muted-foreground">{translate('testsCreateHint')}</div>
+					<TestBuilder value={builder} onChange={setBuilder} onCreate={handleCreate} />
+				</div>
+			</div>
 
-					<div className="border rounded-lg">
-								<div className="px-4 py-3">
-									<div className="text-sm font-medium">{translate('testsHistoryTitle')}</div>
-						</div>
+			<div className="border rounded-lg">
+				<div className="px-4 py-3">
+					<div className="text-sm font-medium">{translate('testsHistoryTitle')}</div>
+				</div>
 				<div className="divide-y">
-				{sorted.length === 0 ? (
-						<div className="p-8 text-center text-muted-foreground">
-								{translate('testsHistoryEmpty')}
-					</div>
-				) : (
-						sorted.map((t) => (
+					{tests.length === 0 ? (
+						<div className="p-8 text-center text-muted-foreground">{translate('testsHistoryEmpty')}</div>
+					) : (
+							tests.map((t) => (
 							<div key={t.id} className="p-4 flex items-center justify-between gap-4">
 								<div className="min-w-0">
-									{/* Título */}
-									<p className="font-medium truncate">{t.title}</p>
-									{/* Curso + Sección */}
-									<p className="text-xs text-muted-foreground truncate">
-										{(() => {
-											const sec = sections.find((s:any) => String(s.id) === String(t.sectionId))
-											const course = courses.find((c:any) => String(c.id) === String(t.courseId || sec?.courseId))
-											const courseLabel = course?.name ? String(course.name) : ''
-											const sectionLabel = sec?.name ? String(sec.name) : ''
-											const label = [courseLabel, sectionLabel].filter(Boolean).join(' ')
-											return label ? `${translate('testsLabelCourse')}: ${label}` : ''
-										})()}
-									</p>
-									{/* Asignatura */}
-									<p className="text-xs text-muted-foreground truncate">
-										{(() => {
-											const subj = subjects.find((s:any) => String(s.id) === String(t.subjectId)) || subjects.find((s:any) => String(s.name) === String(t.subjectId))
-											const name = subj?.name || t.subjectName || (t.subjectId ? String(t.subjectId) : '')
-											return name ? `${translate('testsLabelSubject')}: ${name}` : ''
-										})()}
-									</p>
-									{/* Tema + Preguntas (resumen final) */}
-									{t.counts && (
+										<p className="font-medium truncate">{t.title}</p>
+										{/* Curso (Curso + Sección) */}
 										<p className="text-xs text-muted-foreground truncate">
-											{`${translate('testsLabelQuestions')}: ${translate('testsAbbrevTF')} ${t.counts.tf || 0}, ${translate('testsAbbrevMC')} ${t.counts.mc || 0}, ${translate('testsAbbrevMS')} ${t.counts.ms || 0}, ${translate('testsAbbrevDES')} ${t.counts.des || 0}`}
+											{(() => {
+												const sec = sections.find((s:any) => String(s.id) === String(t.sectionId))
+												const course = courses.find((c:any) => String(c.id) === String(t.courseId || sec?.courseId))
+												const courseLabel = course?.name ? String(course.name) : ''
+												const sectionLabel = sec?.name ? String(sec.name) : ''
+												const label = [courseLabel, sectionLabel].filter(Boolean).join(' ')
+												return label ? `Curso: ${label}` : ''
+											})()}
 										</p>
-									)}
+										{/* Asignatura */}
+										<p className="text-xs text-muted-foreground truncate">
+											{(() => {
+												const subj = subjects.find((s:any) => String(s.id) === String(t.subjectId)) || subjects.find((s:any) => String(s.name) === String(t.subjectId))
+												const name = subj?.name || t.subjectName || (t.subjectId ? String(t.subjectId) : '')
+												return name ? `Asignatura: ${name}` : ''
+											})()}
+										</p>
+										{/* Distribución de puntaje por tipo */}
+										{(() => {
+											const w = t.weights || { tf: 25, mc: 25, ms: 25, des: (t.counts?.des ?? 0) > 0 ? 25 : 0 }
+											const parts = [
+												`TF ${Number(w.tf ?? 0)}%`,
+												`MC ${Number(w.mc ?? 0)}%`,
+												`MS ${Number(w.ms ?? 0)}%`,
+												`DES ${Number(w.des ?? 0)}%`,
+											]
+											return (
+												<p className="text-xs text-muted-foreground truncate">{`Distribución: ${parts.join(' · ')}`}</p>
+											)
+										})()}
+
+										{/* Totales */}
+										<p className="text-xs text-muted-foreground truncate">
+											{`Total de preguntas: ${t.questions?.length ?? ((t.counts?.tf||0)+(t.counts?.mc||0)+(t.counts?.ms||0)+(t.counts?.des||0))}`}
+										</p>
+										{typeof t.totalPoints === 'number' && (
+											<p className="text-xs text-muted-foreground truncate">{`Puntaje total: ${t.totalPoints} pts`}</p>
+										)}
 								</div>
 								<div className="flex items-center gap-2">
-												{/* Indicador de progreso / listo */}
-												{t.status === 'generating' ? (
-													<div className="flex items-center gap-2 mr-1 min-w-[100px]" title={(() => {
-														const p = Math.min(100, t.progress || 0)
-														if (p < 25) return translate('testsProgressPhase1')
-														if (p < 60) return translate('testsProgressPhase2')
-														if (p < 85) return translate('testsProgressPhase3')
-														return translate('testsProgressPhase4')
-													})()}>
-														<div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded" aria-label={`${Math.min(100, t.progress || 0)}%`}>
-															<div className="h-2 bg-fuchsia-600 rounded" style={{ width: `${Math.min(100, t.progress || 0)}%` }} />
-														</div>
-														<span className="text-xs text-muted-foreground w-8 text-right">{Math.min(100, t.progress || 0)}%</span>
-													</div>
-												) : (
-													<span className="inline-flex items-center text-green-600 dark:text-green-400 mr-1" title={translate('testsReady')} aria-label={translate('testsReady')}>
-														<CheckCircle className="size-4" />
-													</span>
-												)}
-									<Button
-										variant="outline"
-										onClick={() => handleOpenView(t)}
-										className="p-2 text-fuchsia-800 border-fuchsia-200 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800"
-										aria-label={translate('testsBtnView')}
-										title={translate('testsBtnView')}
-									>
+									{t.status === 'generating' ? (
+										<div className="flex items-center gap-2 mr-1 min-w-[100px]">
+											<div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded" aria-label={`${Math.min(100, t.progress || 0)}%`}>
+												<div className="h-2 bg-fuchsia-600 rounded" style={{ width: `${Math.min(100, t.progress || 0)}%` }} />
+											</div>
+											<span className="text-xs text-muted-foreground w-8 text-right">{Math.min(100, t.progress || 0)}%</span>
+										</div>
+									) : (
+										<span className="inline-flex items-center text-green-600 dark:text-green-400 mr-1" title={translate('testsReady')} aria-label={translate('testsReady')}>
+											<CheckCircle className="size-4" />
+										</span>
+									)}
+
+									<Button variant="outline" onClick={() => handleOpenView(t)} className="p-2 text-fuchsia-800 border-fuchsia-200 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800" aria-label={translate('testsBtnView')} title={translate('testsBtnView')}>
 										<Eye className="size-4" />
 									</Button>
-																		<Button
-										variant="outline"
-										onClick={() => handleOpenReview(t)}
-										className="p-2 text-fuchsia-800 border-fuchsia-200 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800"
-										aria-label={translate('testsReviewBtn')}
-										title={translate('testsReviewBtn')}
-									>
+									<Button variant="outline" onClick={() => handleOpenReview(t)} className="p-2 text-fuchsia-800 border-fuchsia-200 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800" aria-label={translate('testsReviewBtn')} title={translate('testsReviewBtn')}>
 										<FileSearch className="size-4" />
 									</Button>
-																		{(() => {
-																			const reviewed = hasAnyReview(t.id)
-																			return (
-																				<Button
-										variant="outline"
-																					onClick={() => handleEdit(t)}
-																					disabled={reviewed}
-																					className="p-2 text-fuchsia-800 border-fuchsia-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800"
-																					aria-label={translate('testsBtnEdit')}
-																					title={reviewed ? 'Bloqueado: existe historial de revisión' : translate('testsBtnEdit')}
-																				>
-																					{reviewed ? <Lock className="size-4" /> : <Pencil className="size-4" />}
-																				</Button>
-																			)
-																		})()}
-									<Button
-										variant="outline"
-										onClick={() => saveTests(tests.filter(x => x.id !== t.id))}
-										className="p-2 text-fuchsia-800 border-fuchsia-200 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800"
-										aria-label={translate('testsBtnDelete')}
-										title={translate('testsBtnDelete')}
-									>
+									<Button variant="outline" onClick={() => { setDeleteTarget(t); setDeleteOpen(true) }} className="p-2 text-fuchsia-800 border-fuchsia-200 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800" aria-label={translate('testsBtnDelete')} title={translate('testsBtnDelete')}>
 										<Trash2 className="size-4" />
 									</Button>
 								</div>
@@ -619,130 +401,55 @@ export default function PruebasPage() {
 			</div>
 
 			{/* Modales */}
-			<TestViewDialog
-				open={openView}
-				onOpenChange={setOpenView}
-				test={selected || undefined}
-				onReview={() => handleOpenReview()}
-			/>
-			<TestReviewDialog
-				open={openReview}
-				onOpenChange={setOpenReview}
-				test={selected || undefined}
-			/>
+			<TestViewDialog open={openView} onOpenChange={setOpenView} test={selected || undefined} onReview={() => handleOpenReview()} />
+			<TestReviewDialog open={openReview} onOpenChange={setOpenReview} test={selected || undefined} />
 
-					{/* Modal simple de edición cuando no existen revisiones */}
-					{openEdit && selected && (
-						<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-							<div className="bg-background rounded-md shadow-lg w-full max-w-2xl p-4">
-								<div className="flex items-center justify-between mb-2">
-									<h2 className="text-lg font-semibold">Editar Prueba</h2>
-									<button className="text-sm" onClick={() => setOpenEdit(false)}>✖</button>
-								</div>
-								<div className="mb-4 text-xs text-muted-foreground">Puede cambiar curso, sección, asignatura, tema y cantidades por tipo mientras no existan revisiones.</div>
-								<TestBuilder value={editDraft} onChange={setEditDraft} mode="edit" />
-								<div className="mt-4 flex justify-end gap-2">
-									<Button variant="outline" onClick={() => setOpenEdit(false)}>Cancelar</Button>
-									<Button onClick={() => {
-										if (!editDraft?.sectionId || !editDraft?.subjectId) { alert('Seleccione curso/sección y asignatura'); return }
-										// 1) Actualizar metadatos de la prueba y ponerla en estado de regeneración
-										const resolveSubjectName = () => {
-											try {
-												const subjectsData = Array.isArray(subjects) && subjects.length ? subjects : JSON.parse(localStorage.getItem('smart-student-subjects') || '[]')
-												const subj = subjectsData.find((s: any) => String(s.id) === String(editDraft.subjectId)) || subjectsData.find((s: any) => String(s.name) === String(editDraft.subjectId))
-												return subj?.name || String(editDraft.subjectId)
-											} catch { return String(editDraft.subjectId) }
-										}
-										const subjName = resolveSubjectName()
-										const updated = tests.map((x): TestItem => x.id === selected.id ? {
-											...x,
-											courseId: editDraft.courseId,
-											sectionId: editDraft.sectionId,
-											subjectId: editDraft.subjectId,
-											subjectName: subjName,
-												topic: editDraft.topic,
-												counts: editDraft.counts,
-												weights: editDraft.weights,
-												totalPoints: editDraft.totalPoints,
-												total: editDraft.total,
-											// Reiniciar documento
-											questions: [] as AnyQuestion[],
-											status: 'generating',
-											progress: 0,
-										} : x)
-										saveTests(updated)
-										setOpenEdit(false)
-
-										// 2) Disparar regeneración por SSE igual que en creación
-										try {
-											const id = selected.id
-											const countTF = Number(editDraft?.counts?.tf || 0)
-											const countMC = Number(editDraft?.counts?.mc || 0)
-											const countMS = Number(editDraft?.counts?.ms || 0)
-											const desCount = Number(editDraft?.counts?.des || 0)
-											const questionCount = Math.max(1, countTF + countMC + countMS)
-											const bookTitle = subjName || 'General'
-											const topic = String(editDraft?.topic || selected.title)
-											const params = new URLSearchParams({
-												topic,
-												bookTitle,
-												language: language === 'en' ? 'en' : 'es',
-												questionCount: String(questionCount),
-												timeLimit: '120',
-											})
-											const es = new EventSource(`/api/tests/generate/stream?${params.toString()}`)
-											es.addEventListener('progress', (evt: MessageEvent) => {
-												try {
-													const data = JSON.parse(evt.data)
-													const p = Math.min(100, Number(data?.percent ?? 0))
-													patchTest(id, { progress: p })
-												} catch {}
-											})
-											es.addEventListener('done', (evt: MessageEvent) => {
-												try {
-													const payload = JSON.parse(evt.data)
-													const aiOut = payload?.data
-													const now = Date.now()
-													const mapped: AnyQuestion[] = (aiOut?.questions || []).map((q: any, idx: number) => {
-														const makeId = (p: string) => `${p}_${now}_${idx}`
-														if (q.type === 'TRUE_FALSE') return { id: makeId('tf'), type: 'tf', text: q.questionText || q.text || '', answer: !!q.correctAnswer }
-														if (q.type === 'MULTIPLE_CHOICE') {
-															const options: string[] = q.options || q.choices || []
-															const correctIndex = typeof q.correctAnswerIndex === 'number' ? q.correctAnswerIndex : 0
-															return { id: makeId('mc'), type: 'mc', text: q.questionText || q.text || '', options, correctIndex }
-														}
-														if (q.type === 'MULTIPLE_SELECTION') {
-															const options: string[] = q.options || []
-															const corrects: number[] = Array.isArray(q.correctAnswerIndices) ? q.correctAnswerIndices : []
-															return { id: makeId('ms'), type: 'ms', text: q.questionText || q.text || '', options: options.map((t, i) => ({ text: String(t), correct: corrects.includes(i) })) }
-														}
-														return { id: makeId('des'), type: 'des', prompt: q.questionText || q.text || '' }
-													})
-													if (desCount > 0) {
-														const extra = generateQuestions(topic, { tf: 0, mc: 0, ms: 0, des: desCount })
-														mapped.push(...extra)
-													}
-													patchTest(id, { questions: mapped, status: 'ready', progress: 100 })
-												} finally {
-													es.close()
-												}
-											})
-											es.addEventListener('error', () => {
-												es.close()
-												const fallback = generateQuestions(topic, editDraft?.counts)
-												patchTest(id, { questions: fallback, status: 'ready', progress: 100 })
-											})
-										} catch (e) {
-											console.error('[Pruebas] SSE error (edit), usando generador local:', e)
-											const fallback = generateQuestions(editDraft?.topic || '', editDraft?.counts)
-											patchTest(selected.id, { questions: fallback, status: 'ready', progress: 100 })
-										}
-									}}>Guardar</Button>
-								</div>
-							</div>
-						</div>
-					)}
+			{/* Popup de confirmación de borrado */}
+			<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>{language === 'en' ? 'Delete test?' : '¿Eliminar prueba?'}</AlertDialogTitle>
+						<AlertDialogDescription>
+							{language === 'en' ? 'This action will remove the test, its review history and associated grades. You can’t undo this.' : 'Esta acción eliminará la prueba, su historial de revisión y las notas asociadas. No se puede deshacer.'}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel
+							className="border-fuchsia-200 text-fuchsia-800 hover:bg-fuchsia-600 hover:text-white dark:border-fuchsia-800 focus-visible:ring-fuchsia-500"
+						>
+							{language === 'en' ? 'Cancel' : 'Cancelar'}
+						</AlertDialogCancel>
+						<AlertDialogAction
+							className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white focus-visible:ring-fuchsia-500"
+							onClick={() => {
+							if (!deleteTarget) return
+							// Ejecutar borrado definitivo
+							saveTests(tests.filter(x => x.id !== deleteTarget.id))
+							try {
+								const rkey = getReviewKey(deleteTarget.id)
+								localStorage.setItem(rkey, '[]')
+								window.dispatchEvent(new StorageEvent('storage', { key: rkey, newValue: '[]' }))
+							} catch {}
+							try {
+								const gkey = 'smart-student-test-grades'
+								const raw = localStorage.getItem(gkey)
+								if (raw) {
+									const arr = JSON.parse(raw)
+									const filtered = Array.isArray(arr) ? arr.filter((g: any) => g?.testId !== deleteTarget.id) : []
+									localStorage.setItem(gkey, JSON.stringify(filtered))
+									window.dispatchEvent(new StorageEvent('storage', { key: gkey, newValue: JSON.stringify(filtered) }))
+								}
+							} catch {}
+							setDeleteOpen(false)
+							setDeleteTarget(null)
+						}}>
+							{language === 'en' ? 'Delete' : 'Eliminar'}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	)
 }
+
 

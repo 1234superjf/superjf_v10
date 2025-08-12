@@ -6,6 +6,12 @@ const nextConfig = {
 	eslint: {
 		ignoreDuringBuilds: true,
 	},
+	turbopack: {
+		resolveAlias: {
+			// Alinea con webpack: evita resolver 'canvas' en el cliente usando un shim
+			canvas: require.resolve('./shims/canvas.js'),
+		},
+	},
 	webpack: (config, { isServer }) => {
 		// Evita que Webpack resuelva 'canvas' (Node-only). pdfjs-dist incluye una rama Node que lo requiere,
 		// pero en el navegador usamos la build ESM (pdf.mjs) que no lo necesita.
