@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/language-context';
 import { useAuth } from '@/contexts/auth-context';
-import { Library, Newspaper, Network, FileQuestion, ClipboardList, Home, Users, Settings, ClipboardCheck, MessageSquare, GraduationCap, Crown, Shield, UserCheck, TrendingUp, Megaphone, CalendarDays } from 'lucide-react';
+import { Library, Newspaper, Network, FileQuestion, ClipboardList, Home, Users, Settings, ClipboardCheck, MessageSquare, GraduationCap, Crown, Shield, UserCheck, TrendingUp, Megaphone, CalendarDays, BarChart2 } from 'lucide-react';
 import NotificationsPanel from '@/components/common/notifications-panel';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -170,6 +170,16 @@ const featureCards = [
     colorClass: 'red',
     showBadge: false,
   },
+  // Nueva tarjeta Calificaciones (todos los roles)
+  {
+    titleKey: 'cardGradesTitle',
+    descKey: 'cardGradesDesc',
+    btnKey: 'cardGradesBtn',
+    targetPage: '/dashboard/calificaciones',
+    icon: BarChart2,
+    colorClass: 'emerald',
+    showBadge: false,
+  },
 ];
 
 const adminCards = [
@@ -201,6 +211,16 @@ const adminCards = [
     colorClass: 'silver',
     showBadge: false,
   },
+  // Calificaciones para admin
+  {
+    titleKey: 'cardGradesTitle',
+    descKey: 'cardGradesDesc',
+    btnKey: 'cardGradesBtn',
+    targetPage: '/dashboard/calificaciones',
+    icon: BarChart2,
+    colorClass: 'emerald',
+    showBadge: false,
+  },
 ];
 
 // Tarjetas específicas para profesores
@@ -221,6 +241,16 @@ const teacherCards = [
     targetPage: '/dashboard/estadisticas',
     icon: TrendingUp,
   colorClass: 'rose',
+    showBadge: false,
+  },
+  // Calificaciones para profesores
+  {
+    titleKey: 'cardGradesTitle',
+    descKey: 'cardGradesDesc',
+    btnKey: 'cardGradesBtn',
+    targetPage: '/dashboard/calificaciones',
+    icon: BarChart2,
+    colorClass: 'emerald',
     showBadge: false,
   },
 ];
