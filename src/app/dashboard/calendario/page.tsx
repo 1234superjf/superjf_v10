@@ -22,6 +22,9 @@ type CalendarYearConfig = {
   holidays: string[]; // YYYY-MM-DD
 };
 
+// Configuración de semestres (compartida con Calificaciones)
+type Semesters = { first: { start: string; end: string }; second: { start: string; end: string } };
+
 const pad = (n: number) => String(n).padStart(2, '0');
 const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const inRange = (date: Date, range?: VacationRange) => {
@@ -228,6 +231,33 @@ export default function AdminCalendarPage() {
   };
   const clearAll = () => setConfig(defaultConfig);
 
+  // --- Semestres académicos (1er/2do) ---
+  const SEM_KEY = 'smart-student-semesters';
+  const currentYear = today.getFullYear();
+  const defaultSemesters: Semesters = {
+    first: { start: `${currentYear}-03-01`, end: `${currentYear}-06-30` },
+    second: { start: `${currentYear}-07-01`, end: `${currentYear}-12-15` },
+  };
+  const [semesters, setSemesters] = useState<Semesters>(() => {
+    try { return JSON.parse(localStorage.getItem(SEM_KEY) || '') as Semesters; } catch { return defaultSemesters; }
+  });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SEM_KEY);
+      if (raw) setSemesters(JSON.parse(raw));
+    } catch {}
+  }, []);
+  const saveSemesters = () => {
+    try {
+      localStorage.setItem(SEM_KEY, JSON.stringify(semesters));
+      try { window.dispatchEvent(new StorageEvent('storage', { key: SEM_KEY, newValue: JSON.stringify(semesters) })); } catch {}
+      toast({ title: 'Calendario guardado', description: 'Semestres actualizados correctamente.' });
+    } catch (e) {
+      toast({ title: 'Error al guardar', description: 'No se pudo guardar el calendario.', variant: 'destructive' });
+    }
+  };
+  const resetSemesters = () => setSemesters(defaultSemesters);
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -317,6 +347,59 @@ export default function AdminCalendarPage() {
               </div>
           </div>
 
+          {/* Semestres académicos */}
+          <div className="mt-4 border-t pt-4">
+            <CardTitle className="text-base font-headline mb-3">📅 Calendario Académico (Semestres)</CardTitle>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <div className="font-medium">1er Semestre</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Inicio</label>
+                    <DateInput
+                      value={semesters.first.start}
+                      onChange={(v) => setSemesters(s => ({ ...s, first: { ...s.first, start: v } }))}
+                      locale={dateLocale}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Término</label>
+                    <DateInput
+                      value={semesters.first.end}
+                      onChange={(v) => setSemesters(s => ({ ...s, first: { ...s.first, end: v } }))}
+                      locale={dateLocale}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="font-medium">2do Semestre</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Inicio</label>
+                    <DateInput
+                      value={semesters.second.start}
+                      onChange={(v) => setSemesters(s => ({ ...s, second: { ...s.second, start: v } }))}
+                      locale={dateLocale}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Término</label>
+                    <DateInput
+                      value={semesters.second.end}
+                      onChange={(v) => setSemesters(s => ({ ...s, second: { ...s.second, end: v } }))}
+                      locale={dateLocale}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={saveSemesters}>Guardar Semestres</Button>
+              <Button variant="outline" onClick={resetSemesters}>Restablecer por defecto</Button>
+            </div>
+          </div>
+
           {/* Leyenda */}
           <div className="flex flex-wrap items-center gap-4 pt-2">
             <span className="text-sm opacity-80">{translate('legend') || 'Leyenda'}:</span>
@@ -398,8 +481,8 @@ function DateInput({ value, onChange, locale }: { value?: string; onChange: (v: 
   };
   const parsed = parseYmdLocal(value);
   const selected = parsed && !isNaN(parsed.getTime()) ? parsed : undefined;
-  // Mostrar siempre dd/mm/yyyy según requerimiento
-  const label = selected ? format(selected, 'dd/MM/yyyy', { locale }) : 'dd/mm/yyyy';
+  // Mostrar siempre dd-mm-yyyy según requerimiento
+  const label = selected ? format(selected, 'dd-MM-yyyy', { locale }) : 'dd-mm-yyyy';
 
   const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 

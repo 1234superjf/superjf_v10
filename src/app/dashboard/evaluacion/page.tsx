@@ -1225,6 +1225,16 @@ export default function EvaluacionPage() {
         
         // Guardar de vuelta en localStorage
         localStorage.setItem('smart-student-tasks', JSON.stringify(globalTasks));
+        // Notificar a otros listeners en la misma pestaña (Calificaciones sincroniza desde aquí)
+        try {
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'smart-student-tasks',
+            newValue: JSON.stringify(globalTasks)
+          }));
+        } catch {}
+        try {
+          window.dispatchEvent(new CustomEvent('evaluationCompleted', { detail: { taskId } }));
+        } catch {}
         
         console.log(`[SyncResults] ✅ Saved results for ${studentUsername} in task ${taskId}:`, results);
         console.log(`[SyncResults] 📊 Score: ${results.score}/${results.totalQuestions} (${results.completionPercentage.toFixed(1)}%)`);

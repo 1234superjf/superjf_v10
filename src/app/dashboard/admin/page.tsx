@@ -7,16 +7,58 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Settings, Database, Users, BookOpen, Shield, RefreshCw, CheckCircle, AlertCircle, GraduationCap } from 'lucide-react';
+import { Settings, Database, Users, BookOpen, Shield, RefreshCw, CheckCircle, AlertCircle, GraduationCap, Calendar as CalendarIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { UniqueCodeGenerator } from '@/lib/unique-codes';
 import { useNotificationSync } from '@/hooks/useNotificationSync';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import type { Locale } from 'date-fns';
+import { es as esLocale, enGB } from 'date-fns/locale';
+
+// Date input con calendario localizado (semana L-D) y formateo dd-MM-yyyy
+function DateInput({ value, onChange, locale }: { value?: string; onChange: (v: string) => void; locale: Locale }) {
+  // Parseo local seguro para fechas en formato YYYY-MM-DD
+  const parseYmdLocal = (ymd?: string) => {
+    if (!ymd) return undefined;
+    const [y, m, d] = ymd.split('-').map(Number);
+    return new Date(y, (m || 1) - 1, d || 1);
+  };
+  const parsed = parseYmdLocal(value);
+  const selected = parsed && !isNaN(parsed.getTime()) ? parsed : undefined;
+  // Mostrar siempre dd-mm-yyyy
+  const label = selected ? format(selected, 'dd-MM-yyyy', { locale }) : 'dd-mm-yyyy';
+
+  const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="w-[150px] justify-start text-left font-normal">
+          <CalendarIcon className="mr-2 h-4 w-4" />
+          {label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={selected}
+          locale={locale}
+          onSelect={(d) => d && onChange(toIso(d))}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function AdminPage() {
   const { user, isAdmin } = useAuth();
-  const { translate } = useLanguage();
+  const { translate, language } = useLanguage();
   const router = useRouter();
   const { toast } = useToast();
+  const dateLocale: Locale = language === 'es' ? esLocale : enGB;
   
   // Sistema de sincronización de notificaciones
   const {
@@ -217,7 +259,7 @@ export default function AdminPage() {
       
       // Eliminar notificaciones fantasma
       for (const notification of notifications) {
-        const taskExists = tasks.some(task => task.id === notification.taskId);
+        const taskExists = tasks.some((task: any) => task.id === notification.taskId);
         if (!taskExists) {
           ghostsRemoved++;
         } else {
@@ -227,7 +269,7 @@ export default function AdminPage() {
       
       // Eliminar comentarios huérfanos
       for (const comment of comments) {
-        const taskExists = tasks.some(task => task.id === comment.taskId);
+        const taskExists = tasks.some((task: any) => task.id === comment.taskId);
         if (!taskExists) {
           orphansRemoved++;
         } else {
@@ -291,6 +333,35 @@ export default function AdminPage() {
   };
 
   const stats = getSystemStatistics();
+  // Configuración de semestres
+  type Semesters = { first: { start: string; end: string }; second: { start: string; end: string } };
+  const SEM_KEY = 'smart-student-semesters';
+  const currentYear = new Date().getFullYear();
+  const defaultSemesters: Semesters = {
+    first: { start: `${currentYear}-03-01`, end: `${currentYear}-06-30` },
+    second: { start: `${currentYear}-07-01`, end: `${currentYear}-12-15` }
+  };
+  const [semesters, setSemesters] = useState<Semesters>(() => {
+    try { return JSON.parse(localStorage.getItem(SEM_KEY) || '') as Semesters; } catch { return defaultSemesters; }
+  });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SEM_KEY);
+      if (raw) setSemesters(JSON.parse(raw));
+    } catch {}
+  }, []);
+  const saveSemesters = () => {
+    try {
+      localStorage.setItem(SEM_KEY, JSON.stringify(semesters));
+      try { window.dispatchEvent(new StorageEvent('storage', { key: SEM_KEY, newValue: JSON.stringify(semesters) })); } catch {}
+      toast({ title: 'Calendario guardado', description: 'Semestres actualizados correctamente.' });
+    } catch (e) {
+      toast({ title: 'Error al guardar', description: 'No se pudo guardar el calendario.', variant: 'destructive' });
+    }
+  };
+  const resetSemesters = () => {
+    setSemesters(defaultSemesters);
+  };
 
   return (
     <div className="space-y-6">
@@ -479,6 +550,66 @@ export default function AdminPage() {
       </div>
 
       {/* Sistema de Gestión de Usuarios */}
+      {/* Calendario Académico: Semestres */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            📅 Calendario Académico (Semestres)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <div className="font-medium">1er Semestre</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Inicio</label>
+                  {/* Usar el mismo DateInput que en Calendario para mostrar dd-MM-yyyy */}
+                  <DateInput
+                    value={semesters.first.start}
+                    onChange={(v) => setSemesters(s => ({ ...s, first: { ...s.first, start: v } }))}
+                    locale={dateLocale}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Término</label>
+                  <DateInput
+                    value={semesters.first.end}
+                    onChange={(v) => setSemesters(s => ({ ...s, first: { ...s.first, end: v } }))}
+                    locale={dateLocale}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="font-medium">2do Semestre</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Inicio</label>
+                  <DateInput
+                    value={semesters.second.start}
+                    onChange={(v) => setSemesters(s => ({ ...s, second: { ...s.second, start: v } }))}
+                    locale={dateLocale}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Término</label>
+                  <DateInput
+                    value={semesters.second.end}
+                    onChange={(v) => setSemesters(s => ({ ...s, second: { ...s.second, end: v } }))}
+                    locale={dateLocale}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={saveSemesters}>Guardar</Button>
+            <Button variant="outline" onClick={resetSemesters}>Restablecer por defecto</Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">

@@ -28,12 +28,47 @@ type Subject = { id: string; name: string };
 
 type Option = { value: string; label: string };
 
+type Task = {
+  id: string;
+  title: string;
+  description: string;
+  subject: string;
+  course: string;
+  assignedById: string;
+  assignedByName: string;
+  assignedTo: 'course' | 'student';
+  assignedStudentIds?: string[];
+  dueDate: string;
+  createdAt: string;
+  status: 'pending' | 'submitted' | 'reviewed' | 'delivered' | 'finished';
+  priority: 'low' | 'medium' | 'high';
+  taskType: 'tarea' | 'evaluacion' | 'prueba';
+  topic?: string;
+  numQuestions?: number;
+  timeLimit?: number;
+}
+
+type PendingTask = {
+  taskId: string;
+  title: string;
+  taskType: 'tarea' | 'evaluacion' | 'prueba';
+  createdAt: string;
+  subject: string;
+  course: string;
+  assignedTo: 'course' | 'student';
+  assignedStudentIds?: string[];
+  columnIndex: number; // N1=0, N2=1, etc.
+  topic?: string;
+}
+
 function loadJson<T>(key: string, fallback: T): T { try { return JSON.parse(localStorage.getItem(key) || '') as T; } catch { return fallback; } }
 
 export default function GradesPage() {
   const { user } = useAuth();
   const { translate } = useLanguage();
   const COLOR = 'indigo' as const;
+  // Tick para forzar recomputar memos basados en localStorage
+  const [refreshTick, setRefreshTick] = useState(0);
 
   // Helper de traducción con fallback: si translate devuelve la clave o un valor vacío, usa el fallback
   const tr = (key: string, fallback: string) => {
@@ -53,12 +88,17 @@ export default function GradesPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [studentAssignments, setStudentAssignments] = useState<any[]>([]);
+  const [pendingTasks, setPendingTasks] = useState<PendingTask[]>([]);
 
   // Filtros (combinar curso+sección en un solo filtro usando sectionId)
   const [levelFilter, setLevelFilter] = useState<'all' | 'basica' | 'media'>('all');
   const [comboSectionId, setComboSectionId] = useState<string>('all');
   const [subjectFilter, setSubjectFilter] = useState<string>('all');
   const [semester, setSemester] = useState<'all' | '1' | '2'>('2');
+  // Calendario de semestres (configurable en Admin)
+  type SemestersCfg = { first: { start: string; end: string }; second: { start: string; end: string } };
+  const [semestersCfg, setSemestersCfg] = useState<SemestersCfg | null>(null);
+  const SEM_KEY = 'smart-student-semesters';
 
   // Estado de cascada
   const [cascadeCourseId, setCascadeCourseId] = useState<string | null>(null);
@@ -88,14 +128,437 @@ export default function GradesPage() {
     setUsers(loadJson<any[]>('smart-student-users', []));
     setStudentAssignments(loadJson<any[]>('smart-student-student-assignments', []));
 
+    // Cargar tareas pendientes de calificación
+    loadPendingTasks();
+    
+    // Sincronizar calificaciones de tareas con el sistema de calificaciones
+    syncTaskGrades();
+
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'smart-student-test-grades' && e.newValue) {
         try { setGrades(JSON.parse(e.newValue)); } catch {}
+        // Recalcular pendientes ya que puede que una tarea quede calificada
+        loadPendingTasks();
+        setRefreshTick(t => t + 1);
+      }
+      // Escuchar cambios en comentarios de tareas para sincronizar calificaciones
+      if (e.key === 'smart-student-task-comments') {
+        syncTaskGrades();
+        setRefreshTick(t => t + 1);
+      }
+      // Recargar tareas pendientes si se modifican las tareas
+      if (e.key === 'smart-student-tasks') {
+        // Al cambiar tareas (incluye evaluationResults), sincronizar calificaciones
+        syncTaskGrades();
+        loadPendingTasks();
+        setRefreshTick(t => t + 1);
+      }
+      // Recargar si se modifican evaluaciones
+      if (e.key === 'smart-student-evaluations') {
+        loadPendingTasks();
+        setRefreshTick(t => t + 1);
+      }
+      // Resultados de evaluaciones de estudiantes (deben reflejarse como notas)
+      if (e.key === 'smart-student-evaluation-results') {
+        try { syncTaskGrades(); } catch {}
+        loadPendingTasks();
+        setRefreshTick(t => t + 1);
+      }
+      // Reaccionar a creación/edición de Pruebas (historial por usuario)
+      if (e.key && e.key.startsWith('smart-student-tests')) {
+        loadPendingTasks();
+        setRefreshTick(t => t + 1);
+      }
+      // Actualizar calendario de semestres si cambia desde Admin
+      if (e.key === SEM_KEY && e.newValue) {
+        try { setSemestersCfg(JSON.parse(e.newValue)); setRefreshTick(t => t + 1); } catch {}
       }
     };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    // Cargar calendario inicial
+    try { const raw = localStorage.getItem(SEM_KEY); if (raw) setSemestersCfg(JSON.parse(raw)); } catch {}
+    // Eventos personalizados del flujo de evaluación/pruebas
+    const onEvaluationCompleted = () => {
+      try { syncTaskGrades(); } catch {}
+      loadPendingTasks();
+      setRefreshTick(t => t + 1);
+    };
+    const onTaskNotificationsUpdated = () => setRefreshTick(t => t + 1);
+    window.addEventListener('evaluationCompleted', onEvaluationCompleted as any);
+    window.addEventListener('taskNotificationsUpdated', onTaskNotificationsUpdated as any);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('evaluationCompleted', onEvaluationCompleted as any);
+      window.removeEventListener('taskNotificationsUpdated', onTaskNotificationsUpdated as any);
+    };
   }, []);
+
+  // Función para sincronizar calificaciones desde tareas/comentarios del profesor
+  const syncTaskGrades = () => {
+    try {
+      console.log('🔄 Sincronizando calificaciones de tareas...');
+      
+      // Cargar datos necesarios
+  const tasks = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
+      const comments = JSON.parse(localStorage.getItem('smart-student-task-comments') || '[]');
+      const currentGrades = JSON.parse(localStorage.getItem('smart-student-test-grades') || '[]');
+      const users = JSON.parse(localStorage.getItem('smart-student-users') || '[]');
+      const subjects = JSON.parse(localStorage.getItem('smart-student-subjects') || '[]');
+      const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const sections = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+
+      // Índices auxiliares
+      const taskById = new Map<string, any>();
+      Array.isArray(tasks) && tasks.forEach((t: any) => taskById.set(String(t.id), t));
+      const userById = new Map<string, any>();
+      Array.isArray(users) && users.forEach((u: any) => userById.set(String(u.id), u));
+      const subjectByNameOrId = (task: any) => {
+        const found = subjects.find((s: any) => String(s.id) === String(task?.subjectId) || String(s.name) === String(task?.subject));
+        return found?.id || task?.subject || null;
+      };
+      const sectionForStudent = (studentId: string) => {
+        const asg = studentAssignments.find((a: any) => String(a.studentId) === String(studentId));
+        return asg?.sectionId || null;
+      };
+      
+  const newGrades: TestGrade[] = [];
+  let replacements = 0;
+      const queued = new Set<string>();
+
+      // 1) Nueva fuente principal: comentarios de entrega con grade numérico (calificación del profesor)
+      const gradedSubmissions = Array.isArray(comments)
+        ? comments.filter((c: any) => c && c.taskId && (c.grade !== undefined && c.grade !== null) && !isNaN(Number(c.grade)))
+        : [];
+
+      console.log(`📝 Encontradas ${gradedSubmissions.length} entregas calificadas (comentarios con grade)`);
+
+      gradedSubmissions.forEach((c: any) => {
+        try {
+          const task = taskById.get(String(c.taskId));
+          if (!task) return;
+          const student = userById.get(String(c.studentId)) || users.find((u: any) => String(u.username) === String(c.studentUsername));
+          if (!student) return;
+          const score = Math.max(0, Math.min(100, Number(c.grade)));
+          const subjId = subjectByNameOrId(task);
+          const courseId = task.courseId || task.course || null;
+          const secId = task.sectionId || sectionForStudent(String(student.id));
+          const key = `${task.id}-${student.id}`;
+          const existing = currentGrades.find((g: any) => String(g.testId) === String(task.id) && String(g.studentId) === String(student.id));
+          const base: TestGrade = {
+            id: key,
+            testId: String(task.id),
+            studentId: String(student.id),
+            studentName: student.displayName || student.name || student.username,
+            score: Math.round(score * 100) / 100,
+            courseId: courseId ? String(courseId) : null,
+            sectionId: secId ? String(secId) : null,
+            subjectId: subjId,
+            title: task.title,
+            gradedAt: new Date(c.reviewedAt || c.timestamp || Date.now()).getTime(),
+          };
+          if (!existing) {
+            if (!queued.has(base.id)) { newGrades.push(base); queued.add(base.id); }
+          } else {
+            // Actualizar si cambió el puntaje o la fecha de revisión es más reciente
+            const newer = (c.reviewedAt ? new Date(c.reviewedAt).getTime() : Date.now());
+            if (Number(existing.score) !== base.score || newer > Number(existing.gradedAt)) {
+              // Reemplazar existente
+              const idx = currentGrades.findIndex((g: any) => g.testId === existing.testId && g.studentId === existing.studentId);
+              if (idx >= 0) {
+                currentGrades[idx] = { ...existing, ...base };
+                replacements++;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('⚠️ Error procesando entrega calificada:', err);
+        }
+      });
+
+      // 2) Compatibilidad: comentarios de profesor con calificación en texto (legacy)
+      try {
+        const gradeComments = comments.filter((comment: any) => {
+          const text = (comment.content || comment.comment || '').toLowerCase();
+          const hasGrade = /nota|calificaci[oó]n|puntaje|punto|\/\d+|\d+\/\d+|\d+\s*pts|\d+\s*puntos|\d+\s*%/i.test(text);
+          const isFromTeacher = comment.authorRole === 'teacher' || comment.authorRole === 'profesor' || comment.userRole === 'teacher';
+          return hasGrade && isFromTeacher;
+        });
+        console.log(`📝 (Compat) Comentarios con texto de calificación: ${gradeComments.length}`);
+        gradeComments.forEach((comment: any) => {
+          try {
+            const text = String(comment.content || comment.comment || '');
+            const patterns = [
+              /nota[:\s]*(\d+(?:\.\d+)?)/i,
+              /calificaci[oó]n[:\s]*(\d+(?:\.\d+)?)/i,
+              /puntaje[:\s]*(\d+(?:\.\d+)?)/i,
+              /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/,
+              /(\d+(?:\.\d+)?)\s*pts/i,
+              /(\d+(?:\.\d+)?)\s*puntos/i,
+              /(\d+(?:\.\d+)?)\s*%/,
+              /^(\d+(?:\.\d+)?)$/
+            ];
+            let score: number | null = null;
+            for (const pattern of patterns) {
+              const m = text.match(pattern);
+              if (m) {
+                if (pattern.source.includes('\\/')) {
+                  score = (parseFloat(m[1]) / parseFloat(m[2])) * 100;
+                } else {
+                  score = parseFloat(m[1]);
+                  if (score > 100) score = Math.min(score / 10, 100);
+                }
+                break;
+              }
+            }
+            if (score == null || !isFinite(score)) return;
+            const task = taskById.get(String(comment.taskId));
+            if (!task) return;
+            const student = userById.get(String(comment.studentId)) || users.find((u: any) => String(u.username) === String(comment.studentUsername));
+            if (!student) return;
+            const subjId = subjectByNameOrId(task);
+            const courseId = task.courseId || task.course || null;
+            const secId = task.sectionId || sectionForStudent(String(student.id));
+            const key = `${task.id}-${student.id}`;
+            if (!currentGrades.some((g: any) => String(g.testId) === String(task.id) && String(g.studentId) === String(student.id)) && !queued.has(key)) {
+              newGrades.push({
+                id: key,
+                testId: String(task.id),
+                studentId: String(student.id),
+                studentName: student.displayName || student.name || student.username,
+                score: Math.round(score * 100) / 100,
+                courseId: courseId ? String(courseId) : null,
+                sectionId: secId ? String(secId) : null,
+                subjectId: subjId,
+                title: task.title,
+                gradedAt: new Date(comment.reviewedAt || comment.timestamp || Date.now()).getTime(),
+              });
+              queued.add(key);
+            }
+          } catch {/* ignore one off */}
+        });
+      } catch {/* legacy path errors ignored */}
+
+      // Integración de resultados de Evaluación en tareas: task.evaluationResults
+      try {
+        tasks.forEach((task: any) => {
+          const results = task?.evaluationResults;
+          if (!results || typeof results !== 'object') return;
+          Object.entries(results as Record<string, any>).forEach(([studentUsername, res]) => {
+            try {
+              const total = Number(res?.totalQuestions) || 0;
+              const rawScore = Number(res?.score);
+              let pct = total > 0 ? (rawScore / total) * 100 : Number(res?.completionPercentage) || 0;
+              if (!isFinite(pct)) return;
+              pct = Math.max(0, Math.min(100, pct));
+              const student = users.find((u: any) => String(u.username) === String(studentUsername));
+              if (!student) return;
+              const subject = subjects.find((s: any) => s.name === task.subject || String(s.id) === String(task.subjectId));
+              const exists = currentGrades.some((g: any) => g.testId === task.id && String(g.studentId) === String(student.id));
+              if (exists) return;
+              const newGrade: TestGrade = {
+                id: `${task.id}-${student.id}`,
+                testId: task.id,
+                studentId: student.id,
+                studentName: student.displayName || student.name || student.username,
+                score: Math.round(pct * 100) / 100,
+                courseId: task.courseId || null,
+                sectionId: task.sectionId || null,
+                subjectId: subject?.id || task.subject || null,
+                title: task.title,
+                gradedAt: new Date(res?.completedAt || Date.now()).getTime(),
+              };
+              if (!queued.has(newGrade.id)) {
+                newGrades.push(newGrade);
+                queued.add(newGrade.id);
+              }
+            } catch {/* row error */}
+          });
+        });
+      } catch (err) {
+        console.warn('Error integrando evaluationResults:', err);
+      }
+
+      // Integración directa desde smart-student-evaluation-results (fuente oficial al completar evaluación)
+      try {
+        const evalResults = JSON.parse(localStorage.getItem('smart-student-evaluation-results') || '[]');
+        if (Array.isArray(evalResults)) {
+          evalResults.forEach((res: any) => {
+            try {
+              const task = taskById.get(String(res?.taskId));
+              const student = userById.get(String(res?.studentId)) || users.find((u: any) => String(u.username) === String(res?.studentUsername));
+              if (!task || !student) return;
+              const pctRaw = Number(res?.percentage);
+              if (!isFinite(pctRaw)) return;
+              const pct = Math.max(0, Math.min(100, pctRaw));
+              const subjId = subjectByNameOrId(task);
+              const courseId = task.courseId || task.course || null;
+              const secId = task.sectionId || sectionForStudent(String(student.id));
+              const key = `${task.id}-${student.id}`;
+              const base: TestGrade = {
+                id: key,
+                testId: String(task.id),
+                studentId: String(student.id),
+                studentName: student.displayName || student.name || student.username,
+                score: Math.round(pct * 100) / 100,
+                courseId: courseId ? String(courseId) : null,
+                sectionId: secId ? String(secId) : null,
+                subjectId: subjId,
+                title: task.title,
+                gradedAt: new Date(res?.completedAt || Date.now()).getTime(),
+              };
+              const existing = currentGrades.find((g: any) => String(g.testId) === String(task.id) && String(g.studentId) === String(student.id));
+              if (!existing) {
+                if (!queued.has(base.id)) { newGrades.push(base); queued.add(base.id); }
+              } else {
+                if (Number(existing.score) !== base.score || Number(existing.gradedAt) < base.gradedAt) {
+                  const idx = currentGrades.findIndex((g: any) => g.testId === existing.testId && g.studentId === existing.studentId);
+                  if (idx >= 0) { currentGrades[idx] = { ...existing, ...base }; replacements++; }
+                }
+              }
+            } catch {/* one result error */}
+          });
+        }
+      } catch (err) {
+        console.warn('Error integrando smart-student-evaluation-results:', err);
+      }
+      
+      // Guardar las nuevas calificaciones (incluye reemplazos ya aplicados sobre currentGrades)
+      if (newGrades.length > 0 || replacements > 0) {
+        const updatedGrades = [...currentGrades, ...newGrades];
+        localStorage.setItem('smart-student-test-grades', JSON.stringify(updatedGrades));
+        setGrades(updatedGrades);
+        
+        // Emitir evento para sincronizar otras partes de la app
+        window.dispatchEvent(new StorageEvent('storage', { 
+          key: 'smart-student-test-grades', 
+          newValue: JSON.stringify(updatedGrades) 
+        }));
+  // Notificar a sistema de notificaciones para reflejar cambios inmediatos
+  try { window.dispatchEvent(new CustomEvent('taskNotificationsUpdated', { detail: { reason: 'gradesSynced', count: newGrades.length } })); } catch {}
+        
+  console.log(`🎯 Sincronizadas ${newGrades.length} nuevas calificaciones, ${replacements} actualizaciones`);
+      } else {
+        console.log('ℹ️ No se encontraron nuevas calificaciones para sincronizar');
+      }
+      
+    } catch (error) {
+      console.error('Error sincronizando calificaciones de tareas:', error);
+    }
+  };
+
+  // Función para cargar tareas pendientes de calificación
+  const loadPendingTasks = () => {
+    try {
+      const tasks: Task[] = loadJson<Task[]>('smart-student-tasks', []);
+      // Incluir evaluaciones como tareas pendientes también
+      const evalsRaw: any[] = loadJson<any[]>('smart-student-evaluations', []);
+      const evaluations: Task[] = Array.isArray(evalsRaw) ? evalsRaw.map((e: any) => ({
+        id: String(e.id ?? e.evaluationId ?? e.uid ?? Math.random().toString(36).slice(2)),
+        title: String(e.title ?? e.name ?? 'Evaluación'),
+        description: String(e.description ?? ''),
+        subject: String(e.subject ?? e.subjectName ?? e.subjectId ?? 'General'),
+        course: String(e.course ?? e.courseName ?? e.courseId ?? ''),
+        assignedById: String(e.assignedById ?? e.teacherId ?? ''),
+        assignedByName: String(e.assignedByName ?? e.teacherName ?? ''),
+        assignedTo: (e.assignedTo === 'student' ? 'student' : 'course'),
+        assignedStudentIds: Array.isArray(e.assignedStudentIds) ? e.assignedStudentIds.map(String) : undefined,
+        dueDate: String(e.dueDate ?? e.closeAt ?? new Date().toISOString()),
+        createdAt: String(e.createdAt ?? e.openAt ?? new Date().toISOString()),
+        status: (e.status === 'finished' || e.closed) ? 'finished' : (e.status || 'pending'),
+        priority: 'medium',
+        taskType: 'evaluacion',
+      })) : [];
+      // Agregar Pruebas (smart-student-tests_*) como elementos tipo 'prueba'
+      const testsRaw: any[] = (() => {
+        const acc: any[] = [];
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key || !key.startsWith('smart-student-tests')) continue;
+            const arr = JSON.parse(localStorage.getItem(key) || '[]');
+            if (Array.isArray(arr)) acc.push(...arr);
+          }
+        } catch {}
+        try {
+          const base = JSON.parse(localStorage.getItem('smart-student-tests') || '[]');
+          if (Array.isArray(base)) acc.push(...base);
+        } catch {}
+        return acc;
+      })();
+      const testsAsTasks: Task[] = Array.isArray(testsRaw) ? testsRaw.map((t: any) => ({
+        id: String(t.id || ''),
+        title: String(t.title || 'Prueba'),
+        description: String(t.description || ''),
+        subject: String(t.subjectName || t.subjectId || 'General'),
+        course: '',
+        assignedById: String(t.ownerId || ''),
+        assignedByName: String(t.ownerUsername || ''),
+        assignedTo: 'course',
+        assignedStudentIds: undefined,
+        dueDate: new Date(Number(t.createdAt || Date.now())).toISOString(),
+        createdAt: new Date(Number(t.createdAt || Date.now())).toISOString(),
+        status: 'pending',
+        priority: 'medium',
+        taskType: 'prueba',
+        topic: String(t.topic || t.title || ''),
+      })) : [];
+      const existingGrades = loadJson<TestGrade[]>('smart-student-test-grades', []);
+      
+      // Filtrar tareas que están esperando calificación
+      const pending: PendingTask[] = [];
+      
+  const allItems: Task[] = [...tasks, ...evaluations, ...testsAsTasks];
+      allItems.forEach((task) => {
+        // Considerar tareas en cualquier estado que no sea 'finished' 
+        // (pending = recién creada, submitted = entregada, reviewed = revisada, delivered = entregada)
+        if (['pending', 'submitted', 'reviewed', 'delivered'].includes(task.status)) {
+          // Verificar si la tarea ya tiene calificaciones completas
+          const taskGrades = existingGrades.filter(grade => grade.testId === task.id);
+          
+          let needsGrading = false;
+          
+          if (task.assignedTo === 'course') {
+            // Para todo el curso, si no hay calificaciones, está pendiente
+            needsGrading = taskGrades.length === 0;
+          } else if (task.assignedTo === 'student' && task.assignedStudentIds) {
+            // Para estudiantes específicos, verificar si faltan calificaciones
+            const gradedStudentIds = new Set(taskGrades.map(g => g.studentId));
+            needsGrading = task.assignedStudentIds.some(studentId => !gradedStudentIds.has(studentId));
+          }
+          
+          if (needsGrading) {
+            pending.push({
+              taskId: task.id,
+              title: task.title,
+              taskType: task.taskType,
+              createdAt: task.createdAt,
+              subject: task.subject,
+              course: task.course,
+              assignedTo: task.assignedTo,
+              assignedStudentIds: task.assignedStudentIds,
+              columnIndex: 0, // Se asignará después del ordenamiento
+              topic: task.topic
+            });
+          }
+        }
+      });
+
+      // Ordenar por fecha de creación (más antigua primero) y asignar columnas N1-N10
+      pending.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      pending.forEach((task, index) => {
+        task.columnIndex = Math.min(index, 9); // N1=0, N2=1, ..., N10=9
+      });
+
+      setPendingTasks(pending.slice(0, 10)); // Máximo 10 tareas pendientes
+      
+      if (pending.length > 0) {
+        console.log(`📋 [CALIFICACIONES] ${pending.length} tarea(s) pendiente(s) de calificación:`, pending.map(t => `${t.title} (${t.taskType})`));
+      }
+    } catch (error) {
+      console.error('Error cargando tareas pendientes:', error);
+      setPendingTasks([]);
+    }
+  };
 
   // Helpers de nivel
   const getCourseLevel = (name?: string): 'basica' | 'media' | null => {
@@ -247,7 +710,7 @@ export default function GradesPage() {
 
   // Estudiantes reales de Gestión de Usuarios para las secciones visibles
   const studentsInView = useMemo(() => {
-    // Mapear asignaciones a IDs de estudiantes
+    // Recolectar IDs/usuarios asignados a las secciones visibles
     const ids = new Set<string>();
     studentAssignments.forEach(a => {
       if (a && a.sectionId && visibleSectionIds.has(String(a.sectionId))) {
@@ -255,18 +718,22 @@ export default function GradesPage() {
         if (a.studentUsername) ids.add(String(a.studentUsername));
       }
     });
-    // Filtrar usuarios con rol estudiante y que estén asignados
-    let list = users.filter(u => (u?.role === 'student' || u?.role === 'estudiante') && (ids.has(String(u.id)) || ids.has(String(u.username))));
-    // Restringir por rol actual
+    // Filtrar usuarios que pertenecen a esas secciones
+    let list = users.filter(u => {
+      const sid = u && (u.id != null ? String(u.id) : undefined);
+      const uname = u && u.username ? String(u.username) : undefined;
+      return (sid && ids.has(sid)) || (uname && ids.has(uname));
+    });
+    // Rol estudiante: sólo su propio registro
     if (user?.role === 'student') {
       list = list.filter(u => String(u.id) === String((user as any).id) || String(u.username) === String(user.username));
     }
     // Filtro por estudiante seleccionado en cascada
     if (studentFilter !== 'all') {
-      list = list.filter(u => String(u.id) === String(studentFilter));
+      list = list.filter(u => String(u.id) === String(studentFilter) || String(u.username) === String(studentFilter));
     }
-    // Ordenar por Curso-Sección (curso natural 1ºB→4ºM y sección A→Z) y luego por nombre del estudiante (alfabético)
-    list.sort((a, b) => {
+    // Ordenar por Curso-Sección y nombre
+    list.sort((a: any, b: any) => {
       const assignA = studentAssignments.find(as => as && as.sectionId && visibleSectionIds.has(String(as.sectionId)) && (String(as.studentId) === String(a.id) || String(as.studentUsername) === String(a.username)));
       const assignB = studentAssignments.find(as => as && as.sectionId && visibleSectionIds.has(String(as.sectionId)) && (String(as.studentId) === String(b.id) || String(as.studentUsername) === String(b.username)));
       const secA = sections.find(s => String(s.id) === String(assignA?.sectionId));
@@ -279,38 +746,88 @@ export default function GradesPage() {
       const sA = sectionRank(secA?.name);
       const sB = sectionRank(secB?.name);
       if (sA !== sB) return sA - sB;
-      return String(a.displayName || '').localeCompare(String(b.displayName || ''), undefined, { sensitivity: 'base' });
+      return String(a.displayName || a.name || a.username || '').localeCompare(String(b.displayName || b.name || b.username || ''), undefined, { sensitivity: 'base' });
     });
     return list;
   }, [users, studentAssignments, visibleSectionIds, user, studentFilter, sections, courseById]);
 
   // Filtrar notas por secciones/rol/asignatura y semestre
   const filteredGrades = useMemo(() => {
+    // Mapa de creación por test para ordenar/filtrar por fecha de creación
+    const createdMap = new Map<string, number>();
+    try {
+      const tks = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
+      tks.forEach((t: any) => {
+        const ts = Date.parse(String(t.createdAt || ''));
+        if (!isNaN(ts)) createdMap.set(String(t.id), ts);
+      });
+      const evals = JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]');
+      evals.forEach((e: any) => {
+        const id = String(e.id ?? e.evaluationId ?? e.uid ?? '');
+        const ts = Date.parse(String(e.createdAt || e.openAt || ''));
+        if (id && !isNaN(ts)) createdMap.set(id, ts);
+      });
+      // Incluir Pruebas (smart-student-tests_*): su createdAt es numérico
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key || !key.startsWith('smart-student-tests')) continue;
+          const arr = JSON.parse(localStorage.getItem(key) || '[]');
+          if (Array.isArray(arr)) {
+            arr.forEach((t: any) => {
+              const id = String(t?.id || '');
+              const ts = Number(t?.createdAt || 0);
+              if (id && Number.isFinite(ts) && ts > 0) createdMap.set(id, ts);
+            });
+          }
+        }
+      } catch {}
+    } catch {}
+
     const list = grades.filter(g => {
-      if (!g.sectionId || !visibleSectionIds.has(String(g.sectionId))) return false;
+      // Filtrar por sección visible; si no hay sectionId en la nota, inferir por asignación del estudiante
+      if (g.sectionId) {
+        if (!visibleSectionIds.has(String(g.sectionId))) return false;
+      } else {
+        // Inferir sección del estudiante
+        const assign = studentAssignments.find(as => String(as.studentId) === String(g.studentId) || String(as.studentUsername) === String(g.studentId));
+        const secId = assign?.sectionId ? String(assign.sectionId) : null;
+        if (!secId || !visibleSectionIds.has(secId)) return false;
+      }
       if (subjectFilter !== 'all') {
         const found = subjects.find(su => String(su.id) === String(g.subjectId));
         const name = found?.name || (g.subjectId ? String(g.subjectId) : '');
         if (name !== subjectFilter) return false;
       }
-      // Semestre: 1 (Ene-Jun), 2 (Jul-Dic), all
-      const dt = new Date(g.gradedAt);
-      const m = dt.getMonth();
-      if (semester === '1' && m > 5) return false;
-      if (semester === '2' && m < 6) return false;
-      // Rol
+      if (semester !== 'all') {
+        const createdTs = createdMap.get(String(g.testId)) ?? g.gradedAt;
+        if (semestersCfg) {
+          const dt = new Date(createdTs);
+          const start = new Date(semester === '1' ? semestersCfg.first.start : semestersCfg.second.start);
+          const end = new Date(semester === '1' ? semestersCfg.first.end : semestersCfg.second.end);
+          if (!(dt >= start && dt <= end)) return false;
+        } else {
+          const dt = new Date(createdTs);
+          const m = dt.getMonth();
+          if (semester === '1' && m > 5) return false;
+          if (semester === '2' && m < 6) return false;
+        }
+      }
       if (user?.role === 'student' && String(g.studentId) !== String((user as any).id)) return false;
       if (user?.role === 'teacher') {
         if (g.courseId && !allowed.courses.has(String(g.courseId))) return false;
         if (g.sectionId && !allowed.sections.has(String(g.sectionId))) return false;
       }
-      // Filtro por estudiante en cascada
-      if (studentFilter !== 'all' && String(g.studentId) !== String(studentFilter)) return false;
+  if (studentFilter !== 'all' && String(g.studentId) !== String(studentFilter)) return false;
       return true;
     });
-    // Orden por fecha asc para asignar N1..N10 de forma cronológica
-    return list.sort((a, b) => a.gradedAt - b.gradedAt);
-  }, [grades, visibleSectionIds, subjectFilter, semester, user, allowed, subjects, studentFilter]);
+    // Orden por fecha de creación asc (para N1..N10)
+    return list.sort((a, b) => {
+      const ca = createdMap.get(String(a.testId)) ?? a.gradedAt;
+      const cb = createdMap.get(String(b.testId)) ?? b.gradedAt;
+      return ca - cb;
+    });
+  }, [grades, visibleSectionIds, subjectFilter, semester, user, allowed, subjects, studentFilter, refreshTick]);
 
   // Índice N1..N10 por estudiante
   const gradeMap = useMemo(() => {
@@ -340,7 +857,170 @@ export default function GradesPage() {
     return `${base} bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-600`;
   };
 
+  // Componente para tooltip mejorado
+  const TaskTooltip = ({ task, children }: { task: any; children: React.ReactNode }) => {
+    const [isVisible, setIsVisible] = useState(false);
+    
+    const formatDate = (dateStr: string) => {
+      try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const yyyy = d.getFullYear();
+        return `${dd}-${mm}-${yyyy}`;
+      } catch {
+        return dateStr;
+      }
+    };
+
+    return (
+      <div 
+        className="relative inline-block"
+        onMouseEnter={() => setIsVisible(true)}
+        onMouseLeave={() => setIsVisible(false)}
+      >
+        {children}
+        {isVisible && task && (
+          <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2">
+            <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg max-w-64 whitespace-normal">
+              <div className="font-semibold text-yellow-200">{task.taskType === 'evaluacion' ? 'Evaluación' : task.taskType === 'prueba' ? 'Prueba' : 'Tarea'}: {task.title}</div>
+              <div className="text-gray-300 mt-1">Creada: {formatDate(task.createdAt)}</div>
+              {task.dueDate && (
+                <div className="text-gray-300">Vence: {formatDate(task.dueDate)}</div>
+              )}
+              <div className="text-gray-300">Estado: {task.status === 'active' ? 'Activa' : task.status}</div>
+            </div>
+            {/* Flecha del tooltip */}
+            <div className="absolute top-full left-1/2 transform -translate-x-1/2">
+              <div className="border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Cargar tareas pendientes por asignatura
+  const loadPendingTasksBySubject = useMemo(() => {
+    const tasksBySubject = new Map<string, any[]>();
+    
+    try {
+      // Cargar tareas del localStorage
+      const tasks = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
+      const evaluations = JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]');
+      // Cargar Pruebas (todas las claves 'smart-student-tests*')
+      const tests: any[] = (() => {
+        const acc: any[] = [];
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key || !key.startsWith('smart-student-tests')) continue;
+            const arr = JSON.parse(localStorage.getItem(key) || '[]');
+            if (Array.isArray(arr)) acc.push(...arr);
+          }
+        } catch {}
+        try {
+          const base = JSON.parse(localStorage.getItem('smart-student-tests') || '[]');
+          if (Array.isArray(base)) acc.push(...base);
+        } catch {}
+        return acc;
+      })();
+      const grades = JSON.parse(localStorage.getItem('smart-student-test-grades') || '[]');
+      
+      // Combinar tareas y evaluaciones
+      const allTasks = [
+        ...tasks.map((t: any) => ({ ...t, taskType: t.taskType || 'tarea' })),
+        ...evaluations.map((e: any) => ({ ...e, taskType: 'evaluacion' })),
+        ...tests.map((t: any) => ({
+          ...t,
+          taskType: 'prueba',
+          subject: t.subjectName || t.subjectId || 'General',
+          createdAt: new Date(Number(t.createdAt || Date.now())).toISOString(),
+          status: 'pending',
+        }))
+      ];
+      
+      // Filtrar por secciones visibles, estado activo y rango por semestre
+      const activeTasks = allTasks.filter(task => {
+        // Verificar si la tarea está activa
+        if (task.status !== 'active' && task.status !== 'pending') return false;
+        
+        // Verificar si la tarea está asignada a las secciones visibles
+  if (task.sectionId && !visibleSectionIds.has(String(task.sectionId))) return false;
+        // Filtrar por calendario de semestres
+        if (semester !== 'all') {
+          try {
+            const created = new Date(task.createdAt);
+            if (semestersCfg) {
+              const start = new Date(semester === '1' ? semestersCfg.first.start : semestersCfg.second.start);
+              const end = new Date(semester === '1' ? semestersCfg.first.end : semestersCfg.second.end);
+              if (!(created >= start && created <= end)) return false;
+            } else {
+              const m = created.getMonth();
+              if (semester === '1' && m > 5) return false;
+              if (semester === '2' && m < 6) return false;
+            }
+          } catch {}
+        }
+        return true;
+      });
+      
+      // Agrupar por asignatura
+      activeTasks.forEach(task => {
+        const subject = task.subject || task.subjectName || 'General';
+        if (!tasksBySubject.has(subject)) {
+          tasksBySubject.set(subject, []);
+        }
+        
+        // Verificar si ya tiene calificaciones
+        const hasGrades = grades.some((g: any) => 
+          g.testId === task.id || 
+          (g.subjectId === task.subjectId && g.studentId && 
+           String(g.subjectId).toLowerCase() === subject.toLowerCase())
+        );
+        
+        if (!hasGrades) {
+          tasksBySubject.get(subject)!.push(task);
+        }
+      });
+      
+      // Ordenar tareas por fecha de creación (más antigua primero)
+      tasksBySubject.forEach((tasks, subject) => {
+        tasks.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      });
+      
+    } catch (error) {
+      console.warn('Error cargando tareas pendientes:', error);
+    }
+    
+    return tasksBySubject;
+  }, [visibleSectionIds, refreshTick]);
+
   // (Eliminado) Generador de notas demo
+
+  // (Eliminado) Generador de notas demo
+
+  // Función para obtener tarea pendiente por columna y asignatura específica
+  const getPendingTaskForColumn = (columnIndex: number, subjectName: string): PendingTask | null => {
+    // Usar la nueva estructura de datos por asignatura
+    const subjectTasks = loadPendingTasksBySubject.get(subjectName) || [];
+    return subjectTasks[columnIndex] || null;
+  };
+
+  // Función para formatear fecha
+  const formatDate = (dateString: string): string => {
+    try {
+      const d = new Date(dateString);
+      if (isNaN(d.getTime())) return dateString;
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      return `${dd}-${mm}-${yyyy}`;
+    } catch {
+      return dateString;
+    }
+  };
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -533,13 +1213,15 @@ export default function GradesPage() {
                     {/* Botones de notas demo eliminados */}
                   </div>
                 </div>
+
+                {/* Botón de sincronización manual eliminado: la sincronización ahora es automática por eventos */}
               </div>
               {/* La tabla de resultados se mantiene debajo del Card en la misma columna */}
           </CardContent>
         </Card>
 
         {/* Resultados: un cuadro (Card) separado por cada asignatura - permanecen en columna izquierda */}
-        {studentsInView.length === 0 ? (
+  {studentsInView.length === 0 ? (
           <Card className="mt-4"><CardContent><div className="text-muted-foreground text-sm">{tr('noStudentsForFilters', 'Sin estudiantes para los filtros seleccionados')}</div></CardContent></Card>
         ) : (
           (() => {
@@ -561,10 +1243,12 @@ export default function GradesPage() {
               subjectsToRender = Array.from(nameSet).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
             }
             if (subjectsToRender.length === 0) subjectsToRender = [''];
-            return subjectsToRender.map((subjName, idx) => (
-              <Card key={`card-${subjName || 'general'}`} className="mt-4">
-                <CardContent>
-                  <div className="overflow-x-auto">
+            return (
+              <div className="pr-2">
+                {subjectsToRender.map((subjName, idx) => (
+                  <Card key={`card-${subjName || 'general'}`} className="mt-4">
+                    <CardContent>
+                  <div className="overflow-x-auto pb-9">
                     {/* Tabla optimizada: menos espacios vacíos, promedio visible sin scroll */}
                     <table className="w-full table-fixed text-sm border-collapse">
                       <colgroup>
@@ -581,23 +1265,17 @@ export default function GradesPage() {
                         {/* Promedio 10% - aumentado significativamente */}
                         <col style={{ width: '10%' }} />
                       </colgroup>
+                      {/* Encabezado visible solo en la primera tabla */}
                       {idx === 0 && (
                         <thead>
                           <tr>
                             <th className="py-2 px-2 align-bottom text-left whitespace-nowrap text-sm">{tr('courseSection', 'Curso/Sección')}</th>
                             <th className="py-2 px-2 align-bottom text-left whitespace-nowrap text-sm">{tr('student', 'Estudiante')}</th>
                             <th className="py-2 px-2 align-bottom text-left whitespace-nowrap text-sm">{tr('subject', 'Asignatura')}</th>
-                            <th className="py-2 px-2 text-center font-semibold text-sm" colSpan={10}>{semester === '1' ? tr('firstSemester', '1er Semestre') : semester === '2' ? tr('secondSemester', '2do Semestre') : tr('allSemesters', 'Todos los semestres')}</th>
+                            <th className="py-2 px-2 text-center font-semibold text-sm" colSpan={10}>
+                              {semester === '1' ? tr('firstSemester', '1er Semestre') : semester === '2' ? tr('secondSemester', '2do Semestre') : tr('allSemesters', 'Todos los semestres')}
+                            </th>
                             <th className="py-2 px-2 align-bottom text-center whitespace-nowrap text-sm">{tr('average', 'Promedio')}</th>
-                          </tr>
-                          <tr className="text-muted-foreground">
-                            <th></th>
-                            <th></th>
-                            <th></th>
-                            {Array.from({ length: 10 }).map((_, i) => (
-                              <th key={i} className="py-1 px-1 text-center text-xs">{`N${i + 1}`}</th>
-                            ))}
-                            <th></th>
                           </tr>
                         </thead>
                       )}
@@ -622,9 +1300,51 @@ export default function GradesPage() {
                             if (courseSectionLabel !== prevGroup) {
                               rows.push(
                                 <tr key={`grp-${subjName || 'general'}-${courseSectionLabel}`} className="border-t">
-                                  <td colSpan={14} className="py-1 px-2 text-xs font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200">
+                                  {/* Curso/Sección ocupa las tres primeras columnas */}
+                                  <td className="py-1 px-2 text-xs font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200" colSpan={3}>
                                     {courseSectionLabel}
                                   </td>
+                                  {/* N1..N10 en la fila azul */}
+                                  {Array.from({ length: 10 }).map((_, i) => {
+                                    const pendingTask = getPendingTaskForColumn(i, subjName || '');
+                                    const bubble = pendingTask?.taskType === 'evaluacion'
+                                      ? { bg: 'bg-purple-600', text: 'text-white', title: 'Evaluación', icon: '📊' }
+                                      : pendingTask?.taskType === 'prueba'
+                                        ? { bg: 'bg-indigo-600', text: 'text-white', title: 'Prueba', icon: '🧪' }
+                                        : { bg: 'bg-orange-600', text: 'text-white', title: 'Tarea', icon: '📝' };
+                                    return (
+                                      <td key={`grp-n-${i}`} className="py-1 px-1 text-center text-xs bg-indigo-50 dark:bg-indigo-900/30">
+                                        <div className="relative inline-block group">
+                                          {pendingTask ? (
+                                            <span className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${bubble.bg} ${bubble.text}`}>
+                                              {`N${i + 1}`}
+                                            </span>
+                                          ) : (
+                                            <span className={'text-indigo-700 dark:text-indigo-200'}>{`N${i + 1}`}</span>
+                                          )}
+                                          {pendingTask && (
+                                            <div className="absolute left-1/2 top-full transform -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-[9999] pointer-events-none">
+                                              <div className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-[11px] rounded-md px-3 py-2 shadow-xl border border-gray-200 dark:border-gray-600 min-w-[220px] max-w-[260px]">
+                                                <div className={`font-semibold mb-1 flex items-center gap-2 ${pendingTask.taskType === 'evaluacion' ? 'text-purple-600 dark:text-purple-200' : pendingTask.taskType === 'prueba' ? 'text-indigo-600 dark:text-indigo-200' : 'text-orange-600 dark:text-orange-200'}`}>
+                                                  <span>{bubble.icon}</span>
+                                                  <span className="truncate max-w-[180px]">{bubble.title}: {pendingTask.title}</span>
+                                                </div>
+                                                <div className="text-gray-700 dark:text-gray-200 space-y-0.5">
+                                                  <div className="flex items-center gap-2"><span>🧩</span><span className="truncate max-w-[200px]">Tema: {(pendingTask as any).topic || pendingTask.title}</span></div>
+                                                  <div className="flex items-center gap-2"><span>📅</span><span>Fecha: {formatDate(pendingTask.createdAt)}</span></div>
+                                                </div>
+                                              </div>
+                                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2">
+                                                <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-b-[6px] border-transparent border-b-white dark:border-b-gray-900"></div>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                  {/* Celda de cierre para la columna Promedio */}
+                                  <td className="py-1 px-1 bg-indigo-50 dark:bg-indigo-900/30"></td>
                                 </tr>
                               );
                               prevGroup = courseSectionLabel;
@@ -656,9 +1376,11 @@ export default function GradesPage() {
                       </tbody>
                     </table>
                   </div>
-                </CardContent>
-              </Card>
-            ));
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            );
           })()
         )}
         </div>
@@ -688,6 +1410,57 @@ export default function GradesPage() {
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Panel de tareas pendientes de calificación */}
+        {pendingTasks.length > 0 && (
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <span className="animate-pulse">🔔</span>
+                Pendientes de Calificación ({pendingTasks.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {pendingTasks.map((task) => {
+                  const colorWrap = task.taskType === 'evaluacion'
+                    ? { ring: 'border-purple-200 dark:border-purple-700', bg: 'bg-purple-50 dark:bg-purple-900/20', tag: 'text-purple-700 dark:text-purple-300', icon: '📊', title: 'Evaluación' }
+                    : task.taskType === 'prueba'
+                      ? { ring: 'border-indigo-200 dark:border-indigo-700', bg: 'bg-indigo-50 dark:bg-indigo-900/20', tag: 'text-indigo-700 dark:text-indigo-300', icon: '🧪', title: 'Prueba' }
+                      : { ring: 'border-orange-200 dark:border-orange-700', bg: 'bg-orange-50 dark:bg-orange-900/20', tag: 'text-orange-700 dark:text-orange-300', icon: '📝', title: 'Tarea' };
+                  return (
+                    <div key={task.taskId} className={`flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border ${colorWrap.ring}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`flex items-center justify-center w-8 h-8 ${colorWrap.bg} ${colorWrap.tag} rounded-full font-bold text-sm`}>
+                          N{task.columnIndex + 1}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-gray-900 dark:text-gray-100">
+                            <span className="mr-1">{colorWrap.icon}</span>{colorWrap.title}: {task.title}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            {task.subject} • {task.course} • {formatDate(task.createdAt)}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-500">
+                            {task.assignedTo === 'course' ? 'Todo el curso' : `${task.assignedStudentIds?.length || 0} estudiante(s) específico(s)`}
+                          </div>
+                        </div>
+                      </div>
+                      <div className={`text-xs font-medium ${colorWrap.tag}`}>
+                        Pendiente
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 p-3 rounded-lg bg-muted/40">
+                <p className="text-sm text-muted-foreground">
+                  💡 Consejo: Las columnas N1–N10 resaltadas indican pendientes. Colores: 📝 Tarea (naranja), 📊 Evaluación (morado), 🧪 Prueba (rosa).
+                </p>
               </div>
             </CardContent>
           </Card>

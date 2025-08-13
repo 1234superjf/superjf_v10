@@ -805,11 +805,29 @@
     const saveTasks = (newTasks: Task[]) => {
       localStorage.setItem('smart-student-tasks', JSON.stringify(newTasks));
       setTasks(newTasks);
+      // Notificar a otras vistas en la misma pestaña (el evento 'storage' no se dispara localmente)
+      try {
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'smart-student-tasks',
+          newValue: JSON.stringify(newTasks)
+        }));
+      } catch {}
     };
 
     const saveComments = (newComments: TaskComment[]) => {
       localStorage.setItem('smart-student-task-comments', JSON.stringify(newComments));
       setComments(newComments);
+      // Notificar a otras vistas (Calificaciones escucha este cambio para sincronizar notas)
+      try {
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'smart-student-task-comments',
+          newValue: JSON.stringify(newComments)
+        }));
+      } catch {}
+      // Opcional: disparar evento para refrescar paneles que dependan de comentarios/notas
+      try {
+        window.dispatchEvent(new CustomEvent('taskNotificationsUpdated', { detail: { reason: 'taskCommentsSaved' } }));
+      } catch {}
     };
 
     // Get available courses and subjects for teacher
@@ -3451,7 +3469,7 @@
     };
 
     // Función para guardar la calificación
-    const saveGrade = () => {
+  const saveGrade = () => {
       if (!submissionToGrade) return;
       
       const grade = parseInt(gradeForm.grade);
@@ -3480,6 +3498,16 @@
       
       setComments(updatedComments);
       localStorage.setItem('smart-student-task-comments', JSON.stringify(updatedComments));
+      // Notificar a la misma pestaña para que Calificaciones sincronice de inmediato
+      try {
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'smart-student-task-comments',
+          newValue: JSON.stringify(updatedComments)
+        }));
+      } catch {}
+      try {
+        window.dispatchEvent(new CustomEvent('taskNotificationsUpdated', { detail: { reason: 'gradeSaved' } }));
+      } catch {}
       
       // Cerrar el diálogo
       setShowGradeDialog(false);

@@ -611,7 +611,7 @@ export default function AttendancePage() {
             {translate('attendanceControl') || 'Registra y visualiza la asistencia de tus estudiantes.'}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Badge className="bg-indigo-600 text-white">{format(parseLocalDate(selectedDate), 'dd/MM/yyyy', { locale: dateLocale })}</Badge>
+            <Badge className="bg-indigo-600 text-white">{format(parseLocalDate(selectedDate), 'dd-MM-yyyy', { locale: dateLocale })}</Badge>
             {selectedCourse && (
               <Badge variant="outline" className="border-indigo-300 text-indigo-700 dark:text-indigo-300">
                 {teacherCourseSections.find(cs => cs.id === selectedCourse)?.label || translate('course')}
@@ -728,7 +728,7 @@ export default function AttendancePage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <CalendarDays className="h-5 w-5" />
-                  {translate('attendanceDate') || 'Asistencia del día'} - {format(parseLocalDate(selectedDate), 'dd/MM/yyyy', { locale: dateLocale })}
+                  {translate('attendanceDate') || 'Asistencia del día'} - {format(parseLocalDate(selectedDate), 'dd-MM-yyyy', { locale: dateLocale })}
                 </CardTitle>
                 <div className="flex items-center gap-2">
                   <Button
@@ -1073,12 +1073,12 @@ export default function AttendancePage() {
   );
 }
 
-// Selector de fecha con popover y calendario (localizado) que emite YYYY-MM-DD y muestra dd/MM/yyyy
+// Selector de fecha con popover y calendario (localizado) que emite YYYY-MM-DD y muestra dd-MM-yyyy
 function DateInput({ value, onChange, locale }: { value: string; onChange: (v: string) => void; locale: Locale }) {
   // Parseo local seguro: evita que YYYY-MM-DD se interprete como UTC y reste un día en algunas zonas horarias
   const parsed = value ? parseLocalDate(value) : undefined;
   const selected = parsed && !isNaN(parsed.getTime()) ? parsed : undefined;
-  const label = selected ? format(selected, 'dd/MM/yyyy', { locale }) : 'dd/mm/yyyy';
+  const label = selected ? format(selected, 'dd-MM-yyyy', { locale }) : 'dd-mm-yyyy';
   const toIso = (d: Date) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
