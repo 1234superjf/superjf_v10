@@ -33,13 +33,20 @@ type Task = {
   title: string;
   description: string;
   subject: string;
+  // IDs opcionales que pueden venir en distintas fuentes del LS
+  subjectId?: string | null;
   course: string;
+  courseId?: string | null;
   assignedById: string;
   assignedByName: string;
   assignedTo: 'course' | 'student';
   assignedStudentIds?: string[];
   dueDate: string;
   createdAt: string;
+  // Algunas fuentes usan startAt/openAt; se soportan como opcionales
+  startAt?: string;
+  openAt?: string;
+  sectionId?: string | null;
   status: 'pending' | 'submitted' | 'reviewed' | 'delivered' | 'finished';
   priority: 'low' | 'medium' | 'high';
   taskType: 'tarea' | 'evaluacion' | 'prueba';
@@ -55,6 +62,8 @@ type PendingTask = {
   createdAt: string;
   subject: string;
   course: string;
+  courseId?: string | null;
+  sectionId?: string | null;
   assignedTo: 'course' | 'student';
   assignedStudentIds?: string[];
   columnIndex: number; // N1=0, N2=1, etc.
@@ -458,10 +467,12 @@ export default function GradesPage() {
         description: String(e.description ?? ''),
         subject: String(e.subject ?? e.subjectName ?? e.subjectId ?? 'General'),
         course: String(e.course ?? e.courseName ?? e.courseId ?? ''),
+        courseId: e.courseId ?? null,
         assignedById: String(e.assignedById ?? e.teacherId ?? ''),
         assignedByName: String(e.assignedByName ?? e.teacherName ?? ''),
         assignedTo: (e.assignedTo === 'student' ? 'student' : 'course'),
         assignedStudentIds: Array.isArray(e.assignedStudentIds) ? e.assignedStudentIds.map(String) : undefined,
+        sectionId: e.sectionId ?? null,
         dueDate: String(e.dueDate ?? e.closeAt ?? new Date().toISOString()),
         createdAt: String(e.createdAt ?? e.openAt ?? new Date().toISOString()),
         status: (e.status === 'finished' || e.closed) ? 'finished' : (e.status || 'pending'),
@@ -490,11 +501,14 @@ export default function GradesPage() {
         title: String(t.title || 'Prueba'),
         description: String(t.description || ''),
         subject: String(t.subjectName || t.subjectId || 'General'),
+        subjectId: t.subjectId ?? null,
         course: '',
+        courseId: t.courseId ?? null,
         assignedById: String(t.ownerId || ''),
         assignedByName: String(t.ownerUsername || ''),
         assignedTo: 'course',
         assignedStudentIds: undefined,
+        sectionId: t.sectionId ?? null,
         dueDate: new Date(Number(t.createdAt || Date.now())).toISOString(),
         createdAt: new Date(Number(t.createdAt || Date.now())).toISOString(),
         status: 'pending',
@@ -505,7 +519,7 @@ export default function GradesPage() {
       const existingGrades = loadJson<TestGrade[]>('smart-student-test-grades', []);
       
       // Filtrar tareas que están esperando calificación
-      const pending: PendingTask[] = [];
+  const pending: PendingTask[] = [];
       
   const allItems: Task[] = [...tasks, ...evaluations, ...testsAsTasks];
       allItems.forEach((task) => {
@@ -527,13 +541,19 @@ export default function GradesPage() {
           }
           
           if (needsGrading) {
+            // Fecha de referencia para N1..N10: priorizar createdAt
+            const refIso = new Date(
+              Date.parse(String(task.createdAt || task.startAt || task.openAt || task.dueDate || Date.now()))
+            ).toISOString();
             pending.push({
               taskId: task.id,
               title: task.title,
               taskType: task.taskType,
-              createdAt: task.createdAt,
+              createdAt: refIso,
               subject: task.subject,
               course: task.course,
+              courseId: task.courseId ?? null,
+              sectionId: (task as any).sectionId ?? null,
               assignedTo: task.assignedTo,
               assignedStudentIds: task.assignedStudentIds,
               columnIndex: 0, // Se asignará después del ordenamiento
@@ -543,8 +563,8 @@ export default function GradesPage() {
         }
       });
 
-      // Ordenar por fecha de creación (más antigua primero) y asignar columnas N1-N10
-      pending.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  // Ordenar por fecha (más antigua primero) usando createdAt prioritario
+  pending.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       pending.forEach((task, index) => {
         task.columnIndex = Math.min(index, 9); // N1=0, N2=1, ..., N10=9
       });
@@ -755,16 +775,31 @@ export default function GradesPage() {
   const filteredGrades = useMemo(() => {
     // Mapa de creación por test para ordenar/filtrar por fecha de creación
     const createdMap = new Map<string, number>();
+    // Helpers de fecha para semestre: parseo local de YYYY-MM-DD y comparación a nivel de día (ignora zona horaria)
+    const parseYmdLocal = (ymd?: string) => {
+      if (!ymd) return undefined as unknown as Date | undefined;
+      const [y, m, d] = String(ymd).split('-').map(Number);
+      if (!y || !m || !d) return undefined as unknown as Date | undefined;
+      return new Date(y, (m || 1) - 1, d || 1);
+    };
+    const startEndFor = (cfg: any, which: '1' | '2') => {
+      const start = parseYmdLocal(which === '1' ? cfg?.first?.start : cfg?.second?.start);
+      const end = parseYmdLocal(which === '1' ? cfg?.first?.end : cfg?.second?.end);
+      return { start, end } as { start?: Date; end?: Date };
+    };
+    const sameDayFloor = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
     try {
       const tks = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
       tks.forEach((t: any) => {
-        const ts = Date.parse(String(t.createdAt || ''));
+        // Para N1..N10 y clasificación temporal usamos createdAt como fuente primaria (evita desajustes de dueDate)
+        const raw = t.createdAt || t.startAt || t.openAt || t.dueDate;
+        const ts = Date.parse(String(raw || ''));
         if (!isNaN(ts)) createdMap.set(String(t.id), ts);
       });
       const evals = JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]');
       evals.forEach((e: any) => {
         const id = String(e.id ?? e.evaluationId ?? e.uid ?? '');
-        const ts = Date.parse(String(e.createdAt || e.openAt || ''));
+        const ts = Date.parse(String(e.createdAt || e.openAt || e.startAt || e.dueDate || ''));
         if (id && !isNaN(ts)) createdMap.set(id, ts);
       });
       // Incluir Pruebas (smart-student-tests_*): su createdAt es numérico
@@ -784,7 +819,7 @@ export default function GradesPage() {
       } catch {}
     } catch {}
 
-    const list = grades.filter(g => {
+  const list = grades.filter(g => {
       // Filtrar por sección visible; si no hay sectionId en la nota, inferir por asignación del estudiante
       if (g.sectionId) {
         if (!visibleSectionIds.has(String(g.sectionId))) return false;
@@ -801,16 +836,18 @@ export default function GradesPage() {
       }
       if (semester !== 'all') {
         const createdTs = createdMap.get(String(g.testId)) ?? g.gradedAt;
+        // Cuando hay config de semestres, usar comparación local por día
         if (semestersCfg) {
-          const dt = new Date(createdTs);
-          const start = new Date(semester === '1' ? semestersCfg.first.start : semestersCfg.second.start);
-          const end = new Date(semester === '1' ? semestersCfg.first.end : semestersCfg.second.end);
+          const dt = sameDayFloor(new Date(createdTs));
+          const { start, end } = startEndFor(semestersCfg, semester);
+          if (!start || !end) return false;
           if (!(dt >= start && dt <= end)) return false;
         } else {
+          // Fallback por mes si no hay config guardada
           const dt = new Date(createdTs);
           const m = dt.getMonth();
-          if (semester === '1' && m > 5) return false;
-          if (semester === '2' && m < 6) return false;
+          if (semester === '1' && m > 5) return false; // Ene(0)..Jun(5)
+          if (semester === '2' && m < 6) return false; // Jul(6)..Dic(11)
         }
       }
       if (user?.role === 'student' && String(g.studentId) !== String((user as any).id)) return false;
@@ -827,7 +864,7 @@ export default function GradesPage() {
       const cb = createdMap.get(String(b.testId)) ?? b.gradedAt;
       return ca - cb;
     });
-  }, [grades, visibleSectionIds, subjectFilter, semester, user, allowed, subjects, studentFilter, refreshTick]);
+  }, [grades, visibleSectionIds, subjectFilter, semester, semestersCfg, user, allowed, subjects, studentFilter, refreshTick]);
 
   // Índice N1..N10 por estudiante
   const gradeMap = useMemo(() => {
@@ -847,6 +884,51 @@ export default function GradesPage() {
     const sum = all.reduce((acc, g) => acc + (Number.isFinite(g.score) ? Number(g.score) : 0), 0);
     return Math.round((sum / all.length) * 10) / 10;
   }, [filteredGrades]);
+
+  // Lista de "Pendientes" filtrada por los filtros superiores (sección, asignatura, semestre)
+  const filteredPendingCards = useMemo(() => {
+    const list = [...pendingTasks];
+    const secs = new Set<string>([...visibleSectionIds]);
+    const onlyOneSection = secs.size === 1 ? Array.from(secs)[0] : null;
+    // Helpers de fecha
+    const parseYmdLocal = (ymd?: string) => {
+      if (!ymd) return undefined as unknown as Date | undefined;
+      const [y, m, d] = String(ymd).split('-').map(Number);
+      if (!y || !m || !d) return undefined as unknown as Date | undefined;
+      return new Date(y, (m || 1) - 1, d || 1);
+    };
+    const startEndFor = (cfg: any, which: '1' | '2') => {
+      const start = parseYmdLocal(which === '1' ? cfg?.first?.start : cfg?.second?.start);
+      const end = parseYmdLocal(which === '1' ? cfg?.first?.end : cfg?.second?.end);
+      return { start, end } as { start?: Date; end?: Date };
+    };
+    const sameDayFloor = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return list.filter(task => {
+      // Sección visible
+      let sid = task.sectionId ? String(task.sectionId) : null;
+      if (!sid && onlyOneSection) sid = onlyOneSection; // asumir la única sección visible
+      if (!sid || !secs.has(sid)) return false;
+      // Asignatura
+      if (subjectFilter !== 'all') {
+        if (String(task.subject || '').toLowerCase() !== String(subjectFilter).toLowerCase()) return false;
+      }
+      // Semestre
+      if (semester !== 'all') {
+        const ref = new Date(task.createdAt || Date.now());
+        if (semestersCfg) {
+          const dt = sameDayFloor(ref);
+          const { start, end } = startEndFor(semestersCfg, semester);
+          if (!start || !end) return false;
+          if (!(dt >= start && dt <= end)) return false;
+        } else {
+          const m = ref.getMonth();
+          if (semester === '1' && m > 5) return false;
+          if (semester === '2' && m < 6) return false;
+        }
+      }
+      return true;
+    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }, [pendingTasks, visibleSectionIds, subjectFilter, semester, semestersCfg]);
 
   // Estilos de badge para notas: 0-59 rojo, 60-100 verde
   const scoreBadgeClass = (score: number) => {
@@ -903,7 +985,13 @@ export default function GradesPage() {
 
   // Cargar tareas pendientes por asignatura
   const loadPendingTasksBySubject = useMemo(() => {
-    const tasksBySubject = new Map<string, any[]>();
+    // Clave compuesta: `${subject}__${sectionId}` para evitar mezclar secciones
+    const tasksByKey = new Map<string, any[]>();
+    const normSubj = (s?: string) => {
+      const base = String(s || 'General').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+      // Unificar plural simple (e.g., matematica(s))
+      return base.endsWith('s') ? base.slice(0, -1) : base;
+    };
     
     try {
       // Cargar tareas del localStorage
@@ -928,84 +1016,149 @@ export default function GradesPage() {
       })();
       const grades = JSON.parse(localStorage.getItem('smart-student-test-grades') || '[]');
       
-      // Combinar tareas y evaluaciones
-      const allTasks = [
+  // Combinar tareas y evaluaciones
+  const allTasks = [
         ...tasks.map((t: any) => ({ ...t, taskType: t.taskType || 'tarea' })),
         ...evaluations.map((e: any) => ({ ...e, taskType: 'evaluacion' })),
         ...tests.map((t: any) => ({
           ...t,
           taskType: 'prueba',
           subject: t.subjectName || t.subjectId || 'General',
+          subjectId: t.subjectId ?? null,
+          courseId: t.courseId ?? null,
+          sectionId: t.sectionId ?? null,
           createdAt: new Date(Number(t.createdAt || Date.now())).toISOString(),
           status: 'pending',
         }))
       ];
       
-      // Filtrar por secciones visibles, estado activo y rango por semestre
-      const activeTasks = allTasks.filter(task => {
-        // Verificar si la tarea está activa
-        if (task.status !== 'active' && task.status !== 'pending') return false;
-        
-        // Verificar si la tarea está asignada a las secciones visibles
-  if (task.sectionId && !visibleSectionIds.has(String(task.sectionId))) return false;
-        // Filtrar por calendario de semestres
+      // Helpers de fecha iguales a los de filteredGrades
+      const parseYmdLocal = (ymd?: string) => {
+        if (!ymd) return undefined as unknown as Date | undefined;
+        const [y, m, d] = String(ymd).split('-').map(Number);
+        if (!y || !m || !d) return undefined as unknown as Date | undefined;
+        return new Date(y, (m || 1) - 1, d || 1);
+      };
+      const sameDayFloor = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const startEndFor = (cfg: any, which: '1' | '2') => {
+        const start = parseYmdLocal(which === '1' ? cfg?.first?.start : cfg?.second?.start);
+        const end = parseYmdLocal(which === '1' ? cfg?.first?.end : cfg?.second?.end);
+        return { start, end } as { start?: Date; end?: Date };
+      };
+
+      // Expandir por sección y filtrar por semestre
+      const coursesLS = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      const sectionsLS = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
+      const assignsLS = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+      const activeTasks: any[] = [];
+      allTasks.forEach(task => {
+        // Estado permitido (excluir 'finished' únicamente)
+        const st = String(task.status || '').toLowerCase();
+        const allowed = new Set(['active', 'pending', 'submitted', 'reviewed', 'delivered']);
+        if (!allowed.has(st)) return;
+        // Fecha (createdAt prioritario)
+        const refRaw = task.createdAt || task.startAt || task.openAt || task.dueDate;
+        const created = new Date(refRaw);
         if (semester !== 'all') {
           try {
-            const created = new Date(task.createdAt);
             if (semestersCfg) {
-              const start = new Date(semester === '1' ? semestersCfg.first.start : semestersCfg.second.start);
-              const end = new Date(semester === '1' ? semestersCfg.first.end : semestersCfg.second.end);
-              if (!(created >= start && created <= end)) return false;
+              const dt = sameDayFloor(created);
+              const { start, end } = startEndFor(semestersCfg, semester);
+              if (!start || !end) return;
+              if (!(dt >= start && dt <= end)) return;
             } else {
               const m = created.getMonth();
-              if (semester === '1' && m > 5) return false;
-              if (semester === '2' && m < 6) return false;
+              if (semester === '1' && m > 5) return;
+              if (semester === '2' && m < 6) return;
             }
           } catch {}
         }
-        return true;
+        // Determinar secciones objetivo
+        const pushFor = (secId: string) => {
+          if (!visibleSectionIds.has(String(secId))) return;
+          activeTasks.push({ ...task, sectionId: String(secId) });
+        };
+        let secId = task.sectionId ? String(task.sectionId) : '';
+        if (!secId && task.assignedTo === 'student' && Array.isArray(task.assignedStudentIds) && task.assignedStudentIds.length > 0) {
+          try {
+            const sid = String(task.assignedStudentIds[0]);
+            const asg = assignsLS.find((a: any) => String(a.studentId) === sid || String(a.studentUsername) === sid);
+            if (asg?.sectionId) secId = String(asg.sectionId);
+          } catch {}
+        }
+        if (secId) {
+          pushFor(secId);
+          return;
+        }
+        // Si no hay sectionId: expandir por curso (courseId o nombre)
+        const courseId = task.courseId ? String(task.courseId) : (() => {
+          if (!task.course) return '';
+          // 1) Intentar por id exacto
+          const byId = coursesLS.find((c: any) => String(c.id) === String(task.course));
+          if (byId?.id) return String(byId.id);
+          // 2) Intentar por nombre
+          const byName = coursesLS.find((c: any) => String(c.name).toLowerCase() === String(task.course).toLowerCase());
+          return byName?.id ? String(byName.id) : '';
+        })();
+        if (courseId) {
+          sectionsLS.filter((s: any) => String(s.courseId) === courseId).forEach((s: any) => pushFor(String(s.id)));
+        }
       });
       
-      // Agrupar por asignatura
+      // Agrupar por asignatura + sección
       activeTasks.forEach(task => {
-        const subject = task.subject || task.subjectName || 'General';
-        if (!tasksBySubject.has(subject)) {
-          tasksBySubject.set(subject, []);
-        }
+        const subject = normSubj(task.subject || task.subjectName || 'General');
+        const secId = String(task.sectionId);
+        const key = `${subject}__${secId}`;
+        if (!tasksByKey.has(key)) tasksByKey.set(key, []);
         
-        // Verificar si ya tiene calificaciones
-        const hasGrades = grades.some((g: any) => 
-          g.testId === task.id || 
-          (g.subjectId === task.subjectId && g.studentId && 
-           String(g.subjectId).toLowerCase() === subject.toLowerCase())
-        );
-        
-        if (!hasGrades) {
-          tasksBySubject.get(subject)!.push(task);
-        }
+        // Relajar filtro: ocultar solo si ya hay calificaciones explícitas en esa sección
+        const hasGradesInSection = grades.some((g: any) => String(g.testId) === String(task.id) && String(g.sectionId || '') === String(secId));
+        if (!hasGradesInSection) tasksByKey.get(key)!.push(task);
       });
       
-      // Ordenar tareas por fecha de creación (más antigua primero)
-      tasksBySubject.forEach((tasks, subject) => {
-        tasks.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      // Ordenar por createdAt ascendente por cada clave
+      tasksByKey.forEach((arr) => {
+        const ref = (t: any) => new Date(t.createdAt || t.startAt || t.openAt || t.dueDate).getTime();
+        arr.sort((a, b) => ref(a) - ref(b));
       });
       
     } catch (error) {
       console.warn('Error cargando tareas pendientes:', error);
     }
     
-    return tasksBySubject;
-  }, [visibleSectionIds, refreshTick]);
+  return tasksByKey;
+  }, [visibleSectionIds, refreshTick, semester, semestersCfg]);
 
   // (Eliminado) Generador de notas demo
 
   // (Eliminado) Generador de notas demo
 
   // Función para obtener tarea pendiente por columna y asignatura específica
-  const getPendingTaskForColumn = (columnIndex: number, subjectName: string): PendingTask | null => {
-    // Usar la nueva estructura de datos por asignatura
-    const subjectTasks = loadPendingTasksBySubject.get(subjectName) || [];
-    return subjectTasks[columnIndex] || null;
+  const getPendingTaskForColumn = (columnIndex: number, subjectName: string, sectionId?: string | null): PendingTask | null => {
+    const normSubj = (s?: string) => {
+      const base = String(s || 'General').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+      return base.endsWith('s') ? base.slice(0, -1) : base;
+    };
+    if (!sectionId) return null;
+    const key = `${normSubj(subjectName)}__${String(sectionId)}`;
+    const tasks = loadPendingTasksBySubject.get(key) || [];
+    const t = tasks[columnIndex];
+    if (!t) return null;
+    return {
+      taskId: String(t.id),
+      title: String(t.title || t.name || ''),
+      taskType: String(t.taskType || 'tarea') as any,
+      createdAt: String(t.createdAt || t.startAt || t.openAt || t.dueDate || new Date().toISOString()),
+      subject: String(subjectName || t.subject || 'General'),
+      course: String(t.course || ''),
+      courseId: t.courseId ?? null,
+      sectionId: t.sectionId ?? null,
+      assignedTo: String(t.assignedTo || 'course') as any,
+      assignedStudentIds: Array.isArray(t.assignedStudentIds) ? t.assignedStudentIds.map(String) : undefined,
+      columnIndex,
+      topic: t.topic,
+    };
   };
 
   // Función para formatear fecha
@@ -1248,7 +1401,8 @@ export default function GradesPage() {
                 {subjectsToRender.map((subjName, idx) => (
                   <Card key={`card-${subjName || 'general'}`} className="mt-4">
                     <CardContent>
-                  <div className="overflow-x-auto pb-9">
+                  {/* Evitar scroll vertical dentro de cada tabla de asignatura; mantener solo scroll horizontal si es necesario */}
+                  <div className="overflow-x-auto overflow-y-visible pb-10">
                     {/* Tabla optimizada: menos espacios vacíos, promedio visible sin scroll */}
                     <table className="w-full table-fixed text-sm border-collapse">
                       <colgroup>
@@ -1306,7 +1460,7 @@ export default function GradesPage() {
                                   </td>
                                   {/* N1..N10 en la fila azul */}
                                   {Array.from({ length: 10 }).map((_, i) => {
-                                    const pendingTask = getPendingTaskForColumn(i, subjName || '');
+                                    const pendingTask = getPendingTaskForColumn(i, subjName || '', section?.id);
                                     const bubble = pendingTask?.taskType === 'evaluacion'
                                       ? { bg: 'bg-purple-600', text: 'text-white', title: 'Evaluación', icon: '📊' }
                                       : pendingTask?.taskType === 'prueba'
@@ -1416,17 +1570,110 @@ export default function GradesPage() {
         )}
 
         {/* Panel de tareas pendientes de calificación */}
-        {pendingTasks.length > 0 && (
+  {filteredPendingCards.length > 0 && (
           <Card className="mt-4">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <span className="animate-pulse">🔔</span>
-                Pendientes de Calificación ({pendingTasks.length})
+    Pendientes de Calificación ({filteredPendingCards.length})
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {pendingTasks.map((task) => {
+                {filteredPendingCards.map((task) => {
+                  // Datos auxiliares para etiquetas y N dinámico
+                  const secs = loadJson<any[]>('smart-student-sections', []);
+                  const crs = loadJson<any[]>('smart-student-courses', []);
+                  const assigns = loadJson<any[]>('smart-student-student-assignments', []);
+                  const isUuidLike = (s?: string) => !!s && /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(s);
+                  // Normalización idéntica a la usada en la tabla y en loadPendingTasksBySubject
+                  const normSubj = (s?: string) => {
+                    const base = String(s || 'General')
+                      .normalize('NFD')
+                      .replace(/[\u0300-\u036f]/g, '')
+                      .toLowerCase()
+                      .replace(/\s+/g, ' ')
+                      .trim();
+                    return base.endsWith('s') ? base.slice(0, -1) : base;
+                  };
+                  // Resolver sección para el cálculo de N por sección
+                  let resolvedSectionId: string | null = task.sectionId ? String(task.sectionId) : null;
+                  // Si no viene definida y solo hay una sección visible, usarla como fallback (coincide con el filtro aplicado arriba)
+                  if (!resolvedSectionId) {
+                    const secsVisible = new Set<string>([...visibleSectionIds]);
+                    if (secsVisible.size === 1) {
+                      resolvedSectionId = Array.from(secsVisible)[0];
+                    }
+                  }
+                  if (!resolvedSectionId && task.assignedTo === 'student' && Array.isArray(task.assignedStudentIds) && task.assignedStudentIds.length > 0) {
+                    const sid = String(task.assignedStudentIds[0]);
+                    const asg = assigns.find(a => String(a.studentId) === sid || String(a.studentUsername) === sid);
+                    if (asg?.sectionId) resolvedSectionId = String(asg.sectionId);
+                  }
+                  if (!resolvedSectionId && task.course) {
+                    // Si task.course parece un sectionId
+                    const secById = secs.find(s => String(s.id) === String(task.course));
+                    if (secById) {
+                      resolvedSectionId = String(secById.id);
+                    } else {
+                      // Intentar derivar la sección desde la etiqueta "CursoNombre Sección"
+                      const target = String(task.course);
+                      for (const s of secs) {
+                        const c = crs.find((cc: any) => String(cc.id) === String(s.courseId));
+                        const label = `${c?.name || ''} ${s.name}`.trim();
+                        if (label && label.toLowerCase() === target.toLowerCase()) { resolvedSectionId = String(s.id); break; }
+                      }
+                    }
+                  }
+                  // Calcular N dinámico según asignatura+sección en loadPendingTasksBySubject
+                  let computedN = task.columnIndex + 1;
+                  if (resolvedSectionId) {
+                    const key = `${normSubj(task.subject)}__${resolvedSectionId}`;
+                    const arr = loadPendingTasksBySubject.get(key) || [];
+                    const idx = arr.findIndex((t: any) => String(t.id) === String(task.taskId));
+                    if (idx >= 0) computedN = idx + 1;
+                  }
+                  // Determinar etiqueta Curso/Sección con múltiples estrategias
+                  let courseSectionLabel = '';
+                  try {
+                    if (task.sectionId) {
+                      const sec = secs.find(s => String(s.id) === String(task.sectionId));
+                      if (sec) {
+                        const courseObj = crs.find(c => String(c.id) === String(sec.courseId));
+                        courseSectionLabel = `${courseObj?.name || ''} ${sec.name}`.trim();
+                      }
+                    } else if (task.assignedTo === 'student' && Array.isArray(task.assignedStudentIds) && task.assignedStudentIds.length > 0) {
+                      // Inferir sección desde el primer estudiante asignado
+                      const sid = String(task.assignedStudentIds[0]);
+                      const asg = assigns.find(a => String(a.studentId) === sid || String(a.studentUsername) === sid);
+                      if (asg?.sectionId) {
+                        const sec = secs.find(s => String(s.id) === String(asg.sectionId));
+                        if (sec) {
+                          const courseObj = crs.find(c => String(c.id) === String(sec.courseId));
+                          courseSectionLabel = `${courseObj?.name || ''} ${sec.name}`.trim();
+                        }
+                      }
+                    } else if (task.courseId) {
+                      const courseObj = crs.find(c => String(c.id) === String(task.courseId));
+                      if (courseObj) courseSectionLabel = String(courseObj.name || '');
+                    } else if (task.course) {
+                      // Si task.course coincide con una sección
+                      const sec = secs.find(s => String(s.id) === String(task.course));
+                      if (sec) {
+                        const courseObj = crs.find(c => String(c.id) === String(sec.courseId));
+                        courseSectionLabel = `${courseObj?.name || ''} ${sec.name}`.trim();
+                      } else {
+                        // Si coincide con un curso por id
+                        const courseObj = crs.find(c => String(c.id) === String(task.course));
+                        if (courseObj) courseSectionLabel = String(courseObj.name || '');
+                      }
+                    }
+                    // Fallback: usar task.course solo si no parece un UUID/código
+                    if (!courseSectionLabel) {
+                      const maybe = String(task.course || '');
+                      if (maybe && !isUuidLike(maybe)) courseSectionLabel = maybe;
+                    }
+                  } catch {}
                   const colorWrap = task.taskType === 'evaluacion'
                     ? { ring: 'border-purple-200 dark:border-purple-700', bg: 'bg-purple-50 dark:bg-purple-900/20', tag: 'text-purple-700 dark:text-purple-300', icon: '📊', title: 'Evaluación' }
                     : task.taskType === 'prueba'
@@ -1436,14 +1683,14 @@ export default function GradesPage() {
                     <div key={task.taskId} className={`flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border ${colorWrap.ring}`}>
                       <div className="flex items-center gap-3">
                         <div className={`flex items-center justify-center w-8 h-8 ${colorWrap.bg} ${colorWrap.tag} rounded-full font-bold text-sm`}>
-                          N{task.columnIndex + 1}
+                          N{computedN}
                         </div>
                         <div>
                           <div className="font-semibold text-gray-900 dark:text-gray-100">
                             <span className="mr-1">{colorWrap.icon}</span>{colorWrap.title}: {task.title}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400">
-                            {task.subject} • {task.course} • {formatDate(task.createdAt)}
+                            {task.subject} • {courseSectionLabel || task.course || '—'} • {formatDate(task.createdAt)}
                           </div>
                           <div className="text-xs text-gray-500 dark:text-gray-500">
                             {task.assignedTo === 'course' ? 'Todo el curso' : `${task.assignedStudentIds?.length || 0} estudiante(s) específico(s)`}
@@ -1459,7 +1706,7 @@ export default function GradesPage() {
               </div>
               <div className="mt-4 p-3 rounded-lg bg-muted/40">
                 <p className="text-sm text-muted-foreground">
-                  💡 Consejo: Las columnas N1–N10 resaltadas indican pendientes. Colores: 📝 Tarea (naranja), 📊 Evaluación (morado), 🧪 Prueba (rosa).
+                  💡 Consejo: Las columnas N1–N10 se asignan estrictamente por orden de creación (createdAt). Colores: 📝 Tarea (naranja), 📊 Evaluación (morado), 🧪 Prueba (índigo).
                 </p>
               </div>
             </CardContent>
