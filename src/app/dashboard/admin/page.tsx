@@ -59,6 +59,7 @@ export default function AdminPage() {
   const router = useRouter();
   const { toast } = useToast();
   const dateLocale: Locale = language === 'es' ? esLocale : enGB;
+  const isTeacher = user?.role === 'teacher';
   
   // Sistema de sincronización de notificaciones
   const {
@@ -81,9 +82,9 @@ export default function AdminPage() {
   const [migrationStatus, setMigrationStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
   const [migrationDetails, setMigrationDetails] = useState<string[]>([]);
 
-  // Redirect if not admin
+  // Redirect if neither admin nor teacher
   useEffect(() => {
-    if (user && !isAdmin()) {
+    if (user && !(isAdmin() || isTeacher)) {
       router.push('/dashboard');
       toast({
         title: translate('userManagementAccessDenied') || 'Acceso denegado',
@@ -91,10 +92,10 @@ export default function AdminPage() {
         variant: 'destructive'
       });
     }
-  }, [user, isAdmin, router, toast, translate]);
+  }, [user, isAdmin, isTeacher, router, toast, translate]);
 
-  // Don't render if not admin
-  if (user && !isAdmin()) {
+  // Don't render if neither admin nor teacher
+  if (user && !(isAdmin() || isTeacher)) {
     return null;
   }
 
@@ -434,6 +435,48 @@ export default function AdminPage() {
 
       {/* Sistema de Estadísticas */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Tarjeta específica para profesores */}
+        {user?.role === 'teacher' && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center">
+                <GraduationCap className="w-4 h-4 mr-2" />
+                Mis Asignaciones
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+                const myAssignments = teacherAssignments.filter((a: any) => 
+                  a.teacherId === user.id || a.teacherUsername === user.username
+                );
+                const uniqueSubjects = new Set(myAssignments.flatMap((a: any) => 
+                  Array.isArray(a.subjects) ? a.subjects : [a.subjectName]
+                ).filter(Boolean));
+                const uniqueSections = new Set(myAssignments.map((a: any) => a.sectionId).filter(Boolean));
+                
+                return (
+                  <>
+                    <div className="text-2xl font-bold">{uniqueSubjects.size}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Asignaturas asignadas
+                    </div>
+                    <div className="flex items-center mt-2">
+                      <Badge variant="default">
+                        {uniqueSections.size} secciones
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {Array.from(uniqueSubjects).slice(0, 2).join(', ')}
+                      {uniqueSubjects.size > 2 && '...'}
+                    </div>
+                  </>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center">
@@ -458,19 +501,51 @@ export default function AdminPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center">
               <BookOpen className="w-4 h-4 mr-2" />
-              Tareas
+              {user?.role === 'teacher' ? 'Mis Tareas' : 'Tareas'}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalTasks}</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              {stats.regularTasks} tareas, {stats.evaluations} evaluaciones
-            </div>
-            <div className="flex items-center mt-2">
-              <Badge variant={stats.tasksWithCodes === stats.totalTasks ? "default" : "secondary"}>
-                {stats.tasksWithCodes}/{stats.totalTasks} con códigos únicos
-              </Badge>
-            </div>
+            {user?.role === 'teacher' ? (
+              (() => {
+                const tasks = JSON.parse(localStorage.getItem('smart-student-tasks') || '[]');
+                const evaluations = JSON.parse(localStorage.getItem('smart-student-evaluations') || '[]');
+                const myTasks = tasks.filter((t: any) => 
+                  t.assignedById === user.id || t.assignedByName === user.username
+                );
+                const myEvaluations = evaluations.filter((e: any) => 
+                  e.assignedById === user.id || e.teacherId === user.id || e.teacherName === user.username
+                );
+                const totalMyItems = myTasks.length + myEvaluations.length;
+                const pendingTasks = myTasks.filter((t: any) => t.status === 'pending').length;
+                const pendingEvaluations = myEvaluations.filter((e: any) => !e.closed).length;
+                
+                return (
+                  <>
+                    <div className="text-2xl font-bold">{totalMyItems}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {myTasks.length} tareas, {myEvaluations.length} evaluaciones
+                    </div>
+                    <div className="flex items-center mt-2">
+                      <Badge variant={(pendingTasks + pendingEvaluations) > 0 ? "default" : "secondary"}>
+                        {pendingTasks + pendingEvaluations} pendientes
+                      </Badge>
+                    </div>
+                  </>
+                );
+              })()
+            ) : (
+              <>
+                <div className="text-2xl font-bold">{stats.totalTasks}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {stats.regularTasks} tareas, {stats.evaluations} evaluaciones
+                </div>
+                <div className="flex items-center mt-2">
+                  <Badge variant={stats.tasksWithCodes === stats.totalTasks ? "default" : "secondary"}>
+                    {stats.tasksWithCodes}/{stats.totalTasks} con códigos únicos
+                  </Badge>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -478,24 +553,54 @@ export default function AdminPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center">
               <RefreshCw className="w-4 h-4 mr-2" />
-              Sincronización
+              {user?.role === 'teacher' ? 'Mis Estudiantes' : 'Sincronización'}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-center">
-              {Math.round(healthScore)}%
-            </div>
-            <div className="text-xs text-muted-foreground mt-1 text-center">
-              Salud del sistema
-            </div>
-            <div className="flex items-center justify-center mt-2">
-              <Badge variant={syncEnabled ? "default" : "secondary"}>
-                {syncEnabled ? "Activo" : "Inactivo"}
-              </Badge>
-            </div>
-            <div className="text-xs text-muted-foreground mt-1 text-center">
-              {syncStats.ghostsRemoved} fantasmas eliminados
-            </div>
+            {user?.role === 'teacher' ? (
+              (() => {
+                const studentAssignments = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
+                const teacherAssignments = JSON.parse(localStorage.getItem('smart-student-teacher-assignments') || '[]');
+                const mySections = teacherAssignments
+                  .filter((a: any) => a.teacherId === user.id || a.teacherUsername === user.username)
+                  .map((a: any) => a.sectionId);
+                const myStudents = studentAssignments.filter((a: any) => 
+                  mySections.includes(a.sectionId)
+                );
+                const uniqueStudents = new Set(myStudents.map((a: any) => a.studentId || a.studentUsername));
+                
+                return (
+                  <>
+                    <div className="text-2xl font-bold">{uniqueStudents.size}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Estudiantes asignados
+                    </div>
+                    <div className="flex items-center mt-2">
+                      <Badge variant="default">
+                        {mySections.length} secciones
+                      </Badge>
+                    </div>
+                  </>
+                );
+              })()
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-center">
+                  {Math.round(healthScore)}%
+                </div>
+                <div className="text-xs text-muted-foreground mt-1 text-center">
+                  Salud del sistema
+                </div>
+                <div className="flex items-center justify-center mt-2">
+                  <Badge variant={syncEnabled ? "default" : "secondary"}>
+                    {syncEnabled ? "Activo" : "Inactivo"}
+                  </Badge>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1 text-center">
+                  {syncStats.ghostsRemoved} fantasmas eliminados
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

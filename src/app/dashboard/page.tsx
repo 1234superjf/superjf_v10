@@ -221,6 +221,16 @@ const adminCards = [
   colorClass: 'indigo',
     showBadge: false,
   },
+  // Nueva tarjeta Estadísticas (admin) - ahora después de Calificaciones
+  {
+    titleKey: 'cardStatisticsTitle',
+    descKey: 'cardStatisticsDesc',
+    btnKey: 'cardStatisticsBtn',
+    targetPage: '/dashboard/estadisticas',
+    icon: TrendingUp,
+    colorClass: 'rose',
+    showBadge: false,
+  },
 ];
 
 // Tarjetas específicas para profesores

@@ -458,7 +458,31 @@ export default function GradesPage() {
   // Función para cargar tareas pendientes de calificación
   const loadPendingTasks = () => {
     try {
-      const tasks: Task[] = loadJson<Task[]>('smart-student-tasks', []);
+      const rawTasks: any[] = loadJson<any[]>('smart-student-tasks', []);
+      const tasks: Task[] = Array.isArray(rawTasks) ? rawTasks.map((t: any) => {
+        const id = String(t.id ?? t.taskId ?? t.uid ?? Math.random().toString(36).slice(2));
+        const statusRaw = String(t.status || '').toLowerCase();
+        const status = statusRaw || 'pending';
+        const assignedTo = (t.assignedTo === 'student') ? 'student' : 'course';
+        return {
+          id,
+          title: String(t.title || t.name || 'Tarea'),
+          description: String(t.description || ''),
+          subject: String(t.subject || t.subjectName || t.subjectId || 'General'),
+          course: String(t.course || t.courseName || t.courseId || ''),
+          courseId: t.courseId ?? null,
+          assignedById: String(t.assignedById || t.teacherId || t.ownerId || ''),
+          assignedByName: String(t.assignedByName || t.teacherName || t.ownerUsername || ''),
+          assignedTo,
+          assignedStudentIds: Array.isArray(t.assignedStudentIds) ? t.assignedStudentIds.map(String) : undefined,
+          sectionId: t.sectionId ?? t.courseSectionId ?? null,
+          dueDate: String(t.dueDate || t.closeAt || new Date().toISOString()),
+          createdAt: String(t.createdAt || t.openAt || new Date().toISOString()),
+          status,
+          priority: String(t.priority || 'medium'),
+          taskType: String(t.taskType || 'tarea'),
+        } as Task;
+      }) : [];
       // Incluir evaluaciones como tareas pendientes también
       const evalsRaw: any[] = loadJson<any[]>('smart-student-evaluations', []);
       const evaluations: Task[] = Array.isArray(evalsRaw) ? evalsRaw.map((e: any) => ({
@@ -517,6 +541,58 @@ export default function GradesPage() {
         topic: String(t.topic || t.title || ''),
       })) : [];
       const existingGrades = loadJson<TestGrade[]>('smart-student-test-grades', []);
+      const sectionsLS: any[] = loadJson<any[]>('smart-student-sections', []);
+      const assignsLS: any[] = loadJson<any[]>('smart-student-student-assignments', []);
+      const coursesLS: any[] = loadJson<any[]>('smart-student-courses', []);
+      const deriveSectionId = (task: any): string | null => {
+        if (task.sectionId) return String(task.sectionId);
+        // estudiante específico
+        if (task.assignedTo === 'student' && Array.isArray(task.assignedStudentIds)) {
+          for (const sidRaw of task.assignedStudentIds) {
+            const sid = String(sidRaw);
+            const asg = assignsLS.find((a: any) => String(a.studentId) === sid || String(a.studentUsername) === sid);
+            if (asg?.sectionId) return String(asg.sectionId);
+          }
+        }
+        // título con letra y courseId
+        if (task.title && task.courseId) {
+          const m = String(task.title).match(/\s-\s([A-ZÑ])$/) || String(task.title).match(/\(([A-ZÑ])\)$/);
+          const letter = m?.[1];
+          if (letter) {
+            const sec = sectionsLS.find((s: any) => String(s.courseId) === String(task.courseId) && String(s.name).toUpperCase() === letter);
+            if (sec) return String(sec.id);
+          }
+        }
+        // task.course heurístico
+        if (task.course) {
+          const courseVal = String(task.course).trim();
+            const directSec = sectionsLS.find((s: any) => String(s.id) === courseVal);
+            if (directSec) return String(directSec.id);
+            for (const s of sectionsLS) {
+              const c = coursesLS.find((cc: any) => String(cc.id) === String(s.courseId));
+              const label = `${c?.name || ''} ${s.name}`.trim();
+              if (label && label.toLowerCase() === courseVal.toLowerCase()) return String(s.id);
+            }
+          const courseObj = coursesLS.find((c: any) => String(c.id) === courseVal);
+          if (courseObj && task.title) {
+            const m = String(task.title).match(/\s-\s([A-ZÑ])$/) || String(task.title).match(/\(([A-ZÑ])\)$/);
+            const letter = m?.[1];
+            if (letter) {
+              const sec = sectionsLS.find((s: any) => String(s.courseId) === String(courseObj.id) && String(s.name).toUpperCase() === letter);
+              if (sec) return String(sec.id);
+            }
+          }
+        }
+        // única sección del curso
+        try {
+          const courseId = task.courseId || null;
+          if (courseId) {
+            const allCourseSections = sectionsLS.filter((s: any) => String(s.courseId) === String(courseId));
+            if (allCourseSections.length === 1) return String(allCourseSections[0].id);
+          }
+        } catch {}
+        return null;
+      };
       
       // Filtrar tareas que están esperando calificación
   const pending: PendingTask[] = [];
@@ -525,18 +601,37 @@ export default function GradesPage() {
       allItems.forEach((task) => {
         // Considerar tareas en cualquier estado que no sea 'finished' 
         // (pending = recién creada, submitted = entregada, reviewed = revisada, delivered = entregada)
-        if (['pending', 'submitted', 'reviewed', 'delivered'].includes(task.status)) {
+  if (['pending', 'submitted', 'reviewed', 'delivered', 'active'].includes(task.status)) {
           // Verificar si la tarea ya tiene calificaciones completas
           const taskGrades = existingGrades.filter(grade => grade.testId === task.id);
+          // Derivar sección (solo se usa para conteo esperado)
+          let secId = (task as any).sectionId || deriveSectionId(task);
+          if (secId) secId = String(secId);
           
           let needsGrading = false;
           
           if (task.assignedTo === 'course') {
-            // Para todo el curso, si no hay calificaciones, está pendiente
-            needsGrading = taskGrades.length === 0;
+            if (task.taskType === 'prueba') {
+              // Prueba: si no hay registros aún → pendiente
+              needsGrading = taskGrades.length === 0 || taskGrades.some(g => !Number.isFinite(g.score));
+            } else {
+              // Tarea / Evaluación: pendiente hasta que TODOS los estudiantes de la sección tengan nota
+              let expectedCount = 0;
+              if (secId) {
+                const secStudents = assignsLS.filter(a => String(a.sectionId) === secId).map(a => String(a.studentId));
+                expectedCount = new Set(secStudents).size; // únicos
+              }
+              const gradedCount = taskGrades.filter(g => Number.isFinite(g.score)).length;
+              if (expectedCount > 0) {
+                needsGrading = gradedCount < expectedCount; // faltan notas
+              } else {
+                // Sin expectedCount confiable: pendiente si no hay notas o hay registros sin score
+                needsGrading = taskGrades.length === 0 || taskGrades.some(g => !Number.isFinite(g.score));
+              }
+            }
           } else if (task.assignedTo === 'student' && task.assignedStudentIds) {
-            // Para estudiantes específicos, verificar si faltan calificaciones
-            const gradedStudentIds = new Set(taskGrades.map(g => g.studentId));
+            // Estudiantes específicos: falta aunque exista registro sin score o faltan estudiantes
+            const gradedStudentIds = new Set(taskGrades.filter(g => Number.isFinite(g.score)).map(g => g.studentId));
             needsGrading = task.assignedStudentIds.some(studentId => !gradedStudentIds.has(studentId));
           }
           
@@ -553,7 +648,7 @@ export default function GradesPage() {
               subject: task.subject,
               course: task.course,
               courseId: task.courseId ?? null,
-              sectionId: (task as any).sectionId ?? null,
+              sectionId: secId ?? null,
               assignedTo: task.assignedTo,
               assignedStudentIds: task.assignedStudentIds,
               columnIndex: 0, // Se asignará después del ordenamiento
@@ -569,7 +664,9 @@ export default function GradesPage() {
         task.columnIndex = Math.min(index, 9); // N1=0, N2=1, ..., N10=9
       });
 
-      setPendingTasks(pending.slice(0, 10)); // Máximo 10 tareas pendientes
+  // Anteriormente se limitaba a 10 globales; esto ocultaba elementos de secciones específicas.
+  // Guardamos todos y el filtrado por sección/curso se hace después. Si se requiere límite por sección se aplicará en la capa de presentación.
+  setPendingTasks(pending);
       
       if (pending.length > 0) {
         console.log(`📋 [CALIFICACIONES] ${pending.length} tarea(s) pendiente(s) de calificación:`, pending.map(t => `${t.title} (${t.taskType})`));
@@ -885,34 +982,105 @@ export default function GradesPage() {
     return Math.round((sum / all.length) * 10) / 10;
   }, [filteredGrades]);
 
-  // Lista de "Pendientes" filtrada por los filtros superiores (sección, asignatura, semestre)
+  // Lista de "Pendientes" filtrada por todos los filtros (nivel, curso, sección, asignatura, estudiante, semestre)
   const filteredPendingCards = useMemo(() => {
     const list = [...pendingTasks];
-    const secs = new Set<string>([...visibleSectionIds]);
-    const onlyOneSection = secs.size === 1 ? Array.from(secs)[0] : null;
-    // Helpers de fecha
-    const parseYmdLocal = (ymd?: string) => {
-      if (!ymd) return undefined as unknown as Date | undefined;
-      const [y, m, d] = String(ymd).split('-').map(Number);
-      if (!y || !m || !d) return undefined as unknown as Date | undefined;
-      return new Date(y, (m || 1) - 1, d || 1);
-    };
-    const startEndFor = (cfg: any, which: '1' | '2') => {
-      const start = parseYmdLocal(which === '1' ? cfg?.first?.start : cfg?.second?.start);
-      const end = parseYmdLocal(which === '1' ? cfg?.first?.end : cfg?.second?.end);
-      return { start, end } as { start?: Date; end?: Date };
-    };
+    const secsVisible = new Set<string>([...visibleSectionIds]);
+    const parseYmdLocal = (ymd?: string) => { if(!ymd) return undefined as any; const [y,m,d]=String(ymd).split('-').map(Number); if(!y||!m||!d) return undefined as any; return new Date(y,m-1,d); };
+    const startEndFor = (cfg: any, which: '1' | '2') => { const start=parseYmdLocal(which==='1'?cfg?.first?.start:cfg?.second?.start); const end=parseYmdLocal(which==='1'?cfg?.first?.end:cfg?.second?.end); return {start,end}; };
     const sameDayFloor = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    return list.filter(task => {
-      // Sección visible
-      let sid = task.sectionId ? String(task.sectionId) : null;
-      if (!sid && onlyOneSection) sid = onlyOneSection; // asumir la única sección visible
-      if (!sid || !secs.has(sid)) return false;
-      // Asignatura
-      if (subjectFilter !== 'all') {
-        if (String(task.subject || '').toLowerCase() !== String(subjectFilter).toLowerCase()) return false;
+    const deriveSectionId = (task: any): string | null => {
+      if (task.sectionId) return String(task.sectionId);
+      if (task.assignedTo === 'student' && Array.isArray(task.assignedStudentIds) && task.assignedStudentIds.length > 0) {
+        const sid = String(task.assignedStudentIds[0]);
+        const asg = studentAssignments.find(a => String(a.studentId) === sid || String(a.studentUsername) === sid);
+        if (asg?.sectionId) return String(asg.sectionId);
       }
-      // Semestre
+      if (task.course) {
+        const sec = sections.find(s => String(s.id) === String(task.course));
+        if (sec) return String(sec.id);
+        const target = String(task.course).toLowerCase();
+        for (const s of sections) {
+          const c = courses.find(c => String(c.id) === String(s.courseId));
+          const label = `${c?.name || ''} ${s.name}`.trim().toLowerCase();
+          if (label && label === target) return String(s.id);
+        }
+      }
+      if (task.courseId && task.title) {
+        const courseObj = courses.find(c => String(c.id) === String(task.courseId));
+        if (courseObj) {
+          const dashMatch = String(task.title).match(/\s-\s([A-ZÑ])$/);
+          const parenMatch = String(task.title).match(/\(([A-ZÑ])\)$/);
+            const letter = dashMatch?.[1] || parenMatch?.[1];
+            if (letter) {
+              const sec = sections.find(s => String(s.courseId) === String(courseObj.id) && String(s.name).toUpperCase() === letter);
+              if (sec) return String(sec.id);
+            }
+        }
+      }
+      // 🔄 NUEVO: heurística final – si sigue sin sección y hay exactamente UNA sección del curso (visible o total), usarla
+      try {
+        const courseId = task.courseId || null;
+        if (courseId) {
+          const allCourseSections = sections.filter(s => String(s.courseId) === String(courseId));
+          const visibleCourseSections = allCourseSections.filter(s => visibleSectionIds.has(String(s.id)));
+          if (visibleCourseSections.length === 1) return String(visibleCourseSections[0].id);
+          if (!visibleCourseSections.length && allCourseSections.length === 1) return String(allCourseSections[0].id);
+        }
+      } catch {}
+      return null;
+    };
+    const selectedSectionId = cascadeSectionId ? String(cascadeSectionId) : (comboSectionId !== 'all' ? comboSectionId : null);
+    const selectedCourseId = cascadeCourseId ? String(cascadeCourseId) : (selectedSectionId ? String(sections.find(s => String(s.id) === selectedSectionId)?.courseId || '') : null);
+    return list.filter(task => {
+      let sid = deriveSectionId(task);
+      const courseId = task.courseId ? String(task.courseId) : null;
+      // 🔁 Fallback: si no se logró derivar sección pero el usuario seleccionó una sección
+      // y la tarea/evaluación corresponde al mismo curso (o es 'course' sin courseId), asignar esa sección.
+      if (!sid && selectedSectionId) {
+        const selSec = sections.find(s => String(s.id) === selectedSectionId);
+        const selCourseId = selSec ? String(selSec.courseId) : null;
+        if (selCourseId) {
+          const courseName = courses.find(c => String(c.id) === selCourseId)?.name?.toLowerCase() || '';
+          const taskCourseName = String(task.course || '').toLowerCase();
+          const matchesCourseId = courseId && selCourseId === String(courseId);
+          const matchesCourseName = !courseId && taskCourseName && courseName && taskCourseName.includes(courseName);
+          if (matchesCourseId || matchesCourseName || (task.assignedTo === 'course' && !courseId)) {
+            sid = selectedSectionId;
+          }
+        }
+      }
+      if (comboSectionId !== 'all' && sid && sid !== comboSectionId) return false;
+      if (cascadeSectionId && sid && sid !== cascadeSectionId) return false;
+      if (cascadeCourseId && courseId && courseId !== cascadeCourseId) return false;
+      if (selectedSectionId && !sid) {
+        if (courseId) {
+          const secObj = sections.find(s => String(s.id) === selectedSectionId);
+          if (secObj && String(secObj.courseId) !== String(courseId)) return false;
+        } else {
+          return false;
+        }
+      }
+      if (selectedCourseId && !courseId) {
+        if (sid) {
+          const secObj = sections.find(s => String(s.id) === sid);
+          if (secObj && String(secObj.courseId) !== selectedCourseId) return false;
+        } else {
+          return false;
+        }
+      }
+      if (levelFilter !== 'all' && sid) {
+        const secObj = sections.find(s => String(s.id) === sid);
+        const courseObj = secObj ? courses.find(c => String(c.id) === String(secObj.courseId)) : null;
+        if (courseObj && getCourseLevel(courseObj.name) !== levelFilter) return false;
+      }
+      if (sid && !secsVisible.has(sid)) return false;
+      if (!sid && selectedSectionId) return false;
+      if (subjectFilter !== 'all' && String(task.subject || '').toLowerCase() !== subjectFilter.toLowerCase()) return false;
+      if (studentFilter !== 'all' && task.assignedTo === 'student') {
+        const ids = (task.assignedStudentIds || []).map(String);
+        if (!ids.includes(String(studentFilter))) return false;
+      }
       if (semester !== 'all') {
         const ref = new Date(task.createdAt || Date.now());
         if (semestersCfg) {
@@ -927,8 +1095,8 @@ export default function GradesPage() {
         }
       }
       return true;
-    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }, [pendingTasks, visibleSectionIds, subjectFilter, semester, semestersCfg]);
+    }).sort((a,b)=> new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }, [pendingTasks, visibleSectionIds, subjectFilter, semester, semestersCfg, comboSectionId, cascadeCourseId, cascadeSectionId, levelFilter, studentFilter, sections, courses, studentAssignments]);
 
   // Estilos de badge para notas: 0-59 rojo, 60-100 verde
   const scoreBadgeClass = (score: number) => {
@@ -1046,17 +1214,68 @@ export default function GradesPage() {
         return { start, end } as { start?: Date; end?: Date };
       };
 
-      // Expandir por sección y filtrar por semestre
-      const coursesLS = JSON.parse(localStorage.getItem('smart-student-courses') || '[]');
+      // Derivar sección SIN expansión y respetar filtros activos
       const sectionsLS = JSON.parse(localStorage.getItem('smart-student-sections') || '[]');
       const assignsLS = JSON.parse(localStorage.getItem('smart-student-student-assignments') || '[]');
       const activeTasks: any[] = [];
+      const activeSectionFilter = (comboSectionId && comboSectionId !== 'all') ? comboSectionId : (cascadeSectionId ? String(cascadeSectionId) : null);
+      const deriveSectionId = (task: any): string | null => {
+        if (task.sectionId) return String(task.sectionId);
+        if (task.assignedTo === 'student' && Array.isArray(task.assignedStudentIds)) {
+          for (const sidRaw of task.assignedStudentIds) {
+            const sid = String(sidRaw);
+            const asg = assignsLS.find((a: any) => String(a.studentId) === sid || String(a.studentUsername) === sid);
+            if (asg?.sectionId) return String(asg.sectionId);
+          }
+        }
+        if (task.title && task.courseId) {
+          const m = String(task.title).match(/\s-\s([A-ZÑ])$/) || String(task.title).match(/\(([A-ZÑ])\)$/);
+          const letter = m?.[1];
+            if (letter) {
+              const sec = sectionsLS.find((s: any) => String(s.courseId) === String(task.courseId) && String(s.name).toUpperCase() === letter);
+              if (sec) return String(sec.id);
+            }
+        }
+        // 🔄 NUEVO: intentar resolver mediante task.course (puede ser id de sección, id de curso o etiqueta "Curso Sección")
+        if (task.course) {
+          const courseVal = String(task.course).trim();
+          // 1. Coincidencia directa como sectionId
+          const directSec = sectionsLS.find((s: any) => String(s.id) === courseVal);
+          if (directSec) return String(directSec.id);
+          // 2. Coincidencia como etiqueta compuesta
+            for (const s of sectionsLS) {
+              const c = courses.find((cc: any) => String(cc.id) === String(s.courseId));
+              const label = `${c?.name || ''} ${s.name}`.trim();
+              if (label && label.toLowerCase() === courseVal.toLowerCase()) return String(s.id);
+            }
+          // 3. Si courseVal es un courseId y podemos extraer letra desde título al final " - A" / "(A)"
+          const courseObj = courses.find((c: any) => String(c.id) === courseVal);
+          if (courseObj && task.title) {
+            const m = String(task.title).match(/\s-\s([A-ZÑ])$/) || String(task.title).match(/\(([A-ZÑ])\)$/);
+            const letter = m?.[1];
+            if (letter) {
+              const sec = sectionsLS.find((s: any) => String(s.courseId) === String(courseObj.id) && String(s.name).toUpperCase() === letter);
+              if (sec) return String(sec.id);
+            }
+          }
+        }
+        // 🔄 NUEVO: heurística final – si no se resolvió y existe exactamente UNA sección del curso (visible o total) usarla
+        try {
+          const courseId = task.courseId || (task.course && courses.find((c: any) => String(c.id) === String(task.course))?.id) || null;
+          if (courseId) {
+            const allCourseSections = sectionsLS.filter((s: any) => String(s.courseId) === String(courseId));
+            // si hay filtro activo de secciones visibles aplicarlo
+            const visibleCourseSections = allCourseSections.filter((s: any) => visibleSectionIds.has(String(s.id)));
+            if (visibleCourseSections.length === 1) return String(visibleCourseSections[0].id);
+            if (!visibleCourseSections.length && allCourseSections.length === 1) return String(allCourseSections[0].id);
+          }
+        } catch {}
+        return null;
+      };
       allTasks.forEach(task => {
-        // Estado permitido (excluir 'finished' únicamente)
         const st = String(task.status || '').toLowerCase();
         const allowed = new Set(['active', 'pending', 'submitted', 'reviewed', 'delivered']);
         if (!allowed.has(st)) return;
-        // Fecha (createdAt prioritario)
         const refRaw = task.createdAt || task.startAt || task.openAt || task.dueDate;
         const created = new Date(refRaw);
         if (semester !== 'all') {
@@ -1073,36 +1292,11 @@ export default function GradesPage() {
             }
           } catch {}
         }
-        // Determinar secciones objetivo
-        const pushFor = (secId: string) => {
-          if (!visibleSectionIds.has(String(secId))) return;
-          activeTasks.push({ ...task, sectionId: String(secId) });
-        };
-        let secId = task.sectionId ? String(task.sectionId) : '';
-        if (!secId && task.assignedTo === 'student' && Array.isArray(task.assignedStudentIds) && task.assignedStudentIds.length > 0) {
-          try {
-            const sid = String(task.assignedStudentIds[0]);
-            const asg = assignsLS.find((a: any) => String(a.studentId) === sid || String(a.studentUsername) === sid);
-            if (asg?.sectionId) secId = String(asg.sectionId);
-          } catch {}
-        }
-        if (secId) {
-          pushFor(secId);
-          return;
-        }
-        // Si no hay sectionId: expandir por curso (courseId o nombre)
-        const courseId = task.courseId ? String(task.courseId) : (() => {
-          if (!task.course) return '';
-          // 1) Intentar por id exacto
-          const byId = coursesLS.find((c: any) => String(c.id) === String(task.course));
-          if (byId?.id) return String(byId.id);
-          // 2) Intentar por nombre
-          const byName = coursesLS.find((c: any) => String(c.name).toLowerCase() === String(task.course).toLowerCase());
-          return byName?.id ? String(byName.id) : '';
-        })();
-        if (courseId) {
-          sectionsLS.filter((s: any) => String(s.courseId) === courseId).forEach((s: any) => pushFor(String(s.id)));
-        }
+        const secId = deriveSectionId(task);
+        if (!secId) return; // sin sección real -> no se usa
+        if (activeSectionFilter && secId !== activeSectionFilter) return; // fuera del filtro
+        if (!visibleSectionIds.has(String(secId))) return;
+        activeTasks.push({ ...task, sectionId: String(secId) });
       });
       
       // Agrupar por asignatura + sección
@@ -1111,10 +1305,7 @@ export default function GradesPage() {
         const secId = String(task.sectionId);
         const key = `${subject}__${secId}`;
         if (!tasksByKey.has(key)) tasksByKey.set(key, []);
-        
-        // Relajar filtro: ocultar solo si ya hay calificaciones explícitas en esa sección
-        const hasGradesInSection = grades.some((g: any) => String(g.testId) === String(task.id) && String(g.sectionId || '') === String(secId));
-        if (!hasGradesInSection) tasksByKey.get(key)!.push(task);
+        tasksByKey.get(key)!.push(task); // mantener todo para cálculo de N
       });
       
       // Ordenar por createdAt ascendente por cada clave
@@ -1569,16 +1760,21 @@ export default function GradesPage() {
           </Card>
         )}
 
-        {/* Panel de tareas pendientes de calificación */}
-  {filteredPendingCards.length > 0 && (
+    {/* Panel de tareas pendientes de calificación: oculto hasta que se seleccione un curso-sección */}
+  {(((comboSectionId && comboSectionId !== 'all') || cascadeSectionId)) && (
           <Card className="mt-4">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <span className="animate-pulse">🔔</span>
-    Pendientes de Calificación ({filteredPendingCards.length})
+                {tr('pendingGradingPanelTitle', 'Pendientes de Calificación')} ({filteredPendingCards.length})
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {filteredPendingCards.length === 0 ? (
+                <div className="text-sm text-muted-foreground italic py-2">
+                  No hay tareas, evaluaciones ni pruebas pendientes para la sección seleccionada.
+                </div>
+              ) : (
               <div className="space-y-3">
                 {filteredPendingCards.map((task) => {
                   // Datos auxiliares para etiquetas y N dinámico
@@ -1668,6 +1864,27 @@ export default function GradesPage() {
                         if (courseObj) courseSectionLabel = String(courseObj.name || '');
                       }
                     }
+                    // Mejora: si aún no tenemos sección (ej. muestra solo "4to Básico") intentar extraer la letra desde el título: " - B" o " (B)"
+                    if (courseSectionLabel && courseSectionLabel.split(/\s+/).length <= 2 && !/[A-Z]$/.test(courseSectionLabel) ) {
+                      const sectionFromTitle = (() => {
+                        const t = String(task.title || '');
+                        const dashMatch = t.match(/\s-\s([A-ZÑ])$/); // " - B"
+                        if (dashMatch) return dashMatch[1];
+                        const parenMatch = t.match(/\(([A-ZÑ])\)$/); // "(B)"
+                        if (parenMatch) return parenMatch[1];
+                        return null;
+                      })();
+                      if (sectionFromTitle) {
+                        // Verificar que exista una sección con esa letra para el curso inferido
+                        const courseObj = crs.find(c => courseSectionLabel.toLowerCase().includes(String(c.name||'').toLowerCase()));
+                        if (courseObj) {
+                          const sec = secs.find(s => String(s.courseId) === String(courseObj.id) && String(s.name).toUpperCase() === sectionFromTitle);
+                          if (sec) {
+                            courseSectionLabel = `${courseObj.name} ${sec.name}`.trim();
+                          }
+                        }
+                      }
+                    }
                     // Fallback: usar task.course solo si no parece un UUID/código
                     if (!courseSectionLabel) {
                       const maybe = String(task.course || '');
@@ -1704,6 +1921,7 @@ export default function GradesPage() {
                   );
                 })}
               </div>
+              )}
               <div className="mt-4 p-3 rounded-lg bg-muted/40">
                 <p className="text-sm text-muted-foreground">
                   💡 Consejo: Las columnas N1–N10 se asignan estrictamente por orden de creación (createdAt). Colores: 📝 Tarea (naranja), 📊 Evaluación (morado), 🧪 Prueba (índigo).
